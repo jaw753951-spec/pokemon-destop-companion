@@ -8,7 +8,7 @@
   "scripts": {
     "start": "electron .",
     "assets": "node tools/assets.mjs",
-    "assets:verify": "node tools/assets.mjs --verify-only",
+    "assets:verify": "node tools/assets.mjs --only verify",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"test/**/*.test.mjs\"",
     "dist": "electron-builder --publish never"

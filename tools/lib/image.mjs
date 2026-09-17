@@ -97,6 +97,20 @@ export function makeSeamless(band) {
 }
 
 /**
+ * Repeat a seamless strip until it is at least `minWidth` wide, so the field
+ * scene can always scroll a full view width past the wrap point.
+ *
+ * @param {Raster} strip
+ * @param {number} minWidth
+ * @returns {Raster}
+ */
+export function repeatToWidth(strip, minWidth) {
+  if (strip.width >= minWidth) return strip;
+  const copies = Math.ceil(minWidth / strip.width);
+  return concatX(new Array(copies).fill(strip));
+}
+
+/**
  * Colour grades applied to an area background to suggest the time of day.
  * Values are `[multiply r,g,b, add r,g,b]` in 0..1 / -255..255.
  * @type {Record<string, {multiply: [number, number, number], add: [number, number, number]}>}

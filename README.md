@@ -56,6 +56,24 @@ data/
 test/     단위 테스트
 ```
 
+## 파이프라인 단계
+
+`npm run assets` 는 아래 단계를 순서대로 실행합니다. `--only <step>` 으로 하나만,
+`--sample` 로 40종만 돌려 빠르게 확인할 수 있습니다.
+
+| 단계 | 하는 일 | 산출물 |
+| --- | --- | --- |
+| `dex` | 종족값·기술·아이템·타입 상성·기술머신 (한국어 명칭/설명 포함) | `data/generated/{species,moves,items,machines,types}.json` |
+| `sprites` | 포켓몬 1025종의 애니 스프라이트 스트립·박스 아이콘·울음소리 | `assets/pokemon/`, `assets/cries/`, `sprites.json` |
+| `items` | 아이템 아이콘, 볼 등급별 희귀도 티어 | `assets/items/`, `item-tiers.json`, `docs/item-rarity.md` |
+| `actors` | 트레이너 정면/필드 도트, 나무열매 나무, 아이템 볼 | `assets/trainers/`, `assets/props/`, `actors.json` |
+| `areas` | 공식 맵 30곳을 시간대 5종의 심리스 스크롤 배경으로 렌더 | `assets/areas/`, `areas.json` |
+| `audio` | 에리어·전투·연출 BGM 36곡을 노트 이벤트 JSON으로 변환 | `assets/bgm/`, `bgm.json` |
+| `verify` | 매니페스트와 실제 파일이 맞는지 교차 검증 | — |
+
+전체 산출물은 약 64MB (스프라이트 36MB · 울음소리 17MB · 배경 5MB · 아이템 4.5MB ·
+BGM 1.6MB · 트레이너 0.8MB) + 데이터 3.2MB 입니다.
+
 ## 파이프라인 라이브러리
 
 `tools/lib/` 의 모듈은 외부 네이티브 의존성 없이 필요한 포맷만 직접 다룹니다.
@@ -66,3 +84,11 @@ test/     단위 테스트
 - `midi.mjs` — SMF 파서 → 절대시간 노트 이벤트
 - `image.mjs` — 크롭 · 미러 · 심리스 스트립 · 시간대 컬러 그레이딩 · 프레임 리샘플
 - `http.mjs` — 디스크 캐시 · 재시도 · 동시성 제한 다운로더
+- `poke.mjs` — PokeAPI 레코드에서 한국어 명칭/최신 설명을 뽑는 헬퍼
+
+## 에리어
+
+수록 에리어는 전부 3세대 호연 지방의 실제 맵입니다. 한 지방으로 통일한 이유는 화풍이
+일관되기도 하지만, PokeAPI가 **호연 지역명의 한국어 정식 명칭을 가지고 있기 때문**입니다
+(관동 지역명에는 한국어가 없습니다). 각 맵에서 통행 가능한 블록이 가장 많은 가로 띠를 골라
+잘라낸 뒤, 좌우 반전본을 이어붙여 이음매 없이 순환하는 스크롤 배경으로 만듭니다.
