@@ -1,0 +1,468 @@
+/*
+ * The companion's look: a Gen-3 handheld interface scaled up.
+ *
+ * Every screen lives inside a fixed 480x270 stage which is scaled to the
+ * window, so layout can be written in source pixels and pixel art never lands
+ * on a fractional boundary.
+ */
+
+:root {
+  --ink: #2f3542;
+  --ink-soft: #6b7280;
+  --paper: #f8f8f0;
+  --paper-dim: #e4e4d8;
+  --frame: #384a63;
+  --frame-light: #7d97bd;
+  --accent: #d8443c;
+  --accent-dark: #a32f2a;
+  --shadow: rgba(24, 28, 38, 0.45);
+
+  --type-normal: #9099a1; --type-fire: #ff9d55; --type-water: #4d90d5;
+  --type-electric: #f3d23b; --type-grass: #63bb5b; --type-ice: #74cec0;
+  --type-fighting: #ce4069; --type-poison: #ab6ac8; --type-ground: #d97845;
+  --type-flying: #8fa8dd; --type-psychic: #f97176; --type-bug: #90c12c;
+  --type-rock: #c7b78b; --type-ghost: #5269ac; --type-dragon: #0b6dc3;
+  --type-dark: #5a5465; --type-steel: #5a8ea1; --type-fairy: #ec8fe6;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html,
+body {
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  font-family: 'Malgun Gothic', 'Apple SD Gothic Neo', 'Noto Sans KR', system-ui, sans-serif;
+  color: var(--ink);
+  user-select: none;
+  cursor: default;
+}
+
+img,
+canvas {
+  image-rendering: pixelated;
+}
+
+/* `.btn` and friends set their own display, which would otherwise win. */
+[hidden] {
+  display: none !important;
+}
+
+/* ---------------------------------------------------------------- drag strip */
+
+#dragbar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 16px;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 6px;
+  font-size: 9px;
+  letter-spacing: 0.06em;
+  color: var(--paper);
+  background: linear-gradient(180deg, rgba(20, 26, 38, 0.82), rgba(20, 26, 38, 0));
+  opacity: 0;
+  transition: opacity 120ms ease-out;
+  -webkit-app-region: drag;
+}
+
+#dragbar:hover {
+  opacity: 1;
+}
+
+#dragbar-title {
+  flex: 1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+#minimize {
+  -webkit-app-region: no-drag;
+  width: 16px;
+  height: 12px;
+  border: 0;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.18);
+  color: var(--paper);
+  font: inherit;
+  line-height: 1;
+  cursor: pointer;
+}
+
+#minimize:hover {
+  background: rgba(255, 255, 255, 0.34);
+}
+
+/* -------------------------------------------------------------------- stage */
+
+#stage {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 480px;
+  height: 270px;
+  transform-origin: top left;
+  overflow: hidden;
+  border-radius: 6px;
+  background: #101520;
+  box-shadow: 0 2px 10px var(--shadow);
+}
+
+#scene {
+  position: absolute;
+  inset: 0;
+  width: 480px;
+  height: 270px;
+}
+
+#overlay {
+  position: absolute;
+  inset: 0;
+}
+
+/* A screen fills the stage; only one is mounted at a time. */
+.screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ------------------------------------------------------------------ controls */
+
+.btn {
+  -webkit-app-region: no-drag;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 22px;
+  padding: 3px 12px;
+  border: 2px solid var(--frame);
+  border-radius: 11px;
+  background: linear-gradient(180deg, var(--paper) 0%, var(--paper-dim) 100%);
+  box-shadow: inset 0 -2px 0 rgba(0, 0, 0, 0.12);
+  color: var(--ink);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: none;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.btn.primary {
+  background: linear-gradient(180deg, #ff6b62 0%, var(--accent) 100%);
+  border-color: var(--accent-dark);
+  color: #fff;
+}
+
+.btn.small {
+  min-height: 16px;
+  padding: 1px 8px;
+  border-width: 1px;
+  border-radius: 8px;
+  font-size: 10px;
+}
+
+.btn.ghost {
+  background: rgba(248, 248, 240, 0.86);
+}
+
+/* The Gen-3 dialogue frame, reused for every panel. */
+.panel {
+  border: 2px solid var(--frame);
+  border-radius: 6px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7), 0 2px 0 rgba(0, 0, 0, 0.18);
+}
+
+.scroll {
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--frame-light) transparent;
+}
+
+.scroll::-webkit-scrollbar {
+  width: 5px;
+}
+
+.scroll::-webkit-scrollbar-thumb {
+  border-radius: 3px;
+  background: var(--frame-light);
+}
+
+/* ------------------------------------------------------------------- title */
+
+#title-screen {
+  justify-content: center;
+  align-items: center;
+  gap: 10px;
+}
+
+#title-screen .backdrop {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  filter: saturate(0.9);
+}
+
+#title-screen .backdrop::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(16, 21, 32, 0.15), rgba(16, 21, 32, 0.72));
+}
+
+#title-screen .logo {
+  position: relative;
+  padding: 0 14px;
+  font-size: 21px;
+  font-weight: 800;
+  letter-spacing: 0.04em;
+  color: #fff;
+  text-align: center;
+  text-shadow: 0 2px 0 var(--frame), 0 0 12px rgba(0, 0, 0, 0.6);
+}
+
+#title-screen .menu {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 168px;
+}
+
+/* -------------------------------------------------------------------- slots */
+
+.slot-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px;
+}
+
+.slot {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  border: 2px solid var(--frame);
+  border-radius: 6px;
+  background: var(--paper);
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+
+.slot:hover {
+  border-color: var(--accent);
+}
+
+.slot.empty {
+  color: var(--ink-soft);
+  border-style: dashed;
+}
+
+.slot img {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+}
+
+.slot .lines {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.slot .headline {
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.slot .meta {
+  font-size: 10px;
+  color: var(--ink-soft);
+}
+
+.slot .erase {
+  -webkit-app-region: no-drag;
+  padding: 1px 6px;
+  border: 1px solid var(--frame-light);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink-soft);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.slot .erase:hover {
+  border-color: var(--accent);
+  color: var(--accent-dark);
+}
+
+/* ------------------------------------------------------------------- header */
+
+.screen-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 8px;
+  background: var(--frame);
+  color: var(--paper);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.screen-header .spacer {
+  flex: 1;
+}
+
+.screen-body {
+  flex: 1;
+  min-height: 0;
+  background: var(--paper);
+}
+
+/* ----------------------------------------------------------------- settings */
+
+.settings-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px 12px;
+}
+
+.setting {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+}
+
+.setting > .label {
+  width: 68px;
+  flex: none;
+  color: var(--ink-soft);
+}
+
+.setting .options {
+  display: flex;
+  gap: 4px;
+}
+
+.setting input[type='range'] {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  accent-color: var(--accent);
+}
+
+.setting .value {
+  width: 34px;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+.chip {
+  -webkit-app-region: no-drag;
+  padding: 2px 8px;
+  border: 1px solid var(--frame-light);
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 10px;
+  cursor: pointer;
+}
+
+.chip[aria-pressed='true'] {
+  border-color: var(--accent-dark);
+  background: var(--accent);
+  color: #fff;
+}
+
+/* ------------------------------------------------------------------ dialogs */
+
+.modal {
+  position: absolute;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(16, 21, 32, 0.55);
+}
+
+.modal .panel {
+  width: 240px;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 11px;
+  text-align: center;
+}
+
+.modal .actions {
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+}
+
+/* -------------------------------------------------------------------- toast */
+
+#toast {
+  position: absolute;
+  left: 50%;
+  bottom: 10px;
+  z-index: 30;
+  transform: translateX(-50%);
+  max-width: 300px;
+  padding: 4px 10px;
+  border-radius: 10px;
+  background: rgba(16, 21, 32, 0.86);
+  color: var(--paper);
+  font-size: 10px;
+  text-align: center;
+  white-space: pre-line;
+}
+
+/* ------------------------------------------------------------------ loading */
+
+#boot {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--paper);
+  font-size: 11px;
+  text-align: center;
+  white-space: pre-line;
+}

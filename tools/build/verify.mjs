@@ -22,12 +22,13 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
 
   const read = async (name) => JSON.parse(await readFile(join(dataDir, name), 'utf8'));
 
-  const [species, moves, items, machines, types, areas, sprites, actors, bgm, tiers] = await Promise.all(
+  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers] = await Promise.all(
     [
       'species.json',
       'moves.json',
       'items.json',
       'machines.json',
+      'natures.json',
       'types.json',
       'areas.json',
       'sprites.json',
@@ -42,6 +43,7 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
   note(Object.keys(items).length > 1000, `items: only ${Object.keys(items).length}`);
   note(Object.keys(machines).length > 100, `machines: only ${Object.keys(machines).length}`);
+  note(Object.keys(natures).length === 25, `natures: ${Object.keys(natures).length} of 25`);
   note(areas.length > 0, 'areas: none built');
 
   // Every species must be playable: a front sprite, an icon and a learnset.

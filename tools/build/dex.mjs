@@ -28,15 +28,17 @@ export async function buildDex({ dataDir, sample, log, pool }) {
   const moves = await buildMoves(pool, log);
   const items = await buildItems(pool, log);
   const machines = await buildMachines(pool, log);
+  const natures = await buildNatures(pool, log);
   const species = await buildSpecies(pool, log, limit);
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
+  await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
   await writeOut(join(dataDir, 'types.json'), JSON.stringify(types));
   await writeOut(join(dataDir, 'moves.json'), JSON.stringify(moves));
   await writeOut(join(dataDir, 'items.json'), JSON.stringify(items));
   await writeOut(join(dataDir, 'species.json'), JSON.stringify(species));
 
-  return { types, moves, items, machines, species };
+  return { types, moves, items, machines, natures, species };
 }
 
 /** The 18 battle types with their Korean names and full damage relations. */
@@ -198,6 +200,32 @@ async function buildMachines(pool, log) {
   const out = {};
   for (const [item, value] of best) out[item] = value.move;
   log(`machines ${Object.keys(out).length}`);
+  return out;
+}
+
+/**
+ * The 25 natures, with the stat each one raises and lowers.
+ * @returns {Promise<Record<string, any>>}
+ */
+async function buildNatures(pool, log) {
+  const index = await fetchJson(`${POKEAPI}/nature/index.json`);
+  /** @type {Record<string, any>} */
+  const out = {};
+
+  await Promise.all(
+    index.results.map((entry) =>
+      pool(async () => {
+        const nature = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`);
+        out[nature.name] = {
+          name: nameBundle(nature.names, nature.name),
+          increased: nature.increased_stat ? STAT_KEYS[nature.increased_stat.name] ?? null : null,
+          decreased: nature.decreased_stat ? STAT_KEYS[nature.decreased_stat.name] ?? null : null,
+        };
+      }),
+    ),
+  );
+
+  log(`natures ${Object.keys(out).length}`);
   return out;
 }
 

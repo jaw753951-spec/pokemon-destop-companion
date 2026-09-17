@@ -23,8 +23,15 @@ npm start            # 앱 실행
 ```bash
 npm run typecheck    # tsc --checkJs --noEmit
 npm test             # node:test 단위 테스트
+npm run shot         # 헤드리스로 각 화면 스크린샷 (shots/)
 npm run dist         # electron-builder 패키징
 ```
+
+## 창
+
+화면 면적의 약 1/16(가로·세로 각 1/4)을 차지하는 프레임 없는 항상 위 표시 창입니다.
+렌더러는 항상 480×270으로 그린 뒤 창 크기에 맞춰 정수배로 확대하므로 도트가 뭉개지지
+않습니다. 창 상단에 마우스를 올리면 드래그 바가 나타나고, 위치는 자동으로 기억됩니다.
 
 ## 에셋
 

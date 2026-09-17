@@ -11,6 +11,7 @@
     "assets:verify": "node tools/assets.mjs --only verify",
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"test/**/*.test.mjs\"",
+    "shot": "xvfb-run -a electron --no-sandbox tools/screenshot.mjs",
     "dist": "electron-builder --publish never"
   },
   "devDependencies": {
