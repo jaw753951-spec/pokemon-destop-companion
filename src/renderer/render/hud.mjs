@@ -4,7 +4,7 @@
  */
 import { url } from '../core/bridge.mjs';
 import { speciesOf } from '../core/data.mjs';
-import { button, el } from '../core/dom.mjs';
+import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
 
@@ -14,6 +14,7 @@ import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
  *   onPokedex: () => void,
  *   onSettings: () => void,
  *   onLeague: () => void,
+ *   onTraySelect: (index: number) => void,
  * }} handlers
  */
 export function createHud(handlers) {
@@ -86,12 +87,23 @@ export function createHud(handlers) {
   const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge, leagueButton]);
   for (const node of [status, tray, buttons, areaBadge, leagueButton]) node.style.pointerEvents = 'auto';
 
+  /** What the tray was last built from, so it is only rebuilt when it changes. */
+  let trayKey = '';
+
   return {
     root,
     tray,
 
     /** @param {import('../engine/session.mjs').Session} session */
     update(session) {
+      // Rebuilt from the session rather than on notification, so a Pokémon
+      // reaching the tray by any route shows up without a separate call.
+      const key = session.tray.map((pokemon) => `${pokemon.speciesId}:${pokemon.caughtAt}`).join(',');
+      if (key !== trayKey) {
+        trayKey = key;
+        this.updateTray(session.tray, handlers.onTraySelect);
+      }
+
       const pokemon = session.active;
       const species = speciesOf(pokemon.speciesId);
       const max = maxHp(pokemon);
@@ -112,15 +124,15 @@ export function createHud(handlers) {
 
     /**
      * The tray of defeated Pokémon waiting to be caught or let go.
-     * @param {Array<{pokemon: import('../engine/pokemon.mjs').Pokemon}>} entries
+     * @param {Array<import('../engine/pokemon.mjs').Pokemon>} entries
      * @param {(index: number) => void} onSelect
      */
     updateTray(entries, onSelect) {
-      tray.replaceChildren(
-        ...entries.map((entry, index) =>
+      setChildren(tray, [
+        ...entries.map((pokemon, index) =>
           el('button', {
             type: 'button',
-            title: localized(speciesOf(entry.pokemon.speciesId)?.name, ''),
+            title: localized(speciesOf(pokemon.speciesId)?.name, ''),
             style: {
               '-webkit-app-region': 'no-drag',
               width: '30px',
@@ -134,13 +146,13 @@ export function createHud(handlers) {
             onClick: () => onSelect(index),
           }, [
             el('img', {
-              src: url('assets', `pokemon/${entry.pokemon.speciesId}/icon.png`),
+              src: url('assets', `pokemon/${pokemon.speciesId}/icon.png`),
               alt: '',
               style: { width: '28px', height: '28px', objectFit: 'contain' },
             }),
           ]),
         ),
-      );
+      ]);
     },
   };
 }

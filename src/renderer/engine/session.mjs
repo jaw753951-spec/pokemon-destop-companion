@@ -5,10 +5,11 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
+import { EventScheduler } from './events.mjs';
 import { fullyHeal } from './pokemon.mjs';
 
 export class Session {
@@ -44,8 +45,14 @@ export class Session {
     this.area = this.findArea(save.progress?.areaId) ?? gameData().areas[0];
     this.areaTimer = this.rollAreaTimer();
     this.autosaveTimer = AUTOSAVE_INTERVAL_MS;
+    this.eventTimer = EVENT_INTERVAL_MS;
+    this.events = new EventScheduler(save.progress?.events ?? {});
 
-    /** Pokémon defeated but not yet caught or let go. */
+    /**
+     * Pokémon defeated but not yet caught or let go. Deliberately not saved:
+     * the tray is a moment's offer, not something to come back to days later.
+     * @type {import('./pokemon.mjs').Pokemon[]}
+     */
     this.tray = [];
   }
 
@@ -63,12 +70,13 @@ export class Session {
    * Advance the timers that run while the companion is travelling.
    *
    * @param {number} deltaMs
-   * @returns {{rotateArea: boolean, autosave: boolean}}
+   * @returns {{rotateArea: boolean, autosave: boolean, event: boolean}}
    */
   tick(deltaMs) {
     this.playtime += deltaMs;
     this.areaTimer -= deltaMs;
     this.autosaveTimer -= deltaMs;
+    this.eventTimer -= deltaMs;
 
     const rotateArea = this.areaTimer <= 0;
     if (rotateArea) this.areaTimer = this.rollAreaTimer();
@@ -76,7 +84,20 @@ export class Session {
     const autosave = this.autosaveTimer <= 0;
     if (autosave) this.autosaveTimer = AUTOSAVE_INTERVAL_MS;
 
-    return { rotateArea, autosave };
+    const event = this.eventTimer <= 0;
+    if (event) this.eventTimer = EVENT_INTERVAL_MS;
+
+    return { rotateArea, autosave, event };
+  }
+
+  /**
+   * Hold a defeated Pokémon for the player to catch or release. The tray keeps
+   * the five most recent; anything older is let go on its own.
+   * @param {import('./pokemon.mjs').Pokemon} pokemon
+   */
+  addToTray(pokemon) {
+    this.tray.push(pokemon);
+    while (this.tray.length > TRAY_LIMIT) this.tray.shift();
   }
 
   /** Move to a different area, never repeating the current one. */
@@ -178,6 +199,7 @@ export class Session {
         areaId: this.area?.id ?? null,
         machines: this.machines,
         leagueRegion: this.leagueRegion,
+        events: this.events.toJSON(),
       },
       dex: {
         seen: [...this.seen],

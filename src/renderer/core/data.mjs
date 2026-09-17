@@ -19,6 +19,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Record<string, any>} actors
  * @property {{cues: Record<string, string>, tracks: Record<string, any>}} bgm
  * @property {Record<string, string[]>} itemTiers
+ * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
  */
@@ -44,12 +45,18 @@ export async function loadGameData() {
     loadJson('data', 'item-tiers.json'),
   ]);
 
-  const [leaders, leagues] = await Promise.all([
-    loadJson('authored', 'leaders.json').catch(() => []),
-    loadJson('authored', 'leagues.json').catch(() => []),
+  // Authored data is optional: a checkout without it still runs, just without
+  // trainers or the league.
+  const [trainerClasses, leaders, leagues] = await Promise.all([
+    loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
+    loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
+    loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
   ]);
 
-  data = { species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers, leaders, leagues };
+  data = {
+    species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers,
+    trainerClasses, leaders, leagues,
+  };
   return data;
 }
 

@@ -75,6 +75,7 @@ export class App {
     if (node instanceof HTMLElement) container.append(node);
 
     this.stack.push({ scene, node: container });
+    this.syncVisibility();
     return scene;
   }
 
@@ -84,6 +85,19 @@ export class App {
     if (!top) return;
     top.scene.unmount?.(this);
     top.node?.remove();
+    this.syncVisibility();
+  }
+
+  /**
+   * Only the top scene's controls are usable, so only its DOM is shown. A
+   * scene beneath may still be drawn on the canvas — that is what `keepBelow`
+   * is for — but its buttons and panels would otherwise sit over the screen on
+   * top of it.
+   */
+  syncVisibility() {
+    this.stack.forEach((entry, index) => {
+      if (entry.node) entry.node.hidden = index !== this.stack.length - 1;
+    });
   }
 
   /**
@@ -173,14 +187,23 @@ export function fitStage() {
  */
 export function runLoop(app) {
   let previous = performance.now();
+
   const frame = (now) => {
     // Clamp the step so a backgrounded window does not fast-forward the game
     // when it comes back.
     const delta = Math.min(now - previous, 100);
     previous = now;
-    app.tick(delta);
+    try {
+      app.tick(delta);
+    } catch (error) {
+      // One bad frame must not end the run: the companion is meant to be left
+      // alone for hours, so the loop reports and carries on.
+      console.error('frame failed', error);
+    }
+    // Requested outside the try, so a throw can never stop the loop.
     requestAnimationFrame(frame);
   };
+
   requestAnimationFrame(frame);
 }
 

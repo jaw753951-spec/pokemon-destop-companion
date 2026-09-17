@@ -42,6 +42,21 @@ const STEPS = [
     script: 'clickText("button", ["예", "Yes"])',
   },
   { name: '06-settings', script: 'clickText("button", ["설정", "Settings"])' },
+  { name: '07-field-again', script: 'clickText("button", ["닫기", "Close"])' },
+  { name: '08-inventory-pokemon', script: 'clickText("button", ["가방", "Bag"])' },
+  { name: '09-inventory-items', script: 'clickText("button.tab", ["아이템", "Items"])' },
+  { name: '10-inventory-box', script: 'clickText("button.tab", ["박스", "Box"])' },
+  { name: '11-auto-battle', script: 'clickText("button.tab", ["포켓몬", "Pokémon"]) && await wait(250) && clickText("button", ["자동전투", "Auto-battle"])' },
+  { name: '12-pokedex', script: 'closeAll() && clickText("button", ["도감", "Pokédex"])' },
+  { name: '13-dex-entry', script: 'clickText("button.dex-entry", [])' },
+  // An event spawns beyond the right edge and is walked into, so each of these
+  // waits for the state it wants rather than for a fixed time.
+  { name: '14-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
+  { name: '15-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  { name: '16-battle', script: 'await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
+  { name: '17-battle-later', script: 'await wait(5000)' },
+  { name: '18-battle-end', script: 'await waitFor(() => !inBattle(), 60000)' },
+  { name: '19-tray', script: 'await wait(1500)' },
 ];
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -87,9 +102,65 @@ const clickImageAlt = (alts) => {
   console.log('no image alt among: ' + [...document.querySelectorAll('img')].map((n) => n.alt).join(' | '));
   return false;
 };
+const app = () => window.__pdcApp;
+const closeAll = () => {
+  while (app().stack.length > 1) app().pop();
+  // Menus pause the field through their close handler, which popping skips.
+  app().scene.setPaused?.(false);
+  return true;
+};
+/**
+ * Reach past the once-a-minute timer so a shot does not have to wait for it.
+ * Waits for whatever the game started on its own to finish first, otherwise
+ * the forced event is dropped as "already busy".
+ */
+const forceEvent = async (kind) => {
+  closeAll();
+  const session = app().session;
+  // Wait until the companion is walking again: an event still playing out
+  // would make the field ignore the forced roll as "already busy".
+  for (let i = 0; i < 160; i++) {
+    session.eventTimer = 60000;
+    const before = app().scene.offset;
+    await wait(400);
+    if (app().stack.length === 1 && app().scene.offset > before + 5) break;
+    closeAll();
+  }
+  const roll = session.events.roll;
+  session.events.roll = () => { session.events.roll = roll; return kind; };
+  session.eventTimer = 0;
+  return true;
+};
+/** Poll until a predicate holds, or give up so a shot is still taken. */
+const waitFor = async (predicate, timeoutMs) => {
+  const until = Date.now() + timeoutMs;
+  while (Date.now() < until) {
+    if (predicate()) return true;
+    await wait(200);
+  }
+  console.log('waitFor timed out');
+  return true;
+};
+const inBattle = () => app().stack.length > 1;
+let lastOffset = -1;
+let stillFrames = 0;
+const walkStopped = () => {
+  const offset = Math.round(app().scene.offset ?? 0);
+  stillFrames = offset === lastOffset ? stillFrames + 1 : 0;
+  lastOffset = offset;
+  return stillFrames > 3;
+};
+let bagAtStart = -1;
+const bagGrew = () => {
+  const size = Object.values(app().session.bag).reduce((a, b) => a + b, 0);
+  if (bagAtStart < 0) bagAtStart = size;
+  return size > bagAtStart;
+};
 const clickText = (selector, texts) => {
   const nodes = [...document.querySelectorAll(selector)];
-  const match = nodes.find((node) => texts.some((text) => (node.textContent || '').includes(text)));
+  const match = texts.length === 0
+    ? nodes[0]
+    : nodes.find((node) => texts.some((text) => (node.textContent || '').includes(text)));
   if (match) { match.click(); return true; }
   console.log('no match for ' + JSON.stringify(texts) + ' among: ' + nodes.map((n) => n.textContent).join(' | '));
   return false;

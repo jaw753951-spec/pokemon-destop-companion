@@ -49,6 +49,23 @@ export function clear(node) {
 }
 
 /**
+ * Replace a node's children, dropping the empty ones.
+ *
+ * `replaceChildren` stringifies a `null` argument into the text "null", so a
+ * conditionally-rendered child written as `condition ? el(...) : null` would
+ * otherwise print the word. This filters first, matching how `el` treats its
+ * own children.
+ *
+ * @param {HTMLElement} node
+ * @param {Array<Node|string|null|undefined|false>} children
+ */
+export function setChildren(node, children) {
+  const kept = /** @type {Array<Node|string>} */ (children.filter(Boolean));
+  node.replaceChildren(...kept);
+  return node;
+}
+
+/**
  * A button that also responds to Enter and Space, and never drags the window.
  * @param {string} label
  * @param {() => void} onSelect

@@ -4,7 +4,7 @@
  * Reachable from the title and, with "save and quit" added, from the field.
  */
 import { appControl, settings as settingsApi } from '../core/bridge.mjs';
-import { button, el } from '../core/dom.mjs';
+import { button, el, setChildren } from '../core/dom.mjs';
 import { t } from '../core/i18n.mjs';
 
 /**
@@ -19,12 +19,12 @@ export function settingsScene({ onClose, onSaveAndQuit }) {
       const rows = el('div.settings-rows');
 
       const rebuild = () => {
-        rows.replaceChildren(
+        setChildren(rows, [
           scaleRow(app),
           volumeRow(app, 'settings.music', 'musicVolume'),
           volumeRow(app, 'settings.effects', 'effectVolume'),
           languageRow(app, rebuild),
-        );
+        ]);
       };
       rebuild();
 
@@ -59,7 +59,7 @@ function scaleRow(app) {
   const options = el('div.options');
 
   const render = (steps) => {
-    options.replaceChildren(
+    setChildren(options, [
       ...steps.map((step) =>
         el('button.chip', {
           type: 'button',
@@ -72,7 +72,7 @@ function scaleRow(app) {
           },
         }),
       ),
-    );
+    ]);
   };
 
   settingsApi.scaleSteps().then(render);

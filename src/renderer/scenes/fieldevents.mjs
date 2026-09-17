@@ -1,0 +1,473 @@
+/**
+ * Field events.
+ *
+ * Every event spawns whatever it involves beyond the right edge of the view
+ * and lets the companion walk into it, so an encounter looks like something
+ * met along the way rather than something that appeared on top of the player.
+ * The runner owns the props and their timing; the field scene owns the walk.
+ */
+import { BACKGROUND_HEIGHT, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { name as localized, t } from '../core/i18n.mjs';
+import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
+import { evolveToLevel, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
+import { createPokemon, levelOf } from '../engine/pokemon.mjs';
+import { COMPANION_X, GROUND_Y } from '../render/field.mjs';
+
+/** How long each gathering phase takes, as the brief specifies. */
+const HARVEST_MS = 10000;
+const PICKUP_MS = 5000;
+const SHOW_ITEM_MS = 3000;
+
+/** A prop spawns this far beyond the right edge of the view. */
+const SPAWN_MARGIN = 48;
+
+/**
+ * How far to the companion's right the prop ends up. Without a gap the two
+ * sprites land on the same spot and the companion hides whatever it met.
+ */
+const MEET_GAP = 34;
+
+/**
+ * @param {{
+ *   session: import('../engine/session.mjs').Session,
+ *   onBattle: (setup: {foes: any[], trainer: any|null, leader: any|null}) => void,
+ * }} options
+ */
+export function createEventRunner({ session, onBattle }) {
+  /** @type {any} */
+  let active = null;
+
+  return {
+    /** Whether an event is currently holding the walk. */
+    get busy() {
+      return active !== null;
+    },
+
+    /** Whether the companion should keep moving this frame. */
+    get walking() {
+      return active === null || active.phase === 'approach';
+    },
+
+    /**
+     * @param {import('../engine/events.mjs').EventKind} kind
+     * @param {number} offset the field's current world scroll
+     * @param {import('../core/app.mjs').App} app
+     */
+    start(kind, offset, app) {
+      if (active) return;
+      const spawnAt = offset + (VIEW_WIDTH - COMPANION_X) + SPAWN_MARGIN;
+
+      switch (kind) {
+        case 'berry':
+          active = startBerry(session, spawnAt);
+          break;
+        case 'ball':
+          active = startBall(session, spawnAt);
+          break;
+        case 'heal':
+          active = startHeal(session, app);
+          break;
+        case 'wild':
+          active = startWild(session, spawnAt);
+          break;
+        case 'trainer':
+          active = startTrainer(session, spawnAt);
+          break;
+        default:
+          active = null;
+      }
+    },
+
+    /**
+     * @param {number} deltaMs
+     * @param {number} offset
+     * @param {import('../core/app.mjs').App} app
+     */
+    update(deltaMs, offset, app) {
+      if (!active) return;
+
+      if (active.phase === 'approach') {
+        if (offset >= active.worldX - MEET_GAP) {
+          active.phase = active.onArrive ? active.onArrive(app) : 'done';
+          active.timer = active.phaseDuration ?? 0;
+        }
+        return;
+      }
+
+      active.timer -= deltaMs;
+      active.elapsed = (active.elapsed ?? 0) + deltaMs;
+      if (active.timer > 0) return;
+
+      if (active.phase === 'gather') {
+        active.phase = 'show';
+        active.timer = SHOW_ITEM_MS;
+        if (active.onGathered) active.onGathered(app);
+        return;
+      }
+
+      if (active.phase === 'battle') {
+        const setup = active.setup;
+        active = null;
+        onBattle(setup);
+        return;
+      }
+
+      active = null;
+    },
+
+    /**
+     * @param {CanvasRenderingContext2D} context
+     * @param {number} offset
+     */
+    render(context, offset) {
+      if (!active) return;
+      const screenX = COMPANION_X + (active.worldX - offset);
+
+      if (active.prop && screenX < VIEW_WIDTH + 64) {
+        drawProp(context, active, screenX);
+      }
+      if (active.phase === 'show' && active.carried) {
+        drawCarried(context, active.carried);
+      }
+      if (active.flash > 0) {
+        context.fillStyle = `rgba(255, 255, 255, ${Math.min(0.55, active.flash)})`;
+        context.fillRect(0, 0, VIEW_WIDTH, BACKGROUND_HEIGHT);
+        active.flash -= 0.02;
+      }
+    },
+
+    /** Abandon whatever is running, e.g. when the area changes underneath it. */
+    cancel() {
+      active = null;
+    },
+  };
+}
+
+/**
+ * A berry tree grows at the roadside; the companion picks from it for ten
+ * seconds, and the tree is left bare.
+ */
+function startBerry(session, spawnAt) {
+  const berries = Object.entries(gameData().items)
+    .filter(([, item]) => item.pocket === 'berries' && item.sprite)
+    .map(([slug]) => slug);
+  const berry = session.rng.pick(berries.length ? berries : ['oran-berry']);
+
+  // `oran-berry` is drawn by a tree sheet named `oran`.
+  const treeName = berry.replace(/-berry$/, '');
+  const trees = gameData().actors?.props?.berryTrees ?? {};
+  const tree = trees[treeName] ? treeName : Object.keys(trees)[0];
+
+  const state = {
+    kind: 'berry',
+    worldX: spawnAt,
+    phase: 'approach',
+    timer: 0,
+    flash: 0,
+    phaseDuration: HARVEST_MS,
+    prop: { kind: 'berry-tree', sprite: null, frame: 'ripe' },
+    carried: null,
+    onArrive: () => 'gather',
+    onGathered: (app) => {
+      session.addItem(berry);
+      state.prop.frame = 'bare';
+      state.carried = { icon: `items/${berry}.png`, sprite: null };
+      loadImage(`items/${berry}.png`).then((image) => {
+        state.carried.sprite = stillSprite(image);
+      });
+      app.audio.playMusic(gameData().bgm.cues.obtainBerry ?? null);
+      app.toast(t('event.berryFound', { name: localized(itemOf(berry)?.name, berry) }));
+    },
+  };
+
+  if (tree) {
+    loadImage(`props/berry-trees/${tree}.png`).then((image) => {
+      state.prop.sprite = { image, meta: trees[tree] };
+    });
+  }
+  return state;
+}
+
+/**
+ * A ball sits on the path. Which ball it is decides how good the item inside
+ * is; the companion spends five seconds retrieving it.
+ */
+function startBall(session, spawnAt) {
+  const tier = session.rng.weighted(BALL_TIERS.map((entry) => ({ value: entry, weight: entry.chance })))
+    ?? BALL_TIERS[0];
+  const pool = gameData().itemTiers[tier.ball] ?? [];
+  const item = pool.length ? session.rng.pick(pool) : 'poke-ball';
+
+  const state = {
+    kind: 'ball',
+    worldX: spawnAt,
+    phase: 'approach',
+    timer: 0,
+    flash: 0,
+    phaseDuration: PICKUP_MS,
+    prop: { kind: 'ball', sprite: null, frame: 'closed', ball: tier.ball },
+    carried: null,
+    onArrive: () => 'gather',
+    onGathered: (app) => {
+      session.addItem(item);
+      state.prop.frame = 'open';
+      state.carried = { icon: `items/${item}.png`, sprite: null };
+      loadImage(`items/${item}.png`).then((image) => {
+        state.carried.sprite = stillSprite(image);
+      });
+      const cue = itemOf(item)?.pocket === 'machines' ? 'obtainTm' : 'obtainItem';
+      app.audio.playMusic(gameData().bgm.cues[cue] ?? null);
+      app.toast(t('event.itemFound', { name: localized(itemOf(item)?.name, item) }));
+    },
+  };
+
+  loadImage(`items/${tier.ball}.png`).then((image) => {
+    state.prop.sprite = { image, meta: { width: image.naturalWidth, height: image.naturalHeight, frames: 1 } };
+  });
+  return state;
+}
+
+/** A rest stop: everything restored on the spot. */
+function startHeal(session, app) {
+  session.heal();
+  app.audio.playMusic(gameData().bgm.cues.heal ?? null);
+  app.toast(t('event.healed'));
+  return { kind: 'heal', worldX: -Infinity, phase: 'show', timer: 1400, flash: 0.55, prop: null, carried: null };
+}
+
+/** A wild Pokémon steps out ahead. */
+function startWild(session, spawnAt) {
+  const wild = rollWildPokemon(session.rng, session.area, session.active);
+  session.markSeen(wild.speciesId);
+
+  const state = {
+    kind: 'wild',
+    worldX: spawnAt,
+    phase: 'approach',
+    timer: 0,
+    flash: 0,
+    phaseDuration: 700,
+    prop: { kind: 'pokemon', sprite: null, frame: 'ripe' },
+    carried: null,
+    setup: { foes: [wild], trainer: null, leader: null },
+    onArrive: (app) => {
+      app.audio.playCry(wild.speciesId);
+      app.toast(t('event.wild', { name: localized(speciesOf(wild.speciesId)?.name, '') }));
+      return 'battle';
+    },
+  };
+
+  const meta = gameData().sprites[wild.speciesId]?.front;
+  if (meta) {
+    loadSprite(`pokemon/${wild.speciesId}/front.png`, meta).then((sprite) => {
+      state.prop.sprite = sprite;
+    });
+  }
+  return state;
+}
+
+/**
+ * A trainer blocks the path. Once eight badges are in hand leaders stop
+ * appearing; before that a leader can turn up by chance, or be summoned by a
+ * long enough winning streak.
+ */
+function startTrainer(session, spawnAt) {
+  const classes = gameData().trainerClasses ?? [];
+  const leader = shouldSummonLeader(session) ? pickLeader(session) : null;
+  const { trainerClass, party } = rollTrainer(session.rng, session.area, session.active, classes);
+
+  const roster = leader ? leaderParty(session, leader) : party;
+  for (const member of roster) session.markSeen(member.speciesId);
+
+  const state = {
+    kind: 'trainer',
+    worldX: spawnAt,
+    phase: 'approach',
+    timer: 0,
+    flash: 0,
+    phaseDuration: 800,
+    prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
+    carried: null,
+    setup: { foes: roster, trainer: leader ?? trainerClass, leader },
+    onArrive: (app) => {
+      const name = localized((leader ?? trainerClass).name, '');
+      app.toast(leader ? t('event.leader', { trainer: name }) : t('event.trainer', { trainer: name }));
+      return 'battle';
+    },
+  };
+
+  const fieldSprite = leader?.field ?? trainerClass?.field;
+  const meta = fieldSprite ? gameData().actors?.overworld?.[fieldSprite] : null;
+  if (meta) {
+    loadSprite(`trainers/field/${fieldSprite}.png`, { ...meta, delay: 240 }).then((sprite) => {
+      state.prop.sprite = sprite;
+    });
+  }
+  return state;
+}
+
+/** @param {import('../engine/session.mjs').Session} session */
+function shouldSummonLeader(session) {
+  if (session.badges.length >= 8) return false;
+  if (session.trainerWins >= TRAINER_WINS_FOR_LEADER) return true;
+  return session.rng.chance(LEADER_ENCOUNTER_CHANCE);
+}
+
+/**
+ * A leader whose badge the player does not already hold, matching the area's
+ * terrain where one fits.
+ * @param {import('../engine/session.mjs').Session} session
+ */
+function pickLeader(session) {
+  const held = new Set(session.badges);
+  const available = (gameData().leaders ?? []).filter((leader) => !held.has(leader.type));
+  if (available.length === 0) return null;
+
+  const tags = new Set(session.area?.tags ?? []);
+  const local = available.filter((leader) => leader.areas?.some((tag) => tags.has(tag)));
+  return session.rng.pick(local.length ? local : available);
+}
+
+/**
+ * A leader's party: the species they are known for, levelled to the player so
+ * the fight stays a challenge whenever it happens rather than being fixed to
+ * the point in a journey the leader originally sat at.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {any} leader
+ */
+export function leaderParty(session, leader) {
+  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 3));
+  const roster = (leader.party ?? []).filter((id) => speciesOf(id));
+
+  const species = roster.length
+    ? roster
+    : // No roster on file: fall back to strong members of the leader's type.
+      pickTypeRoster(session, leader.type, 3);
+
+  return species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+}
+
+/**
+ * The highest-statted non-legendary species of a type, which is what a gym
+ * leader would plausibly have trained.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} type
+ * @param {number} count
+ * @returns {number[]}
+ */
+function pickTypeRoster(session, type, count) {
+  const candidates = Object.values(gameData().species)
+    .filter((entry) => !entry.isLegendary && !entry.isMythical && entry.types.includes(type))
+    .sort((a, b) => totalStats(b) - totalStats(a))
+    .slice(0, 24)
+    .map((entry) => entry.id);
+
+  return session.rng.shuffle(candidates).slice(0, count);
+}
+
+const totalStats = (species) => Object.values(species.stats).reduce((sum, value) => sum + Number(value), 0);
+
+/**
+ * @param {CanvasRenderingContext2D} context
+ * @param {any} state
+ * @param {number} screenX
+ */
+function drawProp(context, state, screenX) {
+  const prop = state.prop;
+  if (!prop?.sprite) return;
+
+  if (prop.kind === 'berry-tree') {
+    drawBerryTree(context, prop, screenX);
+    return;
+  }
+  if (prop.kind === 'ball') {
+    drawBall(context, prop, screenX);
+    return;
+  }
+
+  // A Pokémon or trainer waiting on the path.
+  const sprite = /** @type {Sprite} */ (prop.sprite);
+  sprite.draw(context, screenX, GROUND_Y, {
+    frame: sprite.frameAt(state.elapsed ?? 0),
+    flip: prop.kind === 'trainer',
+    scale: prop.kind === 'trainer' ? 1.4 : 1,
+  });
+}
+
+/**
+ * Berry sheets hold the tree's growth stages; the last is fruit-bearing and
+ * the first is the bare plant left after a harvest.
+ */
+function drawBerryTree(context, prop, screenX) {
+  const { image, meta } = prop.sprite;
+  const frameWidth = 16;
+  const frameHeight = 32;
+  const columns = Math.max(1, Math.floor(image.naturalWidth / frameWidth));
+  const total = Math.max(1, meta?.frames ?? columns);
+  const index = prop.frame === 'ripe' ? total - 1 : 0;
+
+  const sx = (index % columns) * frameWidth;
+  const sy = Math.floor(index / columns) * frameHeight;
+  const scale = 1.6;
+
+  context.drawImage(
+    image,
+    sx,
+    sy,
+    frameWidth,
+    frameHeight,
+    Math.round(screenX - (frameWidth * scale) / 2),
+    Math.round(GROUND_Y - frameHeight * scale),
+    frameWidth * scale,
+    frameHeight * scale,
+  );
+}
+
+/**
+ * The ball on the ground. Once emptied it is drawn in two halves — the lid
+ * tipped back off the base — since the games have no "opened ball" sprite of
+ * its own for the overworld.
+ */
+function drawBall(context, prop, screenX) {
+  const { image } = prop.sprite;
+  const size = image.naturalHeight;
+  const scale = 1.5;
+  const drawn = size * scale;
+  const left = Math.round(screenX - drawn / 2);
+  const top = Math.round(GROUND_Y - drawn);
+
+  if (prop.frame === 'closed') {
+    context.drawImage(image, left, top, drawn, drawn);
+    return;
+  }
+
+  const half = Math.floor(size / 2);
+  // Base stays put.
+  context.drawImage(image, 0, half, size, size - half, left, top + drawn / 2, drawn, drawn / 2);
+  // Lid tips up and back.
+  context.save();
+  context.translate(left + drawn / 2, top + drawn / 2);
+  context.rotate(-0.6);
+  context.drawImage(image, 0, 0, size, half, -drawn / 2, -drawn / 2 - 3, drawn, drawn / 2);
+  context.restore();
+}
+
+/** The item held up over the companion's head after a gather. */
+function drawCarried(context, carried) {
+  if (!carried.sprite) return;
+  carried.sprite.draw(context, COMPANION_X, GROUND_Y - 58, { scale: 1.5 });
+}
+
+/** @param {HTMLImageElement} image */
+function stillSprite(image) {
+  return new Sprite(image, {
+    width: image.naturalWidth,
+    height: image.naturalHeight,
+    frames: 1,
+    delay: 1000,
+  });
+}

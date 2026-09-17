@@ -30,6 +30,9 @@ async function boot() {
   audio.setVolumes(settings);
 
   const app = new App({ settings, audio });
+  // The screenshot harness in tools/ drives the game through this; nothing in
+  // the app itself reads it.
+  /** @type {any} */ (globalThis).__pdcApp = app;
   splash.remove();
   app.setScene(titleScene({ slots }));
   runLoop(app);

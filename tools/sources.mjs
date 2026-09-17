@@ -6,6 +6,7 @@
  */
 
 export { TAG_TYPES } from '../src/shared/area-tags.mjs';
+export { BALL_TIERS } from '../src/shared/ball-tiers.mjs';
 
 export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/master/data/api/v2';
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';
@@ -83,17 +84,6 @@ export const AREAS = [
   { id: 'new-mauville', dir: 'NewMauville_Inside', location: 'new-mauville', tags: ['urban', 'electric'] },
   { id: 'seafloor-cavern', dir: 'SeafloorCavern_Room1', location: 'seafloor-cavern', tags: ['cave', 'water'] },
   { id: 'cave-of-origin', dir: 'CaveOfOrigin_1F', location: 'cave-of-origin', tags: ['cave', 'ruins'] },
-];
-
-/**
- * Ball tiers used by the item-pickup event, and how rare a find each one
- * represents. The ball sprite the player sees on the ground matches the tier.
- */
-export const BALL_TIERS = [
-  { ball: 'poke-ball', chance: 70 },
-  { ball: 'great-ball', chance: 20 },
-  { ball: 'ultra-ball', chance: 9.9 },
-  { ball: 'master-ball', chance: 0.1 },
 ];
 
 /** The three Kanto starters the game opens with, in Pokédex order. */
