@@ -53,6 +53,20 @@ export async function loadGameData() {
   return data;
 }
 
+/**
+ * Install a data set directly, bypassing the loader.
+ *
+ * The engine modules are pure functions over this data, and the unit tests
+ * exercise them against the real generated JSON read from disk — which they can
+ * only do if the data can be supplied without going through the preload bridge.
+ *
+ * @param {GameData|null} next
+ */
+export function setGameData(next) {
+  data = next;
+  slugIndex = null;
+}
+
 /** @returns {GameData} */
 export function gameData() {
   if (!data) throw new Error('Game data has not been loaded yet');

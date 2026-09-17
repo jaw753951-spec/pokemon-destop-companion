@@ -5,6 +5,8 @@
  * plain HTTPS client with no API keys and no tarballs.
  */
 
+export { TAG_TYPES } from '../src/shared/area-tags.mjs';
+
 export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/master/data/api/v2';
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';
 export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries';
@@ -82,36 +84,6 @@ export const AREAS = [
   { id: 'seafloor-cavern', dir: 'SeafloorCavern_Room1', location: 'seafloor-cavern', tags: ['cave', 'water'] },
   { id: 'cave-of-origin', dir: 'CaveOfOrigin_1F', location: 'cave-of-origin', tags: ['cave', 'ruins'] },
 ];
-
-/**
- * Maps an environment tag to the Pokémon types that plausibly live there.
- * Only consulted for species the encounter tables never mention.
- * @type {Record<string, string[]>}
- */
-export const TAG_TYPES = {
-  grass: ['normal', 'grass', 'bug', 'flying'],
-  plain: ['normal', 'flying'],
-  meadow: ['grass', 'bug', 'fairy', 'normal'],
-  forest: ['bug', 'grass', 'poison', 'dark'],
-  jungle: ['grass', 'bug', 'poison', 'water'],
-  beach: ['water', 'normal', 'flying'],
-  water: ['water', 'ice'],
-  desert: ['ground', 'rock', 'fire'],
-  sand: ['ground', 'rock'],
-  mountain: ['rock', 'ground', 'fighting', 'flying'],
-  rough: ['rock', 'ground', 'fighting'],
-  cave: ['rock', 'ground', 'dark', 'poison'],
-  volcano: ['fire', 'rock', 'ground'],
-  ash: ['fire', 'ground', 'normal'],
-  ice: ['ice', 'water'],
-  graveyard: ['ghost', 'dark', 'psychic'],
-  ruins: ['psychic', 'ghost', 'rock', 'dragon'],
-  sky: ['flying', 'dragon', 'psychic'],
-  urban: ['electric', 'steel', 'poison', 'normal'],
-  electric: ['electric', 'steel'],
-  safari: ['normal', 'grass', 'bug', 'ground'],
-  rain: ['water', 'grass', 'bug'],
-};
 
 /**
  * Ball tiers used by the item-pickup event, and how rare a find each one

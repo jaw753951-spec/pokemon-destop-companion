@@ -1,0 +1,55 @@
+/**
+ * Load the real generated game data into the renderer's data module, so the
+ * engine tests run against the same species, moves and type chart the game
+ * does rather than a hand-written fixture.
+ */
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
+
+import { setGameData } from '../../src/renderer/core/data.mjs';
+
+const GENERATED = new URL('../../data/generated/', import.meta.url).pathname;
+
+let loaded = false;
+
+/** @returns {Promise<boolean>} false when the pipeline has not been run */
+export async function useRealGameData() {
+  if (loaded) return true;
+  try {
+    const read = async (name) => JSON.parse(await readFile(join(GENERATED, name), 'utf8'));
+    const [species, moves, items, machines, natures, types, areas, sprites] = await Promise.all([
+      read('species.json'),
+      read('moves.json'),
+      read('items.json'),
+      read('machines.json'),
+      read('natures.json'),
+      read('types.json'),
+      read('areas.json'),
+      read('sprites.json'),
+    ]);
+    setGameData(
+      /** @type {any} */ ({
+        species,
+        moves,
+        items,
+        machines,
+        natures,
+        types,
+        areas,
+        sprites,
+        actors: { portraits: {}, overworld: {}, props: {} },
+        bgm: { cues: {}, tracks: {} },
+        itemTiers: {},
+        leaders: [],
+        leagues: [],
+      }),
+    );
+    loaded = true;
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** Skip reason used when the pipeline has not been run in this checkout. */
+export const NEEDS_ASSETS = 'run `npm run assets` first — the generated data is missing';
