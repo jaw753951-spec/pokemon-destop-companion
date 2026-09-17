@@ -1211,3 +1211,38 @@ canvas {
   font-size: 9px;
   font-weight: 400;
 }
+
+/* ---------------------------------------------------------------- league */
+
+.league-screen {
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.league-heading {
+  color: var(--paper);
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  opacity: 0.75;
+}
+
+.league-portrait {
+  width: 84px;
+  height: 84px;
+  object-fit: contain;
+}
+
+.league-caption {
+  color: var(--paper);
+  font-size: 17px;
+  font-weight: 800;
+  text-shadow: 0 2px 0 var(--frame);
+}
+
+.league-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 4px;
+}

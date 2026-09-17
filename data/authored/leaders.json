@@ -1,0 +1,100 @@
+{
+  "_comment": "체육관 관장. 이 게임의 뱃지는 지방이 아니라 타입 단위이므로 관장도 타입별로 모아둔다. 한 타입의 뱃지를 얻으면 그 타입 관장은 더 이상 등장하지 않는다. name.ko 는 한국어 정식 명칭, portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방 관장에만 존재하고 나머지는 null 이다. name.en 이 null 인 항목은 한국어 명칭에 대응하는 영어 이름을 확인하지 못한 경우이며, 영어 모드에서도 한국어 명칭이 그대로 표시된다.",
+  "leaders": [
+    { "id": "rock-brock", "type": "rock", "name": { "ko": "웅", "en": "Brock" }, "portrait": null },
+    { "id": "rock-roxanne", "type": "rock", "name": { "ko": "원규", "en": "Roxanne" }, "portrait": "leader_roxanne" },
+    { "id": "rock-roark", "type": "rock", "name": { "ko": "강석", "en": "Roark" }, "portrait": null },
+    { "id": "rock-grant", "type": "rock", "name": { "ko": "자크로", "en": "Grant" }, "portrait": null },
+    { "id": "rock-gordie", "type": "rock", "name": { "ko": "마쿠와", "en": "Gordie" }, "portrait": null },
+
+    { "id": "water-misty", "type": "water", "name": { "ko": "이슬", "en": "Misty" }, "portrait": null },
+    { "id": "water-wallace", "type": "water", "name": { "ko": "윤진", "en": "Wallace" }, "portrait": "champion_wallace" },
+    { "id": "water-wake", "type": "water", "name": { "ko": "아단", "en": "Crasher Wake" }, "portrait": null },
+    { "id": "water-cress", "type": "water", "name": { "ko": "맥실러", "en": "Cress" }, "portrait": null },
+    { "id": "water-marlon", "type": "water", "name": { "ko": "콘", "en": "Marlon" }, "portrait": null },
+    { "id": "water-nessa", "type": "water", "name": { "ko": "시즈", "en": "Nessa" }, "portrait": null },
+    { "id": "water-juan", "type": "water", "name": { "ko": "야청", "en": "Juan" }, "portrait": "leader_juan" },
+    { "id": "water-kofu", "type": "water", "name": { "ko": "곤포", "en": "Kofu" }, "portrait": null },
+
+    { "id": "electric-surge", "type": "electric", "name": { "ko": "마티스", "en": "Lt. Surge" }, "portrait": null },
+    { "id": "electric-volkner", "type": "electric", "name": { "ko": "암페어", "en": "Volkner" }, "portrait": null },
+    { "id": "electric-wattson", "type": "electric", "name": { "ko": "전진", "en": "Wattson" }, "portrait": "leader_wattson" },
+    { "id": "electric-elesa", "type": "electric", "name": { "ko": "카밀레", "en": "Elesa" }, "portrait": null },
+    { "id": "electric-clemont", "type": "electric", "name": { "ko": "시트론", "en": "Clemont" }, "portrait": null },
+    { "id": "electric-iono", "type": "electric", "name": { "ko": "모야모", "en": "Iono" }, "portrait": null },
+
+    { "id": "grass-erika", "type": "grass", "name": { "ko": "민화", "en": "Erika" }, "portrait": null },
+    { "id": "grass-gardenia", "type": "grass", "name": { "ko": "유채", "en": "Gardenia" }, "portrait": null },
+    { "id": "grass-cilan", "type": "grass", "name": { "ko": "덴트", "en": "Cilan" }, "portrait": null },
+    { "id": "grass-ramos", "type": "grass", "name": { "ko": "후쿠지", "en": "Ramos" }, "portrait": null },
+    { "id": "grass-milo", "type": "grass", "name": { "ko": "아킬", "en": "Milo" }, "portrait": null },
+    { "id": "grass-brassius", "type": "grass", "name": { "ko": "콜사", "en": "Brassius" }, "portrait": null },
+
+    { "id": "ice-pryce", "type": "ice", "name": { "ko": "류웅", "en": "Pryce" }, "portrait": null },
+    { "id": "ice-candice", "type": "ice", "name": { "ko": "무청", "en": "Candice" }, "portrait": null },
+    { "id": "ice-brycen", "type": "ice", "name": { "ko": "담죽", "en": "Brycen" }, "portrait": null },
+    { "id": "ice-wulfric", "type": "ice", "name": { "ko": "우르프", "en": "Wulfric" }, "portrait": null },
+    { "id": "ice-melony", "type": "ice", "name": { "ko": "멜론", "en": "Melony" }, "portrait": null },
+    { "id": "ice-grusha", "type": "ice", "name": { "ko": "그루샤", "en": "Grusha" }, "portrait": null },
+
+    { "id": "fighting-chuck", "type": "fighting", "name": { "ko": "사도", "en": null }, "portrait": null },
+    { "id": "fighting-brawly", "type": "fighting", "name": { "ko": "철구", "en": "Brawly" }, "portrait": "leader_brawly" },
+    { "id": "fighting-maylene", "type": "fighting", "name": { "ko": "자두", "en": "Maylene" }, "portrait": null },
+    { "id": "fighting-korrina", "type": "fighting", "name": { "ko": "코르니", "en": "Korrina" }, "portrait": null },
+    { "id": "fighting-bea", "type": "fighting", "name": { "ko": "채두", "en": "Bea" }, "portrait": null },
+
+    { "id": "normal-norman", "type": "normal", "name": { "ko": "꼭두", "en": "Norman" }, "portrait": "leader_norman" },
+    { "id": "normal-whitney", "type": "normal", "name": { "ko": "종길", "en": null }, "portrait": null },
+    { "id": "normal-lenora", "type": "normal", "name": { "ko": "알로에", "en": "Lenora" }, "portrait": null },
+    { "id": "normal-cheren", "type": "normal", "name": { "ko": "체렌", "en": "Cheren" }, "portrait": null },
+    { "id": "normal-larry", "type": "normal", "name": { "ko": "청목", "en": "Larry" }, "portrait": null },
+
+    { "id": "psychic-sabrina", "type": "psychic", "name": { "ko": "초련", "en": "Sabrina" }, "portrait": null },
+    { "id": "psychic-tate-liza", "type": "psychic", "name": { "ko": "풍&란", "en": "Tate & Liza" }, "portrait": "leader_tate_and_liza" },
+    { "id": "psychic-fantina", "type": "psychic", "name": { "ko": "고지카", "en": null }, "portrait": null },
+    { "id": "psychic-sabrina-galar", "type": "psychic", "name": { "ko": "세이버리", "en": null }, "portrait": null },
+    { "id": "psychic-tulip", "type": "psychic", "name": { "ko": "리파", "en": "Tulip" }, "portrait": null },
+
+    { "id": "fire-blaine", "type": "fire", "name": { "ko": "강연", "en": "Blaine" }, "portrait": null },
+    { "id": "fire-flannery", "type": "fire", "name": { "ko": "민지", "en": "Flannery" }, "portrait": "leader_flannery" },
+    { "id": "fire-chili", "type": "fire", "name": { "ko": "팟", "en": "Chili" }, "portrait": null },
+    { "id": "fire-kabu", "type": "fire", "name": { "ko": "순무", "en": "Kabu" }, "portrait": null },
+
+    { "id": "dragon-clair", "type": "dragon", "name": { "ko": "이향", "en": "Clair" }, "portrait": null },
+    { "id": "dragon-drayden", "type": "dragon", "name": { "ko": "사간", "en": "Drayden" }, "portrait": null },
+    { "id": "dragon-iris", "type": "dragon", "name": { "ko": "아이리스", "en": "Iris" }, "portrait": null },
+    { "id": "dragon-raihan", "type": "dragon", "name": { "ko": "금랑", "en": "Raihan" }, "portrait": null },
+
+    { "id": "poison-koga", "type": "poison", "name": { "ko": "독수", "en": "Koga" }, "portrait": null },
+    { "id": "poison-janine", "type": "poison", "name": { "ko": "도희", "en": "Janine" }, "portrait": null },
+    { "id": "poison-roxie", "type": "poison", "name": { "ko": "보미카", "en": "Roxie" }, "portrait": null },
+    { "id": "poison-katy", "type": "poison", "name": { "ko": "도정", "en": "Katy" }, "portrait": null },
+
+    { "id": "ghost-morty", "type": "ghost", "name": { "ko": "유빈", "en": "Morty" }, "portrait": null },
+    { "id": "ghost-melissa", "type": "ghost", "name": { "ko": "멜리사", "en": null }, "portrait": null },
+    { "id": "ghost-allister", "type": "ghost", "name": { "ko": "어니언", "en": "Allister" }, "portrait": null },
+    { "id": "ghost-ryme", "type": "ghost", "name": { "ko": "라임", "en": "Ryme" }, "portrait": null },
+
+    { "id": "bug-bugsy", "type": "bug", "name": { "ko": "호일", "en": "Bugsy" }, "portrait": null },
+    { "id": "bug-burgh", "type": "bug", "name": { "ko": "아티", "en": "Burgh" }, "portrait": null },
+    { "id": "bug-viola", "type": "bug", "name": { "ko": "비올라", "en": "Viola" }, "portrait": null },
+    { "id": "bug-kofu-bug", "type": "bug", "name": { "ko": "단풍", "en": null }, "portrait": null },
+
+    { "id": "flying-winona", "type": "flying", "name": { "ko": "비상", "en": "Winona" }, "portrait": "leader_winona" },
+    { "id": "flying-skyla", "type": "flying", "name": { "ko": "은송", "en": "Skyla" }, "portrait": null },
+    { "id": "flying-falkner", "type": "flying", "name": { "ko": "풍란", "en": "Falkner" }, "portrait": null },
+
+    { "id": "fairy-valerie", "type": "fairy", "name": { "ko": "마슈", "en": "Valerie" }, "portrait": null },
+    { "id": "fairy-opal", "type": "fairy", "name": { "ko": "포플러", "en": "Opal" }, "portrait": null },
+    { "id": "fairy-bede", "type": "fairy", "name": { "ko": "비트", "en": "Bede" }, "portrait": null },
+
+    { "id": "ground-giovanni", "type": "ground", "name": { "ko": "비주기", "en": "Giovanni" }, "portrait": null },
+    { "id": "ground-byron", "type": "ground", "name": { "ko": "야콘", "en": "Byron" }, "portrait": null },
+
+    { "id": "steel-jasmine", "type": "steel", "name": { "ko": "규리", "en": "Jasmine" }, "portrait": null },
+    { "id": "steel-wikstrom", "type": "steel", "name": { "ko": "동관", "en": "Wikstrom" }, "portrait": null },
+
+    { "id": "dark-piers", "type": "dark", "name": { "ko": "두송", "en": "Piers" }, "portrait": null },
+    { "id": "dark-marnie", "type": "dark", "name": { "ko": "마리", "en": "Marnie" }, "portrait": null }
+  ]
+}

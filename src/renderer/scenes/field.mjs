@@ -16,6 +16,7 @@ import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
 import { createEventRunner } from './fieldevents.mjs';
+import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
@@ -211,7 +212,21 @@ export function fieldScene(session) {
             }),
           );
         },
-        onLeague: () => app.toast(t('league.enter')),
+        onLeague: () => {
+          app.audio.blip('confirm');
+          paused = true;
+          showActor = false;
+          app.push(
+            leagueScene({
+              session,
+              onLeave: () => closeMenu(app),
+              onCrowned: () => {
+                // Champion or not, the run carries on with everything intact.
+                closeMenu(app);
+              },
+            }),
+          );
+        },
         onTraySelect: (index) => openTrayMenu(app, index),
       });
 

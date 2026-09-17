@@ -1,0 +1,94 @@
+{
+  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 이 중 하나가 무작위로 결정되어 그 세이브에 고정된다. type 은 사천왕의 전문 타입으로, 로스터가 없을 때 파티를 구성하는 기준이 된다. portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방에만 존재한다. 관동·가라르 리그는 명단을 아직 받지 못해 빠져 있다.",
+  "leagues": [
+    {
+      "region": "johto",
+      "name": { "ko": "성도리그", "en": "Johto League" },
+      "eliteFour": [
+        { "id": "johto-will", "name": { "ko": "일목", "en": "Will" }, "type": "psychic", "portrait": null },
+        { "id": "johto-koga", "name": { "ko": "독수", "en": "Koga" }, "type": "poison", "portrait": null },
+        { "id": "johto-bruno", "name": { "ko": "시바", "en": "Bruno" }, "type": "fighting", "portrait": null },
+        { "id": "johto-karen", "name": { "ko": "카렌", "en": "Karen" }, "type": "dark", "portrait": null }
+      ],
+      "champion": { "id": "johto-lance", "name": { "ko": "목호", "en": "Lance" }, "type": "dragon", "portrait": null }
+    },
+    {
+      "region": "hoenn",
+      "name": { "ko": "호연리그", "en": "Hoenn League" },
+      "eliteFour": [
+        { "id": "hoenn-sidney", "name": { "ko": "럭진", "en": "Sidney" }, "type": "dark", "portrait": "elite_four_sidney" },
+        { "id": "hoenn-phoebe", "name": { "ko": "회연", "en": "Phoebe" }, "type": "ghost", "portrait": "elite_four_phoebe" },
+        { "id": "hoenn-glacia", "name": { "ko": "미혜", "en": "Glacia" }, "type": "ice", "portrait": "elite_four_glacia" },
+        { "id": "hoenn-drake", "name": { "ko": "권수", "en": "Drake" }, "type": "dragon", "portrait": "elite_four_drake" }
+      ],
+      "champion": { "id": "hoenn-steven", "name": { "ko": "성호", "en": "Steven" }, "type": "steel", "portrait": "steven" }
+    },
+    {
+      "region": "sinnoh",
+      "name": { "ko": "신오리그", "en": "Sinnoh League" },
+      "eliteFour": [
+        { "id": "sinnoh-aaron", "name": { "ko": "충호", "en": "Aaron" }, "type": "bug", "portrait": null },
+        { "id": "sinnoh-bertha", "name": { "ko": "들국화", "en": "Bertha" }, "type": "ground", "portrait": null },
+        { "id": "sinnoh-flint", "name": { "ko": "대엽", "en": "Flint" }, "type": "fire", "portrait": null },
+        { "id": "sinnoh-lucian", "name": { "ko": "오엽", "en": "Lucian" }, "type": "psychic", "portrait": null }
+      ],
+      "champion": { "id": "sinnoh-cynthia", "name": { "ko": "난천", "en": "Cynthia" }, "type": null, "portrait": null }
+    },
+    {
+      "region": "unova",
+      "name": { "ko": "하나리그", "en": "Unova League" },
+      "eliteFour": [
+        { "id": "unova-shauntal", "name": { "ko": "망초", "en": "Shauntal" }, "type": "ghost", "portrait": null },
+        { "id": "unova-grimsley", "name": { "ko": "블래리", "en": "Grimsley" }, "type": "dark", "portrait": null },
+        { "id": "unova-caitlin", "name": { "ko": "카틀레야", "en": "Caitlin" }, "type": "psychic", "portrait": null },
+        { "id": "unova-marshal", "name": { "ko": "연무", "en": "Marshal" }, "type": "fighting", "portrait": null }
+      ],
+      "champion": { "id": "unova-iris", "name": { "ko": "아이리스", "en": "Iris" }, "type": "dragon", "portrait": null }
+    },
+    {
+      "region": "kalos",
+      "name": { "ko": "칼로스리그", "en": "Kalos League" },
+      "eliteFour": [
+        { "id": "kalos-drasna", "name": { "ko": "드라세나", "en": "Drasna" }, "type": "dragon", "portrait": null },
+        { "id": "kalos-wikstrom", "name": { "ko": "갠피", "en": "Wikstrom" }, "type": "steel", "portrait": null },
+        { "id": "kalos-malva", "name": { "ko": "파키라", "en": "Malva" }, "type": "fire", "portrait": null },
+        { "id": "kalos-siebold", "name": { "ko": "즈미", "en": "Siebold" }, "type": "water", "portrait": null }
+      ],
+      "champion": { "id": "kalos-diantha", "name": { "ko": "카르네", "en": "Diantha" }, "type": null, "portrait": null }
+    },
+    {
+      "region": "alola",
+      "name": { "ko": "알로라리그", "en": "Alola League" },
+      "eliteFour": [
+        { "id": "alola-hala", "name": { "ko": "할라", "en": "Hala" }, "type": "fighting", "portrait": null },
+        { "id": "alola-olivia", "name": { "ko": "라이치", "en": "Olivia" }, "type": "rock", "portrait": null },
+        { "id": "alola-acerola", "name": { "ko": "아세로라", "en": "Acerola" }, "type": "ghost", "portrait": null },
+        { "id": "alola-kahili", "name": { "ko": "카일리", "en": "Kahili" }, "type": "flying", "portrait": null },
+        { "id": "alola-molayne", "name": { "ko": "멀레인", "en": "Molayne" }, "type": "steel", "portrait": null }
+      ],
+      "champion": { "id": "alola-hau", "name": { "ko": "영태", "en": "Hau" }, "type": null, "portrait": null }
+    },
+    {
+      "region": "paldea",
+      "name": { "ko": "팔데아 포켓몬리그", "en": "Paldea League" },
+      "eliteFour": [
+        { "id": "paldea-rika", "name": { "ko": "칠리", "en": "Rika" }, "type": "ground", "portrait": null },
+        { "id": "paldea-poppy", "name": { "ko": "뽀삐", "en": "Poppy" }, "type": "steel", "portrait": null },
+        { "id": "paldea-larry", "name": { "ko": "청목", "en": "Larry" }, "type": "flying", "portrait": null },
+        { "id": "paldea-hassel", "name": { "ko": "팔자크", "en": "Hassel" }, "type": "dragon", "portrait": null }
+      ],
+      "champion": { "id": "paldea-geeta", "name": { "ko": "테사", "en": "Geeta" }, "type": null, "portrait": null }
+    },
+    {
+      "region": "blueberry",
+      "name": { "ko": "블루베리그", "en": "Blueberry League" },
+      "eliteFour": [
+        { "id": "blueberry-crispin", "name": { "ko": "하솔", "en": "Crispin" }, "type": "fire", "portrait": null },
+        { "id": "blueberry-amarys", "name": { "ko": "네리네", "en": "Amarys" }, "type": "steel", "portrait": null },
+        { "id": "blueberry-lacey", "name": { "ko": "타로", "en": "Lacey" }, "type": "fairy", "portrait": null },
+        { "id": "blueberry-drayton", "name": { "ko": "제빈", "en": "Drayton" }, "type": "dragon", "portrait": null }
+      ],
+      "champion": { "id": "blueberry-kieran", "name": { "ko": "카지", "en": "Kieran" }, "type": null, "portrait": null }
+    }
+  ]
+}

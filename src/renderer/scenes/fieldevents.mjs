@@ -11,6 +11,7 @@ import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
+import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { COMPANION_X, GROUND_Y } from '../render/field.mjs';
@@ -316,8 +317,10 @@ function shouldSummonLeader(session) {
 }
 
 /**
- * A leader whose badge the player does not already hold, matching the area's
- * terrain where one fits.
+ * A leader whose badge the player does not already hold, preferring one whose
+ * type suits the area's terrain — a Rock leader on a mountain path rather than
+ * at the seaside.
+ *
  * @param {import('../engine/session.mjs').Session} session
  */
 function pickLeader(session) {
@@ -325,8 +328,8 @@ function pickLeader(session) {
   const available = (gameData().leaders ?? []).filter((leader) => !held.has(leader.type));
   if (available.length === 0) return null;
 
-  const tags = new Set(session.area?.tags ?? []);
-  const local = available.filter((leader) => leader.areas?.some((tag) => tags.has(tag)));
+  const suited = new Set((session.area?.tags ?? []).flatMap((tag) => TAG_TYPES[tag] ?? []));
+  const local = available.filter((leader) => suited.has(leader.type));
   return session.rng.pick(local.length ? local : available);
 }
 
