@@ -21,6 +21,8 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   };
 
   const read = async (name) => JSON.parse(await readFile(join(dataDir, name), 'utf8'));
+  const readAuthored = async (name) =>
+    JSON.parse(await readFile(join(dataDir, '..', 'authored', name), 'utf8'));
 
   const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers] = await Promise.all(
     [
@@ -97,6 +99,8 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     }
   }
 
+  await verifyAuthored({ readAuthored, species, types, actors, note, log });
+
   note(Object.keys(actors.portraits).length > 50, `trainer portraits: only ${Object.keys(actors.portraits).length}`);
   note(Object.keys(actors.overworld).length > 50, `trainer field sprites: only ${Object.keys(actors.overworld).length}`);
   note(Object.keys(actors.props.berryTrees).length > 10, `berry trees: only ${Object.keys(actors.props.berryTrees).length}`);
@@ -110,6 +114,62 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   for (const problem of problems.slice(0, 40)) log(`  - ${problem}`);
   if (problems.length > 40) log(`  … and ${problems.length - 40} more`);
   throw new Error(`Asset verification failed with ${problems.length} problem(s)`);
+}
+
+/**
+ * The hand-written data: trainer classes, gym leaders and the leagues.
+ *
+ * These are the only files in the project typed out by hand rather than
+ * derived, so every species id, type and portrait they name is checked against
+ * what the pipeline actually produced.
+ */
+async function verifyAuthored({ readAuthored, species, types, actors, note, log }) {
+  const [classes, leaders, leagues] = await Promise.all([
+    readAuthored('trainer-classes.json').then((file) => file.classes).catch(() => null),
+    readAuthored('leaders.json').then((file) => file.leaders).catch(() => null),
+    readAuthored('leagues.json').then((file) => file.leagues).catch(() => null),
+  ]);
+
+  if (!classes || !leaders || !leagues) {
+    log('note: authored data is missing, so trainers and the league are unavailable');
+    return;
+  }
+
+  for (const entry of classes) {
+    note(Boolean(actors.overworld[entry.field]), `trainer class ${entry.id}: no field sprite ${entry.field}`);
+    note(Boolean(actors.portraits[entry.portrait]), `trainer class ${entry.id}: no portrait ${entry.portrait}`);
+    for (const type of entry.types) note(Boolean(types[type]), `trainer class ${entry.id}: unknown type ${type}`);
+  }
+
+  const coveredTypes = new Set(leaders.map((leader) => leader.type));
+  note(coveredTypes.size === 18, `gym leaders cover ${coveredTypes.size} of 18 types`);
+  for (const leader of leaders) {
+    note(Boolean(types[leader.type]), `leader ${leader.id}: unknown type ${leader.type}`);
+    note(Boolean(leader.name?.ko), `leader ${leader.id}: no Korean name`);
+    if (leader.portrait) {
+      note(Boolean(actors.portraits[leader.portrait]), `leader ${leader.id}: no portrait ${leader.portrait}`);
+    }
+  }
+  const withoutEnglish = leaders.filter((leader) => !leader.name?.en).map((leader) => leader.name.ko);
+  if (withoutEnglish.length) log(`note: ${withoutEnglish.length} leader(s) have no English name (${withoutEnglish.join(', ')})`);
+
+  for (const league of leagues) {
+    const members = [...league.eliteFour, league.champion];
+    note(league.eliteFour.length >= 4, `league ${league.region}: only ${league.eliteFour.length} Elite Four`);
+    for (const member of members) {
+      note(Boolean(member.name?.ko), `league ${league.region}/${member.id}: no Korean name`);
+      note((member.party ?? []).length > 0, `league ${league.region}/${member.id}: no party`);
+      for (const id of member.party ?? []) {
+        note(Boolean(species[id]), `league ${league.region}/${member.id}: unknown species ${id}`);
+      }
+      if (member.type) note(Boolean(types[member.type]), `league ${league.region}/${member.id}: unknown type ${member.type}`);
+      if (member.portrait) {
+        note(Boolean(actors.portraits[member.portrait]), `league ${league.region}/${member.id}: no portrait ${member.portrait}`);
+      }
+    }
+  }
+
+  log(`authored: ${classes.length} trainer classes, ${leaders.length} gym leaders, ${leagues.length} leagues`);
 }
 
 const summarize = (list) => `${list.length} (${list.slice(0, 6).join(', ')}${list.length > 6 ? ', …' : ''})`;
