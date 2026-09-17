@@ -93,6 +93,40 @@ BGM 1.6MB · 트레이너 0.8MB) + 데이터 3.2MB 입니다.
 - `http.mjs` — 디스크 캐시 · 재시도 · 동시성 제한 다운로더
 - `poke.mjs` — PokeAPI 레코드에서 한국어 명칭/최신 설명을 뽑는 헬퍼
 
+## 배포 · 패키징
+
+`npm run dist` 은 `electron-builder` 로 현재 OS용 패키지를 만듭니다. 대상은
+Windows(NSIS 설치본 + zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/` 에
+떨어집니다. 컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
+
+에셋은 저장소에 없지만 **패키지 안에는 들어갑니다.** `assets/` 와 `data/` 를
+`extraResources` 로 복사하므로 설치본 하나만 받으면 추가 다운로드 없이 실행됩니다.
+`src/main/paths.mjs` 가 `process.resourcesPath` 를 먼저 보고 없으면 저장소 경로로
+되돌아가므로, 개발 실행과 패키지 실행이 같은 코드로 동작합니다. 세이브와 설정은 패키지
+바깥의 `app.getPath('userData')` 에 저장되므로 업데이트해도 남습니다.
+
+아이콘은 `npm run icon` 이 `build/icon.png` 를 그립니다. 저장소에 커밋되는 유일한 그림이며,
+포켓몬 저작물이 아닌 자체 도형입니다.
+
+GitHub Actions 워크플로는 세 개입니다.
+
+| 워크플로 | 시점 | 하는 일 |
+| --- | --- | --- |
+| `check.yml` | 모든 푸시·PR | 에셋 빌드 → `npm run typecheck` → `npm test` |
+| `build.yml` | `v*` 태그 푸시 (또는 수동) | 3개 OS 매트릭스로 패키징 → **드래프트 릴리스**에 업로드 |
+| `itch.yml` | `build.yml` 성공 후 | `ITCH_API_KEY`·`ITCH_TARGET` 이 설정된 경우에만 `butler push` |
+
+에셋 다운로드는 `tools/**` 와 `package-lock.json` 해시를 키로 `actions/cache` 에 캐시되므로,
+게임 코드만 바꾼 빌드는 내려받기를 건너뜁니다. 서명 인증서가 없어 macOS 빌드는 서명되지
+않은 상태로 나갑니다(첫 실행 시 Gatekeeper 우회 필요).
+
+릴리스 절차:
+
+```bash
+npm version 0.1.1        # package.json 버전 갱신 + 태그
+git push --follow-tags   # build.yml 이 태그를 받아 드래프트 릴리스 생성
+```
+
 ## 에리어
 
 수록 에리어는 전부 3세대 호연 지방의 실제 맵입니다. 한 지방으로 통일한 이유는 화풍이

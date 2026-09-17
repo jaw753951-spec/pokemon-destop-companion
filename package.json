@@ -5,6 +5,7 @@
   "description": "Pokémon Desktop Companion — a non-commercial fan-made desktop tamagotchi",
   "type": "module",
   "main": "src/main/main.mjs",
+  "desktopName": "pokemon-desktop-companion.desktop",
   "scripts": {
     "start": "electron .",
     "assets": "node tools/assets.mjs",
@@ -12,12 +13,89 @@
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"test/**/*.test.mjs\"",
     "shot": "xvfb-run -a electron --no-sandbox tools/screenshot.mjs",
-    "dist": "electron-builder --publish never"
+    "icon": "node tools/make-icon.mjs",
+    "dist": "electron-builder --publish never",
+    "dist:linux": "electron-builder --linux AppImage --publish never"
   },
   "devDependencies": {
     "@types/node": "^24.13.5",
     "electron": "^40.0.0",
-    "electron-builder": "^26.0.12",
+    "electron-builder": "^26.15.3",
     "typescript": "^5.9.3"
+  },
+  "author": "jaw753951-spec",
+  "license": "UNLICENSED",
+  "build": {
+    "appId": "com.jaw753951.pokemon-desktop-companion",
+    "productName": "Pokemon Desktop Companion",
+    "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
+    "directories": {
+      "output": "dist",
+      "buildResources": "build"
+    },
+    "files": [
+      "src/**/*",
+      "package.json"
+    ],
+    "extraResources": [
+      {
+        "from": "assets",
+        "to": "assets"
+      },
+      {
+        "from": "data",
+        "to": "data"
+      }
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        },
+        {
+          "target": "zip",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "perMachine": false
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
+      "category": "public.app-category.games",
+      "icon": "build/icon.png"
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": [
+            "x64"
+          ]
+        }
+      ],
+      "category": "Game",
+      "icon": "build/icon.png",
+      "executableName": "pokemon-desktop-companion",
+      "synopsis": "Pokemon Desktop Companion",
+      "syncDesktopName": true
+    }
   }
 }
