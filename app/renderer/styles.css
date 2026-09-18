@@ -1239,12 +1239,16 @@ canvas {
   gap: 6px;
 }
 
-.auto-kind-label {
-  -webkit-app-region: no-drag;
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
+.auto-kind .label {
+  width: auto;
+  color: var(--ink);
+}
+
+/* A kind set to never is still listed, greyed rather than hidden, so turning
+   it back on is where turning it off was. */
+.chip.off {
+  border-style: dashed;
+  color: var(--ink-soft);
 }
 
 /* --------------------------------------------------------------- Pokédex */

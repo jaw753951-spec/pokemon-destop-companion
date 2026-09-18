@@ -60,45 +60,54 @@ const STEPS = [
   { name: '11-bag-box', script: 'seedBox() && clickText("button.tab", ["박스", "Box"])' },
   { name: '12-bag-treasures', script: 'seedBadges(3) && clickText("button.tab", ["소중한 것", "Treasures"])' },
   { name: '13-auto-battle', script: 'clickText("button.tab", ["포켓몬", "Pokémon"]) && await wait(250) && clickText("button", ["자동전투", "Auto-battle"])' },
-  { name: '14-pokedex', script: 'closeAll() && clickText("button", ["도감", "Pokédex"])' },
+  // The list behind one of those conditions, which is where a kind is switched
+  // off as well as gated.
+  { name: '14-auto-condition', script: 'clickText("button.chip", ["체력 1/2 이하", "HP at half or less"]) && await wait(400)' },
+  { name: '15-pokedex', script: 'closeAll() && clickText("button", ["도감", "Pokédex"])' },
   // Charmander, because the starter is the one species this run has certainly
   // caught: an entry only seen shows a silhouette and no description.
-  { name: '15-dex-entry', script: 'clickDexEntry(4)' },
+  { name: '16-dex-entry', script: 'clickDexEntry(4)' },
   // An event spawns beyond the right edge and is walked into, so each of these
   // waits for the state it wants rather than for a fixed time.
-  { name: '16-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
-  { name: '17-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
-  { name: '18-event-ball', script: 'closeAll() && await forceEvent("ball") && await waitFor(() => walkStopped(), 25000)' },
-  { name: '19-event-ball-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  { name: '17-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
+  { name: '18-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  { name: '19-event-ball', script: 'closeAll() && await forceEvent("ball") && await waitFor(() => walkStopped(), 25000)' },
+  { name: '20-event-ball-held', script: 'await waitFor(() => bagGrew(), 16000)' },
   // A rest stop plays where the companion stands, so there is nothing to walk
   // into and nothing to wait for beyond the flash itself.
-  { name: '20-event-heal', script: 'closeAll() && await forceEvent("heal")' },
+  { name: '21-event-heal', script: 'closeAll() && await forceEvent("heal")' },
   // A level-5 starter loses every wild battle it is thrown into, which left
   // the tray and capture shots empty. Levelling it first makes the whole tail
   // of the run — win, tray, capture screen — actually reachable.
-  { name: '21-battle-wild', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
-  { name: '22-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
+  { name: '22-battle-wild', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
+  { name: '23-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
   // Seeded rather than won: a wild Pokémon rolls up to fifteen levels above
   // the companion, so no amount of levelling makes the battle a sure thing,
   // and these two shots are about the screens, not the fight.
-  { name: '23-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
-  { name: '24-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
+  { name: '24-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
+  { name: '25-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
   // Last of the events, because it deliberately leaves one mid-approach:
   // `forceEvent` cannot preempt an event that is already running, so anything
   // after it would get this trainer's battle instead of what it asked for.
-  { name: '25-trainer-approach', script: 'closeAll() && summonLeader() && await forceEvent("trainer") && await wait(2200)' },
+  { name: '26-trainer-approach', script: 'closeAll() && summonLeader() && await forceEvent("trainer") && await wait(2200)' },
   // A gym leader battle, which the wild one does not show: a portrait, a name
   // plate and a party of more than one.
-  { name: '26-battle-leader', script: 'await waitFor(() => inBattle(), 25000) && await wait(1800)' },
+  { name: '27-battle-leader', script: 'await waitFor(() => inBattle(), 25000) && await wait(1800)' },
   // The league opens on the eighth badge, so the case is filled the rest of
   // the way rather than played through.
-  { name: '27-league', script: 'closeAll() && seedBadges(8) && useLeague("hoenn") && await wait(900) && clickText("button", ["포켓몬 리그로 간다", "To the League"]) && await wait(1200)' },
+  { name: '28-league', script: 'closeAll() && seedBadges(8) && useLeague("hoenn") && await wait(900) && clickText("button", ["포켓몬 리그로 간다", "To the League"]) && await wait(1200)' },
+  // The league's own rooms. Fighting four rounds to reach the champion would
+  // take longer than the whole run and could be lost on any of them, so each
+  // round's battle is opened directly — the same scene the league opens, with
+  // the same party and the same chamber behind it.
+  { name: '29-battle-elite', script: 'await leagueBattle(0) && await wait(2000)' },
+  { name: '30-battle-champion', script: 'await leagueBattle(-1) && await wait(2000)' },
   // Saving turns Continue on, and the slot list then shows a run in progress
   // rather than three empty rows. The settings screen's own Save and quit
   // closes the window, which would end the run before these two were taken,
   // so the save is written and the title rebuilt in its place.
-  { name: '28-title-saved', script: 'await saveAndShowTitle()' },
-  { name: '29-slots-filled', script: 'clickText("button", ["계속하기", "Continue"])' },
+  { name: '31-title-saved', script: 'await saveAndShowTitle()' },
+  { name: '32-slots-filled', script: 'clickText("button", ["계속하기", "Continue"])' },
 ];
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -188,6 +197,40 @@ const equipForCapture = (level) => {
   session.active.experience = Math.round(1.2 * level ** 3);
   session.heal();
   session.addItem('poke-ball', 5);
+  return true;
+};
+/**
+ * Open one round of the league challenge, in its own chamber.
+ *
+ * Round -1 means the last one, the champion's. The scene is built from the
+ * league's own data rather than fought for: winning four rounds to photograph
+ * the fifth would take longer than everything before it and could fail on any
+ * of them.
+ */
+const leagueBattle = async (round) => {
+  closeAll();
+  const session = app().session;
+  session.leagueRegion = 'hoenn';
+  // The league patches the challenger up between rounds, and a companion left
+  // fainted by the gym leader would lose this battle before the shot is taken.
+  session.heal();
+
+  const { battleScene } = await import('./scenes/battle.mjs');
+  const { buildParty, resolveLeague } = await import('./scenes/league.mjs');
+  const { backdropForLeagueRound } = await import('./render/backdrop.mjs');
+
+  const league = resolveLeague(session);
+  const rounds = [...league.eliteFour, league.champion];
+  const index = round < 0 ? rounds.length + round : round;
+  const trainer = rounds[index];
+
+  app().push(battleScene({
+    session,
+    foes: buildParty(session, trainer, 4),
+    trainer,
+    backdrop: backdropForLeagueRound(index, rounds.length),
+    onFinish: () => app().pop(),
+  }));
   return true;
 };
 /**

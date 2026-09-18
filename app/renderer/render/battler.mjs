@@ -11,6 +11,24 @@
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
 
+/**
+ * Shrink a battler that would not fit where it stands.
+ *
+ * The sprite sets run from a Diglett to an Eternatus drawn 447 pixels tall —
+ * four times the height of this window — so at full size the big ones are a
+ * cropped shin. Anything that would overrun the room it has is scaled to fill
+ * that room instead, in both directions, so the largest Pokémon is the largest
+ * thing on screen rather than the least visible.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {{width: number, height: number}} room field pixels available
+ * @param {number} preferred the scale it is drawn at when it fits
+ */
+export function fitScale(sprite, room, preferred) {
+  const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
+  return Math.min(preferred, fits);
+}
+
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 

@@ -12,34 +12,18 @@ import { el } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
-import { Battler } from '../render/battler.mjs';
+import { Battler, fitScale } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
-/**
- * Shrink a battler that would not fit above its own feet.
- *
- * Sprites run from a Diglett to a Wailord, and the tall end of that range
- * drawn at full size has its head off the top of the window. Anything that
- * would overrun the space above its platform is scaled down to fill it
- * instead, so the biggest Pokémon is the biggest thing on screen rather than a
- * cropped one.
- *
- * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {number} feet the ground line the sprite stands on, in field pixels
- * @param {number} preferred the scale it would be drawn at if it fits
- */
-function fitScale(sprite, feet, preferred) {
-  const room = feet - HEADROOM;
-  if (sprite.height * preferred <= room) return preferred;
-  return Math.max(0.4, room / sprite.height);
-}
-
-/** Field pixels kept clear above the tallest battler, for the name plates. */
-const HEADROOM = 4;
-
 /** How long each log entry holds the screen. */
 const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
+
+/**
+ * The message box's top edge, in field pixels: it is 34 tall and sits 8 from
+ * the bottom of the window, which is half that in the field's own space.
+ */
+const MESSAGE_TOP = FIELD_HEIGHT - 21;
 
 /**
  * Where the two combatants stand: on the two platforms the backdrop draws, the
@@ -50,7 +34,24 @@ const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
  * size — so these are the platforms' own pixels rather than a guess.
  */
 const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) };
-const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: Math.round(FIELD_HEIGHT * 0.845) };
+const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: MESSAGE_TOP - 3 };
+
+/**
+ * How much room each side has to stand in, in field pixels.
+ *
+ * The foe has everything above its platform: its own name plate is over on the
+ * left, away from it. The companion's head has to stay clear of that plate, so
+ * it gets the window below it. Both are kept inside the window horizontally by
+ * the room either side of the spot they stand on.
+ */
+const FOE_ROOM = {
+  width: 2 * Math.min(FOE_SPOT.x, FIELD_WIDTH - FOE_SPOT.x),
+  height: FOE_SPOT.y - 2,
+};
+const PLAYER_ROOM = {
+  width: 2 * Math.min(PLAYER_SPOT.x, FIELD_WIDTH - PLAYER_SPOT.x),
+  height: PLAYER_SPOT.y - 30,
+};
 
 /**
  * @param {{
@@ -110,7 +111,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         x: FOE_SPOT.x,
         y: FOE_SPOT.y,
         facing: -1,
-        scale: fitScale(sprite, FOE_SPOT.y, 0.8),
+        scale: fitScale(sprite, FOE_ROOM, 0.8),
       });
     });
   };
@@ -128,7 +129,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
             x: PLAYER_SPOT.x,
             y: PLAYER_SPOT.y,
             facing: 1,
-            scale: fitScale(sprite, PLAYER_SPOT.y, 1),
+            scale: fitScale(sprite, PLAYER_ROOM, 1),
           });
         });
       } else if (meta?.front) {
@@ -140,7 +141,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
             x: PLAYER_SPOT.x,
             y: PLAYER_SPOT.y,
             facing: 1,
-            scale: fitScale(sprite, PLAYER_SPOT.y, 1),
+            scale: fitScale(sprite, PLAYER_ROOM, 1),
             flip: true,
           });
         });

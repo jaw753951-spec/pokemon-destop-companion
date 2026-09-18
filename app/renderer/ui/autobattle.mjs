@@ -19,8 +19,25 @@ const MODES = ['repeatAll', 'repeatLast', 'damageFirst'];
 /** The kinds of move that can be turned on and off, in the order shown. */
 const CATEGORIES = ['damage', 'status', 'stat', 'field', 'heal'];
 
-/** Conditions a category can be gated on. */
-const CONDITIONS = ['always', 'noField', 'noStatus', 'lowHp', 'firstTurn'];
+/**
+ * When a kind of move may be used, in the order the picker lists them.
+ *
+ * `never` is one of them rather than a separate switch: a kind that is never
+ * used and a kind used only under some condition are the same decision, and
+ * splitting it across a tick box and a chip made the screen say it twice.
+ */
+const CONDITIONS = [
+  'never',
+  'always',
+  'firstTurn',
+  'noStatus',
+  'foeStatus',
+  'noField',
+  'hpTwoThirds',
+  'hpHalf',
+  'hpThird',
+  'hpQuarter',
+];
 
 /**
  * @param {{session: import('../engine/session.mjs').Session, onClose: () => void}} options
@@ -125,12 +142,12 @@ function modeRow(app, session, rebuild) {
 }
 
 /**
- * One kind of move: whether the companion may use it at all, and when.
+ * One kind of move, and the one thing there is to say about it: when the
+ * companion may reach for it.
  *
- * This was a slider per kind, weighted nought to twenty. Nobody can see what a
- * weight of seven does in a fight that plays itself, and every useful setting
- * of it was really the same decision twice — use this kind, or do not. A tick
- * box says that much and nothing it cannot back up.
+ * The whole row is the condition — pressing it opens the list, `never`
+ * included — because a kind that is switched off is a kind whose condition
+ * never holds, and saying that twice is what a tick box beside a chip did.
  *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
@@ -139,41 +156,32 @@ function modeRow(app, session, rebuild) {
  */
 function categoryRow(app, session, category, rebuild) {
   const policy = session.autoBattle;
-  policy.use = policy.use ?? {};
   policy.conditions = policy.conditions ?? {};
 
-  const used = policy.use[category] !== false;
-
-  const box = el('input.checkbox', {
-    type: 'checkbox',
-    checked: used,
-    onChange: (event) => {
-      app.audio.blip('select');
-      policy.use[category] = /** @type {HTMLInputElement} */ (event.target).checked;
-      rebuild();
-    },
-  });
-
   const condition = policy.conditions[category] ?? 'always';
-  const conditionButton = el('button.chip', {
-    type: 'button',
-    text: t(`auto.condition.${condition}`),
-    title: t('auto.condition'),
-    // A kind that is off is never reached for, so its condition says nothing.
-    disabled: !used,
-    onClick: () => {
-      app.audio.blip('select');
-      const next = CONDITIONS[(CONDITIONS.indexOf(condition) + 1) % CONDITIONS.length];
-      policy.conditions[category] = next;
-      rebuild();
-    },
-  });
 
-  // The label wraps the box so the whole row is the hit target, as the
-  // language settings do; the condition sits outside it, being its own control.
   return el('div.setting.auto-kind', {}, [
-    el('label.auto-kind-label', {}, [box, el('span', { text: t(`auto.kind.${category}`) })]),
+    el('span.label', { text: t(`auto.kind.${category}`) }),
     el('span.spacer'),
-    conditionButton,
+    el(`button.chip${condition === 'never' ? '.off' : ''}`, {
+      type: 'button',
+      text: t(`auto.condition.${condition}`),
+      title: t('auto.condition'),
+      onClick: async () => {
+        app.audio.blip('select');
+        const chosen = await chooseFromList(
+          app,
+          t(`auto.kind.${category}`),
+          CONDITIONS.map((value) => ({
+            value,
+            label: t(`auto.condition.${value}`),
+            detail: value === condition ? t('auto.current') : '',
+          })),
+        );
+        if (chosen === null) return;
+        policy.conditions[category] = chosen;
+        rebuild();
+      },
+    }),
   ]);
 }

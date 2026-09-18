@@ -233,19 +233,23 @@ export function defaultAutoBattle() {
     mode: 'repeatAll',
     /** @type {Array<string|null>} four slots, fired left to right */
     order: [null, null, null, null],
-    /** Which kinds of move the companion may reach for at all. */
-    use: { damage: true, status: true, stat: true, field: true, heal: true },
-    conditions: { status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'lowHp', damage: 'always' },
+    /**
+     * When each kind of move may be used, `never` included. With no move order
+     * set this is the whole policy: attacks are always allowed, and the engine
+     * reaches for the hardest-hitting one it holds.
+     */
+    conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
   };
 }
 
 /**
  * Bring a stored policy up to the shape the engine reads.
  *
- * Policies used to carry a weight per category, which asked the player to tune
- * numbers whose effect they could not see. A saved one is read as what it
- * plainly meant: a category weighted above zero was one the companion was
- * allowed to use.
+ * Two older shapes are read for what they plainly meant. A policy carrying a
+ * weight per category — numbers the player could not see the effect of — used
+ * zero to mean "never", and one carrying a tick per category said the same
+ * thing with a box. Either way the answer is a condition, so both fold into
+ * the one field the engine now reads.
  *
  * @param {any} policy
  */
@@ -253,15 +257,15 @@ export function normalizeAutoBattle(policy) {
   const fresh = defaultAutoBattle();
   if (!policy) return fresh;
 
-  const use = { ...fresh.use, ...(policy.use ?? {}) };
-  if (!policy.use && policy.weights) {
-    for (const category of Object.keys(fresh.use)) use[category] = (policy.weights[category] ?? 0) > 0;
+  const conditions = { ...fresh.conditions, ...(policy.conditions ?? {}) };
+  for (const category of Object.keys(fresh.conditions)) {
+    const off = policy.use ? policy.use[category] === false : (policy.weights?.[category] ?? 1) <= 0;
+    if (off) conditions[category] = 'never';
   }
 
   return {
     mode: policy.mode ?? fresh.mode,
     order: policy.order ?? fresh.order,
-    use,
-    conditions: { ...fresh.conditions, ...(policy.conditions ?? {}) },
+    conditions,
   };
 }

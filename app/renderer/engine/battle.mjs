@@ -635,21 +635,30 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
 
   /** @type {Array<{value: string, weight: number}>} */
   const candidates = [];
+  /** The hardest-hitting attack, which is the only one of its kind offered. */
+  let bestDamage = /** @type {{value: string, damage: number}|null} */ (null);
+
   for (const slot of usable) {
     const move = moveOf(slot.move);
     if (!move) continue;
     const category = categoryOf(move);
-    if (policy.use?.[category] === false) continue;
     if (!conditionHolds(policy.conditions?.[category] ?? 'always', battle, attacker, defender)) continue;
 
-    // Every kind the player left ticked is equally allowed; within a category,
-    // prefer the option that would actually accomplish something — a stronger
-    // attack, or a stage that is not already maxed.
-    let weight = 1;
-    if (category === 'damage') weight *= 1 + expectedDamage(attacker, defender, move) / 40;
+    // Attacks do not compete with each other: holding four of them and no
+    // instructions about which to use means using the one that hits hardest,
+    // rather than rolling between a Flamethrower and a Tackle every turn.
+    if (category === 'damage') {
+      const damage = expectedDamage(attacker, defender, move);
+      if (!bestDamage || damage > bestDamage.damage) bestDamage = { value: slot.move, damage };
+      continue;
+    }
+
+    // A stat move that cannot move anything accomplishes nothing.
     if (category === 'stat' && !hasRoomToChange(move, attacker, defender)) continue;
-    candidates.push({ value: slot.move, weight });
+    candidates.push({ value: slot.move, weight: 1 });
   }
+
+  if (bestDamage) candidates.push({ value: bestDamage.value, weight: 1 });
 
   const chosen = battle.rng.weighted(candidates);
   if (chosen) return chosen;
@@ -671,23 +680,43 @@ export function categoryOf(move) {
 }
 
 /**
+ * Whether a kind of move may be used this turn.
+ *
+ * One condition per kind is the whole of the auto-battle policy beyond the
+ * move order: `never` takes a kind out of the fight altogether, and the rest
+ * name the moment it is worth reaching for.
+ *
  * @param {string} condition
  * @param {Battle} battle
  * @param {Combatant} attacker
  * @param {Combatant} defender
  */
 function conditionHolds(condition, battle, attacker, defender) {
+  const health = () => attacker.pokemon.hp / Math.max(1, maxHp(attacker.pokemon));
+
   switch (condition) {
-    case 'noStatus':
-      return !defender.pokemon.status;
-    case 'lowHp':
-      return attacker.pokemon.hp <= maxHp(attacker.pokemon) / 2;
+    case 'never':
+      return false;
     case 'firstTurn':
       return attacker.turnsTaken === 0;
+    case 'noStatus':
+      return !defender.pokemon.status;
+    case 'foeStatus':
+      return Boolean(defender.pokemon.status);
     case 'noField':
       // No weather or terrain is modelled yet, so a field move is always fair
       // game under this condition.
       return true;
+    case 'hpTwoThirds':
+      return health() <= 2 / 3;
+    // `lowHp` is what half health was called before the fractions were named.
+    case 'lowHp':
+    case 'hpHalf':
+      return health() <= 1 / 2;
+    case 'hpThird':
+      return health() <= 1 / 3;
+    case 'hpQuarter':
+      return health() <= 1 / 4;
     case 'always':
     default:
       return true;
