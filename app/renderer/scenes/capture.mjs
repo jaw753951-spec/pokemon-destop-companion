@@ -80,9 +80,9 @@ export function captureScene({ session, target, onFinish }) {
     },
   };
 
+  /** The throws left, counted in balls — three of them say it without a word. */
   function renderCounter() {
     setChildren(counter, [
-      el('span', { text: t('capture.attempts') }),
       ...Array.from({ length: CAPTURE_ATTEMPTS }, (_, index) =>
         el('img', {
           src: url('assets', 'items/poke-ball.png'),
@@ -148,9 +148,11 @@ export function captureScene({ session, target, onFinish }) {
       });
       target.nickname = nickname;
       target.ball = ball;
-      session.storeInBox(target);
+      const stored = session.storeInBox(target);
 
-      app.toast(t('capture.sentToBox', { name: target.nickname || label() }));
+      app.toast(stored
+        ? t('capture.sentToBox', { name: target.nickname || label() })
+        : t('capture.boxFull'));
       finish(app, true);
       return;
     }

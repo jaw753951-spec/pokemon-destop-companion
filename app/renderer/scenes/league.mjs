@@ -13,6 +13,8 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { evolveToLevel } from '../engine/encounter.mjs';
+import { backdropForLeagueRound, drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
+import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
 
 /** How far above the challenger each round is pitched. */
@@ -32,6 +34,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
   let index = 0;
   let busy = false;
+  /** The chamber this round is fought in, drawn behind the challenge screen. */
+  let room = /** @type {HTMLImageElement|null} */ (null);
+  let loadedRoom = '';
 
   const heading = el('div.league-heading');
   const portrait = /** @type {HTMLImageElement} */ (el('img.league-portrait', { alt: '' }));
@@ -44,6 +49,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     mount(app) {
       app.audio.playMusic(gameData().bgm.cues.league ?? null);
       render(app);
+      loadRoom();
 
       return el('div.screen.league-screen', {}, [
         heading,
@@ -54,7 +60,15 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     },
 
     render(context) {
-      context.fillStyle = 'rgba(8, 10, 20, 0.88)';
+      if (!room) {
+        context.fillStyle = 'rgba(8, 10, 20, 0.88)';
+        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+        return;
+      }
+      // The chamber itself, dimmed enough for the portrait and the buttons in
+      // front of it to stay legible.
+      inFieldSpace(context, (field) => drawBackdrop(field, room));
+      context.fillStyle = 'rgba(8, 10, 20, 0.55)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
     },
   };
@@ -80,6 +94,16 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     ]);
   }
 
+  /** The chamber for the round about to be fought. */
+  function loadRoom() {
+    const id = backdropForLeagueRound(index, rounds.length);
+    if (id === loadedRoom) return;
+    loadedRoom = id;
+    loadBackdrop(id).then((image) => {
+      if (loadedRoom === id) room = image;
+    });
+  }
+
   /** @param {import('../core/app.mjs').App} app */
   function startRound(app) {
     if (busy) return;
@@ -93,6 +117,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         session,
         foes: buildParty(session, round, LEVEL_STEP[Math.min(index, LEVEL_STEP.length - 1)]),
         trainer: round,
+        backdrop: backdropForLeagueRound(index, rounds.length),
         music: gameData().bgm.cues[last ? 'battleChampion' : 'battleEliteFour'],
         onFinish: (result) => {
           app.pop();
@@ -118,6 +143,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
           index++;
           app.toast(t('league.healed'));
           render(app);
+          loadRoom();
         },
       }),
     );

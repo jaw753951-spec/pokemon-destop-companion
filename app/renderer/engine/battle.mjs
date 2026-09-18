@@ -607,8 +607,9 @@ export function expectedDamage(attacker, defender, move) {
  *
  * The policy has three parts, applied in order: an explicit move order the
  * user laid out, the `mode` that decides what happens once that order runs
- * out, and per-category weights with a condition each. Anything the policy
- * cannot decide falls through to the strongest attack.
+ * out, and the kinds of move the companion may reach for, each with a
+ * condition. Anything the policy cannot decide falls through to the strongest
+ * attack.
  *
  * @param {Battle} battle
  * @param {Combatant} attacker
@@ -638,12 +639,13 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
     const move = moveOf(slot.move);
     if (!move) continue;
     const category = categoryOf(move);
+    if (policy.use?.[category] === false) continue;
     if (!conditionHolds(policy.conditions?.[category] ?? 'always', battle, attacker, defender)) continue;
 
-    let weight = policy.weights?.[category] ?? 1;
-    if (weight <= 0) continue;
-    // Within a category, prefer the option that would actually accomplish
-    // something: a stronger attack, or a stage that is not already maxed.
+    // Every kind the player left ticked is equally allowed; within a category,
+    // prefer the option that would actually accomplish something — a stronger
+    // attack, or a stage that is not already maxed.
+    let weight = 1;
     if (category === 'damage') weight *= 1 + expectedDamage(attacker, defender, move) / 40;
     if (category === 'stat' && !hasRoomToChange(move, attacker, defender)) continue;
     candidates.push({ value: slot.move, weight });

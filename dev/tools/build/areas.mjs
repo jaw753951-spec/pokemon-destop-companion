@@ -15,7 +15,7 @@ import {
   sliceTiles,
   tilesetDirName,
 } from '../lib/gba-gfx.mjs';
-import { crop, gradeTime, makeSeamless, pickWalkableBand, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
+import { crop, gradeTime, makeSeamless, pickWalkableBand, pickWalkLane, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
 import { nameBundle } from '../lib/poke.mjs';
 import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sources.mjs';
 
@@ -53,6 +53,10 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const bandRow = pickWalkableBand(blockdata, layout.width, layout.height, bandBlocks);
     const band = crop(rendered, 0, bandRow * METATILE_SIZE, rendered.width, bandBlocks * METATILE_SIZE);
     const strip = repeatToWidth(makeSeamless(band), FIELD_WIDTH * 2);
+    // Where the companion's feet go within the strip: the bottom edge of the
+    // lane whose blocks are clear, rather than a fixed fraction of the window.
+    const laneRow = pickWalkLane(blockdata, layout.width, bandRow, bandBlocks);
+    const groundY = Math.min(strip.height, (laneRow - bandRow + 1) * METATILE_SIZE);
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
@@ -69,12 +73,16 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       tags: area.tags,
       width: strip.width,
       height: strip.height,
+      groundY,
       music,
       weather: map.weather ? map.weather.replace('WEATHER_', '').toLowerCase() : 'none',
       encounters: encounters.get(map.id) ?? [],
     });
 
-    log(`area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}`);
+    log(
+      `area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  ground=${groundY}  ` +
+        `music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}`,
+    );
   }
 
   await writeOut(join(dataDir, 'areas.json'), JSON.stringify(manifest));

@@ -3,8 +3,9 @@
  *
  * Three things decide what the companion does on its turn, in this order: the
  * move order laid out by hand, the mode that takes over once that order runs
- * out, and per-category weights with a condition each. Everything here edits
- * the policy the battle engine reads, so the effect of a change is immediate.
+ * out, and which kinds of move it may reach for, each under a condition.
+ * Everything here edits the policy the battle engine reads, so the effect of a
+ * change is immediate.
  */
 import { moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
@@ -15,7 +16,7 @@ import { chooseFromList } from './dialog.mjs';
 /** Exactly one of these is active, as the brief requires. */
 const MODES = ['repeatAll', 'repeatLast', 'damageFirst'];
 
-/** The weightable move categories, in the order they are shown. */
+/** The kinds of move that can be turned on and off, in the order shown. */
 const CATEGORIES = ['damage', 'status', 'stat', 'field', 'heal'];
 
 /** Conditions a category can be gated on. */
@@ -37,8 +38,8 @@ export function autoBattleScene({ session, onClose }) {
           el('div.section-title', { text: t('auto.order') }),
           orderRow(app, session, rebuild),
           modeRow(app, session, rebuild),
-          el('div.section-title', { text: t('auto.weights') }),
-          ...CATEGORIES.map((category) => weightRow(app, session, category, rebuild)),
+          el('div.section-title', { text: t('auto.kinds') }),
+          ...CATEGORIES.map((category) => categoryRow(app, session, category, rebuild)),
         ]);
       };
       rebuild();
@@ -85,7 +86,7 @@ function orderRow(app, session, rebuild) {
           ...equipped.map((slug) => ({
             value: slug,
             label: localized(moveOf(slug)?.name, slug),
-            detail: t(`auto.weight.${categoryOf(moveOf(slug) ?? {})}`),
+            detail: t(`auto.kind.${categoryOf(moveOf(slug) ?? {})}`),
           })),
         ];
         const chosen = await chooseFromList(app, t('auto.order'), choices);
@@ -124,29 +125,32 @@ function modeRow(app, session, rebuild) {
 }
 
 /**
+ * One kind of move: whether the companion may use it at all, and when.
+ *
+ * This was a slider per kind, weighted nought to twenty. Nobody can see what a
+ * weight of seven does in a fight that plays itself, and every useful setting
+ * of it was really the same decision twice — use this kind, or do not. A tick
+ * box says that much and nothing it cannot back up.
+ *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {string} category
  * @param {() => void} rebuild
  */
-function weightRow(app, session, category, rebuild) {
+function categoryRow(app, session, category, rebuild) {
   const policy = session.autoBattle;
-  policy.weights = policy.weights ?? {};
+  policy.use = policy.use ?? {};
   policy.conditions = policy.conditions ?? {};
 
-  const weight = policy.weights[category] ?? 0;
-  const value = el('span.value', { text: String(weight) });
+  const used = policy.use[category] !== false;
 
-  const slider = el('input', {
-    type: 'range',
-    min: '0',
-    max: '20',
-    step: '1',
-    value: String(weight),
-    onInput: (event) => {
-      const next = Number(/** @type {HTMLInputElement} */ (event.target).value);
-      policy.weights[category] = next;
-      value.textContent = String(next);
+  const box = el('input.checkbox', {
+    type: 'checkbox',
+    checked: used,
+    onChange: (event) => {
+      app.audio.blip('select');
+      policy.use[category] = /** @type {HTMLInputElement} */ (event.target).checked;
+      rebuild();
     },
   });
 
@@ -155,6 +159,8 @@ function weightRow(app, session, category, rebuild) {
     type: 'button',
     text: t(`auto.condition.${condition}`),
     title: t('auto.condition'),
+    // A kind that is off is never reached for, so its condition says nothing.
+    disabled: !used,
     onClick: () => {
       app.audio.blip('select');
       const next = CONDITIONS[(CONDITIONS.indexOf(condition) + 1) % CONDITIONS.length];
@@ -163,10 +169,11 @@ function weightRow(app, session, category, rebuild) {
     },
   });
 
-  return el('div.setting.auto-weight', {}, [
-    el('span.label', { text: t(`auto.weight.${category}`) }),
-    slider,
-    value,
+  // The label wraps the box so the whole row is the hit target, as the
+  // language settings do; the condition sits outside it, being its own control.
+  return el('div.setting.auto-kind', {}, [
+    el('label.auto-kind-label', {}, [box, el('span', { text: t(`auto.kind.${category}`) })]),
+    el('span.spacer'),
     conditionButton,
   ]);
 }

@@ -67,6 +67,15 @@ export const STARTERS = [1, 4, 7];
 /** Maximum Pokémon held in the post-battle "keep or catch" tray. */
 export const TRAY_LIMIT = 5;
 
+/**
+ * How many Pokémon the box holds.
+ *
+ * The main series gives a box thirty spaces and then another box; one box of a
+ * hundred is the same storage without a box-switching screen to build, and the
+ * grid scrolls rather than paginates.
+ */
+export const BOX_LIMIT = 100;
+
 /** Chances to catch a Pokémon once the capture screen opens. */
 export const CAPTURE_ATTEMPTS = 3;
 

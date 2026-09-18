@@ -15,8 +15,40 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
 
-/** Where the companion's feet sit: just below centre, as the games frame it. */
-export const GROUND_Y = Math.round(FIELD_HEIGHT * 0.62);
+/**
+ * Where the companion's feet sit.
+ *
+ * Each area carries its own line — the pipeline picks the row whose blocks are
+ * clear of scenery, so the companion walks down the path instead of through
+ * the tree line — and this is the fallback until one is loaded.
+ */
+const DEFAULT_GROUND_Y = Math.round(FIELD_HEIGHT * 0.62);
+
+let ground = DEFAULT_GROUND_Y;
+
+/** The ground line the field is currently drawing on. */
+export function groundY() {
+  return ground;
+}
+
+/**
+ * Put the ground line where the area wants it, in field coordinates.
+ * @param {number|null|undefined} value
+ */
+export function setGroundY(value) {
+  ground = Number.isFinite(value) ? Math.round(/** @type {number} */ (value)) : DEFAULT_GROUND_Y;
+}
+
+/**
+ * How much larger than its own art an actor is drawn on the field.
+ *
+ * Box icons and the overworld people sheets are built for a 16-pixel tile, and
+ * at that size on this window a Pokémon is a thumbnail you squint at. Half
+ * again is as far as they go before they stop belonging to the map — and the
+ * field is drawn at twice size, so one source pixel still lands on a whole
+ * number of screen pixels.
+ */
+export const ACTOR_SCALE = 1.5;
 
 /** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
@@ -132,33 +164,35 @@ export function walkFrame(distance) {
  *
  * @param {CanvasRenderingContext2D} context
  * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{x: number, y: number, distance: number, moving: boolean, flip?: boolean}} options
+ * @param {{x: number, y: number, distance: number, moving: boolean, flip?: boolean, scale?: number}} options
  */
-export function drawWalker(context, sprite, { x, y, distance, moving, flip = true }) {
+export function drawWalker(context, sprite, { x, y, distance, moving, flip = true, scale = ACTOR_SCALE }) {
   const { lift, lean } = moving ? walkFrame(distance) : WALK_CYCLE[0];
 
-  drawShadow(context, x, y, sprite.width);
+  const width = sprite.width * scale;
+  const height = sprite.height * scale;
+  drawShadow(context, x, y, width);
 
-  const left = Math.round(x - sprite.width / 2);
-  const top = Math.round(y - sprite.height - lift);
+  const left = Math.round(x - width / 2);
+  const top = Math.round(y - height - lift);
 
   context.save();
   if (flip) {
     // Mirror about the sprite's own centre column, so flipping does not move
     // it off the spot it is standing on.
-    context.translate(left * 2 + sprite.width, 0);
+    context.translate(left * 2 + width, 0);
     context.scale(-1, 1);
   }
 
   if (lean === 0) {
-    context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, sprite.width, sprite.height);
+    context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, width, height);
   } else {
     // One draw per row is a few dozen tiny blits for a sprite this size, which
     // is cheaper than the offscreen canvas an equivalent transform would need.
     for (let row = 0; row < sprite.height; row++) {
       const weight = 1 - row / sprite.height;
       const shift = Math.round(lean * weight);
-      context.drawImage(sprite.image, 0, row, sprite.width, 1, left + shift, top + row, sprite.width, 1);
+      context.drawImage(sprite.image, 0, row, sprite.width, 1, left + shift, top + row * scale, width, scale);
     }
   }
   context.restore();

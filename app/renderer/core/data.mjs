@@ -19,6 +19,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Record<string, any>} actors
  * @property {{cues: Record<string, string>, tracks: Record<string, any>}} bgm
  * @property {Record<string, string[]>} itemTiers
+ * @property {{backdrops: Record<string, any>, tags: Record<string, string>, badges: string[]}} battle
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
@@ -31,7 +32,7 @@ let data = null;
 export async function loadGameData() {
   if (data) return data;
 
-  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers] = await Promise.all([
+  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers, battle] = await Promise.all([
     loadJson('data', 'species.json'),
     loadJson('data', 'moves.json'),
     loadJson('data', 'items.json'),
@@ -43,6 +44,7 @@ export async function loadGameData() {
     loadJson('data', 'actors.json'),
     loadJson('data', 'bgm.json'),
     loadJson('data', 'item-tiers.json'),
+    loadJson('data', 'battle.json'),
   ]);
 
   // Authored data is optional: a checkout without it still runs, just without
@@ -54,7 +56,7 @@ export async function loadGameData() {
   ]);
 
   data = {
-    species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers,
+    species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers, battle,
     trainerClasses, leaders, leagues,
   };
   return data;

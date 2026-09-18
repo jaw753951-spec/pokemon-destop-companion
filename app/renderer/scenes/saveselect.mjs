@@ -5,6 +5,7 @@ import { saves, url } from '../core/bridge.mjs';
 import { speciesOf } from '../core/data.mjs';
 import { button, el, scrollable } from '../core/dom.mjs';
 import { formatPlaytime, name as localized, t } from '../core/i18n.mjs';
+import { levelForExperience } from '../engine/stats.mjs';
 import { confirm } from '../ui/dialog.mjs';
 import { starterScene } from './starter.mjs';
 import { startRun } from './field.mjs';
@@ -53,9 +54,10 @@ function slotRow(app, slot, mode, rebuild) {
   const usable = mode === 'new' ? true : !slot.empty;
   const species = slot.summary?.speciesId ? speciesOf(slot.summary.speciesId) : null;
 
+  const level = species ? levelForExperience(species.growthRate, slot.summary.experience ?? 0) : 1;
   const headline = slot.empty
     ? t('slot.empty')
-    : `${slot.summary.nickname || localized(species?.name, '')} ${t('slot.level', { level: slot.summary.level })}`;
+    : `${slot.summary.nickname || localized(species?.name, '')} ${t('slot.level', { level })}`;
 
   const meta = slot.empty
     ? ''

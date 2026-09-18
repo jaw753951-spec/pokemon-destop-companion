@@ -34,7 +34,10 @@ export async function listSlots() {
             summary: {
               speciesId: save.party?.active?.speciesId ?? null,
               nickname: save.party?.active?.nickname ?? null,
-              level: save.party?.active?.level ?? 1,
+              // A Pokémon carries experience, not a level: what that comes to
+              // depends on its species' growth rate, which only the renderer
+              // has the data to work out.
+              experience: save.party?.active?.experience ?? 0,
               badges: save.progress?.badges?.length ?? 0,
               playtime: save.progress?.playtime ?? 0,
               savedAt: save.savedAt ?? null,

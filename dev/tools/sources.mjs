@@ -104,5 +104,29 @@ export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
  */
 export const BACKGROUND_HEIGHT = FIELD_HEIGHT;
 
+/**
+ * The battle backdrop is composed at exactly the field's own size, so the
+ * battle scene draws it one-to-one over the same doubled space the map uses.
+ * The handheld shows the leftmost 240 columns of its 256-wide tilemap, which
+ * is what cropping to the field width reproduces.
+ */
+export const BATTLE_WIDTH = FIELD_WIDTH;
+export const BATTLE_HEIGHT = FIELD_HEIGHT;
+
+/**
+ * The eight badges on the Hoenn trainer card, in sheet order, named for the
+ * type of the gym that awards each one.
+ */
+export const HOENN_BADGE_TYPES = [
+  'rock',
+  'fighting',
+  'electric',
+  'fire',
+  'normal',
+  'flying',
+  'psychic',
+  'water',
+];
+
 /** Cap on stored animation frames per sprite state. */
 export const MAX_SPRITE_FRAMES = 10;

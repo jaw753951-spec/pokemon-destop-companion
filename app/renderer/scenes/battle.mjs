@@ -13,28 +13,57 @@ import { name as localized, t } from '../core/i18n.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { Battler } from '../render/battler.mjs';
+import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
+
+/**
+ * Shrink a battler that would not fit above its own feet.
+ *
+ * Sprites run from a Diglett to a Wailord, and the tall end of that range
+ * drawn at full size has its head off the top of the window. Anything that
+ * would overrun the space above its platform is scaled down to fill it
+ * instead, so the biggest Pokémon is the biggest thing on screen rather than a
+ * cropped one.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {number} feet the ground line the sprite stands on, in field pixels
+ * @param {number} preferred the scale it would be drawn at if it fits
+ */
+function fitScale(sprite, feet, preferred) {
+  const room = feet - HEADROOM;
+  if (sprite.height * preferred <= room) return preferred;
+  return Math.max(0.4, room / sprite.height);
+}
+
+/** Field pixels kept clear above the tallest battler, for the name plates. */
+const HEADROOM = 4;
 
 /** How long each log entry holds the screen. */
 const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
 
-/** Where the two combatants stand. */
-// Field coordinates: the battlers are drawn in the same doubled space as the
-// map behind them, so the two stay in proportion.
-const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.74), y: Math.round(FIELD_HEIGHT * 0.39) };
-const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: Math.round(FIELD_HEIGHT * 0.63) };
+/**
+ * Where the two combatants stand: on the two platforms the backdrop draws, the
+ * foe on the far one and the companion on the near one.
+ *
+ * Field coordinates, because the battlers are drawn in the same doubled space
+ * as the backdrop behind them, and the backdrop is composed at exactly that
+ * size — so these are the platforms' own pixels rather than a guess.
+ */
+const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) };
+const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: Math.round(FIELD_HEIGHT * 0.845) };
 
 /**
  * @param {{
  *   session: import('../engine/session.mjs').Session,
  *   foes: import('../engine/pokemon.mjs').Pokemon[],
  *   trainer?: {name: {ko: string, en: string}, portrait?: string|null, kind?: string}|null,
+ *   backdrop?: string|null,
  *   music?: string|null,
  *   onFinish: (result: {outcome: 'won'|'lost', defeated: import('../engine/pokemon.mjs').Pokemon[]}) => void,
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function battleScene({ session, foes, trainer = null, music = null, onFinish }) {
+export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, onFinish }) {
   const battle = new Battle({
     rng: session.rng,
     player: session.active,
@@ -50,6 +79,8 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
   /** @type {import('../engine/pokemon.mjs').Pokemon[]} */
   const defeated = [];
 
+  /** @type {HTMLImageElement|null} */
+  let backdropImage = null;
   /** @type {Battler|null} */
   let playerBattler = null;
   /** @type {Battler|null} */
@@ -74,7 +105,13 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       // The BW set draws backs and fronts at much the same size (mean height 75
       // against 78), so the foe is shrunk to put it up the field. Without this
       // the two sit on the same plane and the battle reads flat.
-      foeBattler = new Battler({ sprite, x: FOE_SPOT.x, y: FOE_SPOT.y, facing: -1, scale: 0.8 });
+      foeBattler = new Battler({
+        sprite,
+        x: FOE_SPOT.x,
+        y: FOE_SPOT.y,
+        facing: -1,
+        scale: fitScale(sprite, FOE_SPOT.y, 0.8),
+      });
     });
   };
 
@@ -86,14 +123,30 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       const meta = gameData().sprites[active.speciesId];
       if (meta?.back) {
         loadSprite(`pokemon/${active.speciesId}/back.png`, meta.back).then((sprite) => {
-          playerBattler = new Battler({ sprite, x: PLAYER_SPOT.x, y: PLAYER_SPOT.y, facing: 1 });
+          playerBattler = new Battler({
+            sprite,
+            x: PLAYER_SPOT.x,
+            y: PLAYER_SPOT.y,
+            facing: 1,
+            scale: fitScale(sprite, PLAYER_SPOT.y, 1),
+          });
         });
       } else if (meta?.front) {
         loadSprite(`pokemon/${active.speciesId}/front.png`, meta.front).then((sprite) => {
-          playerBattler = new Battler({ sprite, x: PLAYER_SPOT.x, y: PLAYER_SPOT.y, facing: 1 });
+          // No back art: the front sprite stands in, mirrored so the companion
+          // still looks up the field at what it is fighting.
+          playerBattler = new Battler({
+            sprite,
+            x: PLAYER_SPOT.x,
+            y: PLAYER_SPOT.y,
+            facing: 1,
+            scale: fitScale(sprite, PLAYER_SPOT.y, 1),
+            flip: true,
+          });
         });
       }
       loadFoeSprite();
+      if (backdrop) loadBackdrop(backdrop).then((image) => { backdropImage = image; });
 
       app.audio.playMusic(music ?? gameData().bgm.cues[trainer ? 'battleTrainer' : 'battleWild']);
       app.audio.playCry(battle.foe?.pokemon.speciesId ?? active.speciesId);
@@ -133,12 +186,15 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
     },
 
     render(context) {
-      // Dim whatever the field left on the canvas, so the battle reads as a
-      // layer over the world rather than a separate place.
-      context.fillStyle = 'rgba(12, 16, 26, 0.55)';
-      context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      // Until the backdrop has decoded, dim whatever the field left on the
+      // canvas rather than flashing the map at full brightness for a frame.
+      if (!backdropImage) {
+        context.fillStyle = 'rgba(12, 16, 26, 0.55)';
+        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      }
 
       inFieldSpace(context, (field) => {
+        if (backdropImage) drawBackdrop(field, backdropImage);
         foeBattler?.draw(field);
         playerBattler?.draw(field);
       });

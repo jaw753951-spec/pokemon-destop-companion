@@ -20,6 +20,7 @@ import { buildSprites } from './build/sprites.mjs';
 import { buildItems } from './build/items.mjs';
 import { buildActors } from './build/actors.mjs';
 import { buildAudio } from './build/audio.mjs';
+import { buildBattle } from './build/battle.mjs';
 import { verifyAssets } from './build/verify.mjs';
 
 const ROOT = fileURLToPath(new URL('../../', import.meta.url));
@@ -31,6 +32,7 @@ const STEPS = {
   items: buildItems,
   actors: buildActors,
   areas: buildAreas,
+  battle: buildBattle,
   audio: buildAudio,
   verify: verifyAssets,
 };

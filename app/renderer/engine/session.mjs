@@ -5,7 +5,7 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, BOX_LIMIT, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
@@ -38,7 +38,7 @@ export class Session {
     this.champions = new Set(save.dex?.champions ?? []);
 
     /** @type {any} */
-    this.autoBattle = save.autoBattle ?? defaultAutoBattle();
+    this.autoBattle = normalizeAutoBattle(save.autoBattle);
     /** @type {string|null} */
     this.leagueRegion = save.progress?.leagueRegion ?? null;
 
@@ -160,12 +160,20 @@ export class Session {
   /**
    * Put a Pokémon in the first free box space.
    * @param {import('./pokemon.mjs').Pokemon} pokemon
+   * @returns {boolean} whether the box had room
    */
   storeInBox(pokemon) {
     const index = this.box.findIndex((entry) => !entry);
     if (index >= 0) this.box[index] = pokemon;
-    else this.box.push(pokemon);
+    else if (this.box.length < BOX_LIMIT) this.box.push(pokemon);
+    else return false;
     this.markCaught(pokemon.speciesId);
+    return true;
+  }
+
+  /** Whether every space in the box is taken. */
+  get boxFull() {
+    return this.box.filter(Boolean).length >= BOX_LIMIT;
   }
 
   /**
@@ -225,7 +233,35 @@ export function defaultAutoBattle() {
     mode: 'repeatAll',
     /** @type {Array<string|null>} four slots, fired left to right */
     order: [null, null, null, null],
-    weights: { damage: 10, status: 4, stat: 3, field: 2, heal: 5 },
+    /** Which kinds of move the companion may reach for at all. */
+    use: { damage: true, status: true, stat: true, field: true, heal: true },
     conditions: { status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'lowHp', damage: 'always' },
+  };
+}
+
+/**
+ * Bring a stored policy up to the shape the engine reads.
+ *
+ * Policies used to carry a weight per category, which asked the player to tune
+ * numbers whose effect they could not see. A saved one is read as what it
+ * plainly meant: a category weighted above zero was one the companion was
+ * allowed to use.
+ *
+ * @param {any} policy
+ */
+export function normalizeAutoBattle(policy) {
+  const fresh = defaultAutoBattle();
+  if (!policy) return fresh;
+
+  const use = { ...fresh.use, ...(policy.use ?? {}) };
+  if (!policy.use && policy.weights) {
+    for (const category of Object.keys(fresh.use)) use[category] = (policy.weights[category] ?? 0) > 0;
+  }
+
+  return {
+    mode: policy.mode ?? fresh.mode,
+    order: policy.order ?? fresh.order,
+    use,
+    conditions: { ...fresh.conditions, ...(policy.conditions ?? {}) },
   };
 }

@@ -6,12 +6,23 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { timeOfDay } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { Session } from '../engine/session.mjs';
-import { COMPANION_X, drawBackground, drawStepDust, drawWalker, GROUND_Y, inFieldSpace, WALK_SPEED } from '../render/field.mjs';
+import {
+  ACTOR_SCALE,
+  COMPANION_X,
+  drawBackground,
+  drawStepDust,
+  drawWalker,
+  groundY,
+  inFieldSpace,
+  setGroundY,
+  WALK_SPEED,
+} from '../render/field.mjs';
+import { backdropForArea } from '../render/backdrop.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -65,6 +76,9 @@ export function fieldScene(session) {
     const key = `${session.area?.id}/${timeOfDay()}`;
     if (session.area && key !== loadedAreaKey) {
       loadedAreaKey = key;
+      // The strip is anchored to the bottom of the field, so the area's own
+      // walkable lane is measured from there too.
+      setGroundY(FIELD_HEIGHT - session.area.height + session.area.groundY);
       loadImage(`areas/${session.area.id}/${timeOfDay()}.png`)
         .then((image) => {
           // A slower load must not overwrite a newer area.
@@ -147,6 +161,8 @@ export function fieldScene(session) {
         session,
         foes: setup.foes,
         trainer: setup.trainer,
+        // A gym leader is fought in their gym, everyone else where they stand.
+        backdrop: setup.leader ? 'leader' : backdropForArea(session.area),
         music: setup.leader ? gameData().bgm.cues.battleLeader : undefined,
         onFinish: (result) => {
           app.pop();
@@ -278,11 +294,13 @@ export function fieldScene(session) {
     render(context) {
       inFieldSpace(context, (field) => {
         drawBackground(field, background, Math.round(offset));
-        events?.render(field, offset, companion?.height ?? 24);
+        // The height the companion is actually drawn at, so a carried item
+        // clears the head of a Wailord as surely as that of a Wurmple.
+        events?.render(field, offset, Math.round((companion?.height ?? 24) * ACTOR_SCALE));
 
         if (companion && showActor) {
           const moving = !paused && (events?.walking ?? true);
-          const walk = { x: COMPANION_X, y: GROUND_Y, distance: offset, moving };
+          const walk = { x: COMPANION_X, y: groundY(), distance: offset, moving };
           drawStepDust(field, walk);
           drawWalker(field, companion, walk);
         }

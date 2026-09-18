@@ -22,14 +22,26 @@ export class Battler {
    *   y: number,
    *   facing: 1|-1,
    *   scale?: number,
+   *   flip?: boolean,
    * }} options
    */
-  constructor({ sprite, x, y, facing, scale = 1 }) {
+  constructor({ sprite, x, y, facing, scale = 1, flip = false }) {
     this.sprite = sprite;
     this.x = x;
     this.y = y;
     this.facing = facing;
     this.scale = scale;
+    /**
+     * Whether the art has to be mirrored to look the way this side faces.
+     *
+     * The two sprite sets already point at each other across the field: a
+     * front sprite is drawn three-quarters towards the viewer's left, where
+     * the player's Pokémon stands, and a back sprite shows the companion from
+     * behind facing right, where the foe stands. So neither is mirrored — only
+     * the stand-in front sprite used for a species with no back art, which
+     * would otherwise have the companion looking over its shoulder.
+     */
+    this.flip = flip;
 
     /** @type {Pose} */
     this.pose = 'idle';
@@ -79,8 +91,7 @@ export class Battler {
 
     this.sprite.draw(context, this.x, this.y, {
       frame: this.sprite.frameAt(this.elapsed),
-      // Sprites face the viewer, so the player's side is mirrored to face right.
-      flip: this.facing === 1,
+      flip: this.flip,
       scale: this.scale * transform.scale,
     });
     context.restore();
@@ -106,7 +117,7 @@ export class Battler {
     context.translate(-this.x, -this.y);
     this.sprite.draw(context, this.x, this.y, {
       frame: this.sprite.frameAt(this.elapsed),
-      flip: this.facing === 1,
+      flip: this.flip,
       scale: this.scale * transform.scale,
     });
     context.fillStyle = '#ff4040';

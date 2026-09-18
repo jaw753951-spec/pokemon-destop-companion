@@ -26,21 +26,23 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   const readAuthored = async (name) =>
     JSON.parse(await readFile(join(dataDir, '..', 'authored', name), 'utf8'));
 
-  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers] = await Promise.all(
-    [
-      'species.json',
-      'moves.json',
-      'items.json',
-      'machines.json',
-      'natures.json',
-      'types.json',
-      'areas.json',
-      'sprites.json',
-      'actors.json',
-      'bgm.json',
-      'item-tiers.json',
-    ].map(read),
-  );
+  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers, battle] =
+    await Promise.all(
+      [
+        'species.json',
+        'moves.json',
+        'items.json',
+        'machines.json',
+        'natures.json',
+        'types.json',
+        'areas.json',
+        'sprites.json',
+        'actors.json',
+        'bgm.json',
+        'item-tiers.json',
+        'battle.json',
+      ].map(read),
+    );
 
   note(Object.keys(species).length === MAX_SPECIES, `species: ${Object.keys(species).length} of ${MAX_SPECIES}`);
   note(Object.keys(types).length === 18, `types: ${Object.keys(types).length} of 18`);
@@ -95,6 +97,27 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     for (const encounter of area.encounters) if (!slugs.has(encounter.species)) unknownEncounters.add(encounter.species);
   }
   if (unknownEncounters.size) log(`note: ${unknownEncounters.size} encounter species not matched by slug (${summarize([...unknownEncounters])})`);
+
+  // Every backdrop the manifest names, every backdrop an area's tags can ask
+  // for, and every badge must be on disk.
+  for (const id of Object.keys(battle.backdrops)) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'battle', `${id}.png`)), `battle backdrop ${id}: not built`);
+  }
+  for (const [tag, backdrop] of Object.entries(battle.tags)) {
+    note(Boolean(battle.backdrops[backdrop]), `tag ${tag}: names unbuilt backdrop ${backdrop}`);
+  }
+  for (const type of battle.badges) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'badges', `${type}.png`)), `badge ${type}: not built`);
+    note(Boolean(types[type]), `badge ${type}: not a type`);
+  }
+  for (const area of areas) {
+    note(
+      area.tags.some((tag) => battle.tags[tag]),
+      `area ${area.id}: no tag maps to a battle backdrop`,
+    );
+  }
 
   for (const [role, track] of Object.entries(bgm.cues)) {
     note(track && bgm.tracks[track], `cue ${role}: no track`);

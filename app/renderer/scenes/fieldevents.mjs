@@ -14,7 +14,7 @@ import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { COMPANION_X, GROUND_Y } from '../render/field.mjs';
+import { ACTOR_SCALE, COMPANION_X, groundY } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -30,6 +30,9 @@ const SPAWN_MARGIN = 24;
  * Field pixels, so about a tile and a bit at the size they are drawn.
  */
 const MEET_GAP = 20;
+
+/** How wide a ball lying on the path is drawn, in field pixels — under a tile. */
+const BALL_SIZE = 12;
 
 /**
  * @param {{
@@ -393,10 +396,12 @@ function drawProp(context, state, screenX) {
     return;
   }
 
-  // A Pokémon or trainer waiting on the path.
+  // A Pokémon or trainer waiting on the path, at the size the companion walks
+  // at so the two meet as equals rather than as a giant and a doll.
   const sprite = /** @type {Sprite} */ (prop.sprite);
-  sprite.draw(context, screenX, GROUND_Y, {
+  sprite.draw(context, screenX, groundY(), {
     frame: sprite.frameAt(state.elapsed ?? 0),
+    scale: ACTOR_SCALE,
   });
 }
 
@@ -414,7 +419,9 @@ function drawBerryTree(context, prop, screenX) {
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;
-  const scale = 1;
+  // A berry tree is one tile wide and easy to miss against a busy route, so it
+  // is drawn at the same size as the actors that walk up to it.
+  const scale = ACTOR_SCALE;
 
   context.drawImage(
     image,
@@ -423,7 +430,7 @@ function drawBerryTree(context, prop, screenX) {
     frameWidth,
     frameHeight,
     Math.round(screenX - (frameWidth * scale) / 2),
-    Math.round(GROUND_Y - frameHeight * scale),
+    Math.round(groundY() - frameHeight * scale),
     frameWidth * scale,
     frameHeight * scale,
   );
@@ -437,10 +444,12 @@ function drawBerryTree(context, prop, screenX) {
 function drawBall(context, prop, screenX) {
   const { image } = prop.sprite;
   const size = image.naturalHeight;
-  const scale = 1;
-  const drawn = size * scale;
+  // Item icons are drawn for a bag list, where they are the only thing on the
+  // row; on the ground one at its own size is a boulder, so it is brought down
+  // to something a Pokémon could pick up.
+  const drawn = BALL_SIZE;
   const left = Math.round(screenX - drawn / 2);
-  const top = Math.round(GROUND_Y - drawn);
+  const top = Math.round(groundY() - drawn);
 
   if (prop.frame === 'closed') {
     context.drawImage(image, left, top, drawn, drawn);
@@ -464,7 +473,7 @@ function drawBall(context, prop, screenX) {
  */
 function drawCarried(context, carried, actorHeight) {
   if (!carried.sprite) return;
-  carried.sprite.draw(context, COMPANION_X, GROUND_Y - actorHeight - 4);
+  carried.sprite.draw(context, COMPANION_X, groundY() - actorHeight - 4);
 }
 
 /** @param {HTMLImageElement} image */

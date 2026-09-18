@@ -216,7 +216,7 @@ test('an explicit move order is followed in sequence and then repeated', options
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatAll', order: ['slash', 'ember'], weights: {}, conditions: {} },
+    policy: { mode: 'repeatAll', order: ['slash', 'ember'], use: {}, conditions: {} },
   });
 
   const usable = player.moves;
@@ -234,7 +234,7 @@ test('repeatLast holds on the final move of the order', options, () => {
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatLast', order: ['slash', 'ember'], weights: {}, conditions: {} },
+    policy: { mode: 'repeatLast', order: ['slash', 'ember'], use: {}, conditions: {} },
   });
 
   const picks = [];
@@ -245,27 +245,28 @@ test('repeatLast holds on the final move of the order', options, () => {
   assert.deepEqual(picks, ['slash', 'ember', 'ember', 'ember']);
 });
 
-test('damageFirst ignores the weights and picks the strongest attack', options, () => {
+test('damageFirst ignores the ticked kinds and picks the strongest attack', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    // Growl is weighted far above everything, and must still lose out.
-    policy: { mode: 'damageFirst', order: [], weights: { damage: 1, stat: 999 }, conditions: {} },
+    // Attacks are switched off and stat moves left on, and damageFirst must
+    // still pick the strongest attack.
+    policy: { mode: 'damageFirst', order: [], use: { damage: false, stat: true }, conditions: {} },
   });
 
   const pick = choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
   assert.equal(pick, 'flamethrower');
 });
 
-test('a zero weight takes a category out of the running', options, () => {
+test('an unticked kind takes a category out of the running', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['ember', 'growl']);
   const battle = new Battle({
     rng: new Rng(4),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    policy: { mode: 'repeatAll', order: [], weights: { damage: 10, stat: 0 }, conditions: {} },
+    policy: { mode: 'repeatAll', order: [], use: { damage: true, stat: false }, conditions: {} },
   });
 
   for (let attempt = 0; attempt < 20; attempt++) {

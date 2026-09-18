@@ -27,7 +27,7 @@ export function el(tag, props = null, children = []) {
     if (value === null || value === undefined || value === false) continue;
     if (key === 'text') node.textContent = String(value);
     else if (key === 'html') node.innerHTML = String(value);
-    else if (key === 'style') Object.assign(node.style, value);
+    else if (key === 'style') applyStyle(node, value);
     else if (key === 'dataset') Object.assign(node.dataset, value);
     else if (key.startsWith('on') && typeof value === 'function') {
       node.addEventListener(key.slice(2).toLowerCase(), value);
@@ -40,6 +40,25 @@ export function el(tag, props = null, children = []) {
     node.append(child instanceof Node ? child : document.createTextNode(String(child)));
   }
   return node;
+}
+
+/**
+ * Merge a style object into an element.
+ *
+ * Assigning the object wholesale drops anything whose name is not a DOM style
+ * property — a custom property such as `--badge-art`, or a prefixed one such
+ * as `-webkit-app-region` — silently, leaving the rule that reads it invalid.
+ * Anything hyphenated therefore goes through `setProperty`, which takes CSS
+ * names as written.
+ *
+ * @param {HTMLElement} node
+ * @param {Record<string, string>} styles
+ */
+function applyStyle(node, styles) {
+  for (const [key, value] of Object.entries(styles)) {
+    if (key.includes('-')) node.style.setProperty(key, value);
+    else node.style[key] = value;
+  }
 }
 
 /** @param {HTMLElement} node */
