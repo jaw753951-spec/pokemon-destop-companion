@@ -160,6 +160,7 @@
   "battle.itemReady": "Took out the {item}!",
   "battle.itemUsed": "Used the {item} on {name}!",
   "battle.berryEaten": "{name} ate its {item}!",
+  "battle.endured": "{name} hung on with its {item}!",
   "battle.won": "You won!",
   "battle.lost": "You blacked out!",
   "battle.lostWild": "Blacked out — the wild Pokémon got away!",

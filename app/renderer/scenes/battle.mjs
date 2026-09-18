@@ -337,6 +337,15 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         break;
       }
 
+      case 'endure': {
+        const holder = entry.side === 'player' ? player : foe;
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(t('battle.endured', { name: nameOf(holder), item: name }));
+        app.audio.blip('hit');
+        updateBars();
+        break;
+      }
+
       case 'faint': {
         const fainter = entry.side === 'player' ? player : foe;
         say(t('battle.fainted', { name: nameOf(fainter) }));

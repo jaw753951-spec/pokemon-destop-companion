@@ -273,6 +273,24 @@ export function restockBerry(session, pokemon) {
 }
 
 /**
+ * What the held item does simply by being held, if anything.
+ *
+ * The consumable rules — a berry waiting for half a bar or for a paralysis —
+ * are read by `heldTrigger`; this is the other half: the Leftovers that heal
+ * every turn, the Choice Band that trades moves for power, the Charcoal that
+ * makes a fire move hit harder. Both come off the same parsed effect, told
+ * apart by what the effect is keyed on.
+ *
+ * @param {import('./pokemon.mjs').Pokemon|null|undefined} pokemon
+ * @param {string} kind the effect to ask for
+ * @returns {any|null}
+ */
+export function heldPassive(pokemon, kind) {
+  const held = pokemon?.heldItem ? itemOf(pokemon.heldItem)?.held : null;
+  return held && held.on === kind ? held : null;
+}
+
+/**
  * Whether the held item's moment has come.
  *
  * Every berry that does something while held carries the rule it does it by —

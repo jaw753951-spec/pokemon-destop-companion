@@ -160,6 +160,7 @@
   "battle.itemReady": "{item}을(를) 꺼냈다!",
   "battle.itemUsed": "{name}에게 {item}을(를) 사용했다!",
   "battle.berryEaten": "{name}이(가) {item}을(를) 먹었다!",
+  "battle.endured": "{name}은(는) {item} 덕분에 버텨냈다!",
   "battle.won": "승리했다!",
   "battle.lost": "눈앞이 캄캄해졌다…",
   "battle.lostWild": "눈앞이 캄캄해졌다… 그 포켓몬은 떠나버렸다!",

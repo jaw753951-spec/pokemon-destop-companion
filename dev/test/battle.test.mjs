@@ -3,8 +3,15 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { typeEffectiveness } from '../../app/renderer/core/data.mjs';
-import { Battle, categoryOf, choosePolicyMove, expectedDamage, STATUS } from '../../app/renderer/engine/battle.mjs';
+import { moveOf, typeEffectiveness } from '../../app/renderer/core/data.mjs';
+import {
+  Battle,
+  categoryOf,
+  choosePolicyMove,
+  effectiveStat,
+  expectedDamage,
+  STATUS,
+} from '../../app/renderer/engine/battle.mjs';
 import { createPokemon, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle, normalizeAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { computeStat, experienceForLevel, levelForExperience, stageMultiplier } from '../../app/renderer/engine/stats.mjs';
@@ -434,6 +441,100 @@ test('a Liechi Berry waits for a quarter, and raises a stage', options, () => {
   battle.takeTurn();
   assert.equal(player.heldItem, null);
   assert.equal(battle.player.stages.atk, 1);
+});
+
+test('Leftovers pays a sixteenth at the end of each turn', options, () => {
+  // Both sides have to last the turn out: the upkeep is paid at the end of
+  // one, and a battle that ends first never reaches it.
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'leftovers';
+  player.hp = maxHp(player) - 40;
+
+  const battle = new Battle({
+    rng: new Rng(21),
+    player,
+    foes: [makeFixed(BLASTOISE, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const log = battle.takeTurn();
+  const healed = log.find((entry) => entry.kind === 'heal' && entry.side === 'player');
+
+  assert.ok(healed, 'nothing was restored');
+  assert.equal(healed.data.amount, Math.floor(maxHp(player) / 16));
+  assert.equal(healed.data.item, 'leftovers');
+});
+
+test('a Choice Band lifts Attack and holds the move it picked', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle', 'flamethrower']);
+  const battle = new Battle({
+    rng: new Rng(22),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const plain = effectiveStat(battle.player, 'atk');
+  player.heldItem = 'choice-band';
+  assert.equal(effectiveStat(battle.player, 'atk'), Math.floor(plain * 1.5));
+
+  // The first choice sticks, even though the policy would otherwise reconsider
+  // once the better move is the only sensible answer.
+  const first = battle.chooseMove(battle.player, /** @type {any} */ (battle.foe));
+  battle.player.lockedMove = first;
+  for (let turn = 0; turn < 5; turn++) {
+    assert.equal(battle.chooseMove(battle.player, /** @type {any} */ (battle.foe)), first);
+  }
+});
+
+test('a Charcoal lifts fire moves and leaves the rest alone', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'slash']);
+  const battle = new Battle({
+    rng: new Rng(23),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const fire = expectedDamage(battle.player, /** @type {any} */ (battle.foe), moveOf('flamethrower'));
+  player.heldItem = 'charcoal';
+
+  // `expectedDamage` is the planner's view and does not read held items, so
+  // the real roll is what this compares: twenty per cent more, every time.
+  const roll = (seed) => {
+    const fight = new Battle({
+      rng: new Rng(seed),
+      player,
+      foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+      policy: defaultAutoBattle(),
+    });
+    return fight.computeDamage(fight.player, /** @type {any} */ (fight.foe), moveOf('flamethrower')).damage;
+  };
+  const withCharcoal = roll(5);
+  player.heldItem = null;
+  const without = roll(5);
+
+  assert.ok(fire > 0);
+  assert.ok(withCharcoal > without, `${withCharcoal} should beat ${without}`);
+  assert.equal(withCharcoal, Math.max(1, Math.floor(without * 1.2)));
+});
+
+test('a Focus Sash leaves one hit point, once', options, () => {
+  const player = makeFixed(CHARIZARD, 5, ['tackle']);
+  player.heldItem = 'focus-sash';
+  player.hp = maxHp(player);
+
+  const battle = new Battle({
+    rng: new Rng(24),
+    player,
+    // A Blastoise fifty levels up would end this in one hit.
+    foes: [makeFixed(BLASTOISE, 60, ['surf'])],
+    policy: defaultAutoBattle(),
+  });
+
+  battle.takeTurn();
+  assert.equal(player.hp, 1, 'the sash should have held');
+  assert.equal(player.heldItem, null, 'and been used up');
 });
 
 test('expected damage ranks a super-effective move above a resisted one', options, () => {

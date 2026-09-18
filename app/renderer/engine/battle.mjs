@@ -8,7 +8,7 @@
  * of log entries per turn which the battle scene plays back as animation.
  */
 import { moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { applyHeldEffect, heldTrigger } from './items.mjs';
+import { applyHeldEffect, heldPassive, heldTrigger } from './items.mjs';
 import { gainFromDefeat, levelOf, maxHp, statsOf } from './pokemon.mjs';
 import { stageMultiplier } from './stats.mjs';
 
@@ -17,6 +17,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {import('./pokemon.mjs').Pokemon} pokemon
  * @property {Record<string, number>} stages
  * @property {boolean} flinched
+ * @property {string|null} lockedMove the move a Choice item has it committed to
  * @property {number} turnsTaken
  * @property {'player'|'foe'} side
  */
@@ -129,6 +130,7 @@ export class Battle {
     if (this.running) {
       for (const combatant of [this.player, this.foe]) {
         if (!combatant || combatant.pokemon.hp <= 0) continue;
+        this.endOfTurnHeld(combatant, log);
         this.endOfTurnStatus(combatant, log);
       }
       this.checkFaint(log);
@@ -171,6 +173,10 @@ export class Battle {
       return playerPriority > foePriority ? [this.player, this.foe] : [this.foe, this.player];
     }
 
+    // A Quick Claw sometimes ignores the speed check altogether.
+    const claw = heldPassive(this.player.pokemon, 'first');
+    if (claw && this.rng.chance(claw.chance)) return [this.player, this.foe];
+
     const playerSpeed = effectiveStat(this.player, 'spe');
     const foeSpeed = effectiveStat(this.foe, 'spe');
     if (playerSpeed === foeSpeed) {
@@ -186,15 +192,33 @@ export class Battle {
    * @returns {string} a move slug, or `struggle` when nothing has PP
    */
   chooseMove(attacker, defender) {
-    const usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
+    let usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
     if (usable.length === 0) return 'struggle';
+
+    const restriction = heldPassive(attacker.pokemon, 'stat');
+
+    // A Choice item locks its holder into the first move it picks, for as long
+    // as that move has PP — which is the price it charges for the power.
+    if (restriction?.lock) {
+      const locked = usable.find((slot) => slot.move === attacker.lockedMove);
+      if (locked) return locked.move;
+    }
+
+    // An Assault Vest buys Special Defence with the holder's status moves.
+    if (restriction?.noStatus) {
+      const attacks = usable.filter((slot) => moveOf(slot.move)?.damageClass !== 'status');
+      if (attacks.length > 0) usable = attacks;
+    }
 
     // The player's side follows the policy the user configured; the opponent
     // plays a simple best-damage game, as the games' trainers broadly do.
-    if (attacker.side === 'player' && this.policy) {
-      return choosePolicyMove(this, attacker, defender, usable);
-    }
-    return bestDamageMove(this, attacker, defender, usable) ?? this.rng.pick(usable).move;
+    const chosen =
+      attacker.side === 'player' && this.policy
+        ? choosePolicyMove(this, attacker, defender, usable)
+        : bestDamageMove(this, attacker, defender, usable) ?? this.rng.pick(usable).move;
+
+    if (restriction?.lock) attacker.lockedMove = chosen;
+    return chosen;
   }
 
   /**
@@ -246,6 +270,55 @@ export class Battle {
     }
 
     this.applyDamagingMove(attacker, defender, move, log);
+  }
+
+  /**
+   * The upkeep a held item pays, or charges, at the end of a turn: the
+   * Leftovers that give a sixteenth back, the Black Sludge that does the same
+   * for a Poison type and poisons anything else that carries it.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  endOfTurnHeld(combatant, log) {
+    const held = heldPassive(combatant.pokemon, 'turn');
+    if (!held) return;
+
+    const max = maxHp(combatant.pokemon);
+    const suits = !held.type || speciesOf(combatant.pokemon.speciesId).types.includes(held.type);
+
+    if (suits && held.heal) {
+      if (combatant.pokemon.hp >= max) return;
+      const healed = Math.max(1, Math.floor(max * held.heal.fraction));
+      combatant.pokemon.hp = Math.min(max, combatant.pokemon.hp + healed);
+      log.push({ kind: 'heal', side: combatant.side, data: { amount: healed, item: combatant.pokemon.heldItem } });
+      return;
+    }
+
+    if (!suits && held.harm) {
+      const damage = Math.max(1, Math.floor(max * held.harm.fraction));
+      combatant.pokemon.hp = Math.max(0, combatant.pokemon.hp - damage);
+      log.push({ kind: 'damage', side: combatant.side, data: { amount: damage, item: combatant.pokemon.heldItem } });
+    }
+  }
+
+  /**
+   * Whether a held item keeps its holder standing through a hit that would
+   * otherwise knock it out — a Focus Sash from full health, a Focus Band on a
+   * roll.
+   *
+   * @param {Combatant} defender
+   * @param {number} damage
+   * @returns {{consumed: boolean}|null}
+   */
+  survivesHit(defender, damage) {
+    if (damage < defender.pokemon.hp) return null;
+    const held = heldPassive(defender.pokemon, 'survive');
+    if (!held) return null;
+
+    if (held.fromFull && defender.pokemon.hp < maxHp(defender.pokemon)) return null;
+    if (held.chance !== undefined && !this.rng.chance(held.chance)) return null;
+    return { consumed: Boolean(held.consumed) };
   }
 
   /**
@@ -349,8 +422,14 @@ export class Battle {
       critical = critical || result.critical;
       if (result.effectiveness === 0) break;
 
-      defender.pokemon.hp = Math.max(0, defender.pokemon.hp - result.damage);
+      const survives = this.survivesHit(defender, result.damage);
+      defender.pokemon.hp = Math.max(survives ? 1 : 0, defender.pokemon.hp - result.damage);
       total += result.damage;
+      if (survives) {
+        log.push({ kind: 'endure', side: defender.side, data: { item: defender.pokemon.heldItem } });
+        if (survives.consumed) defender.pokemon.heldItem = null;
+        break;
+      }
     }
 
     if (effectiveness === 0) {
@@ -376,6 +455,25 @@ export class Battle {
       log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
+    // A Shell Bell pays its holder a share of what it just dealt, and a Life
+    // Orb charges for the extra damage it added.
+    const shell = heldPassive(attacker.pokemon, 'drain');
+    if (shell && total > 0 && attacker.pokemon.hp > 0) {
+      const healed = Math.max(1, Math.floor(total * shell.fraction));
+      const before = attacker.pokemon.hp;
+      attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
+      if (attacker.pokemon.hp !== before) {
+        log.push({ kind: 'heal', side: attacker.side, data: { amount: attacker.pokemon.hp - before } });
+      }
+    }
+
+    const orb = heldPassive(attacker.pokemon, 'damage');
+    if (orb?.cost && total > 0) {
+      const cost = Math.max(1, Math.floor(maxHp(attacker.pokemon) * orb.cost));
+      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - cost);
+      log.push({ kind: 'damage', side: attacker.side, data: { amount: cost, recoil: true } });
+    }
+
     this.applySecondaryEffects(attacker, defender, move, log);
   }
 
@@ -393,7 +491,8 @@ export class Battle {
 
     // A critical hit ignores the defender's positive defence stages and the
     // attacker's negative offence ones.
-    const critical = this.rng.next() < criticalChance(move.meta?.critRate ?? 0);
+    const critStage = (move.meta?.critRate ?? 0) + (heldPassive(attacker.pokemon, 'crit')?.stages ?? 0);
+    const critical = this.rng.next() < criticalChance(critStage);
     const attack = effectiveStat(attacker, attackStat, critical ? { ignoreNegative: true } : {});
     const defence = effectiveStat(defender, defenceStat, critical ? { ignorePositive: true } : {});
 
@@ -411,7 +510,8 @@ export class Battle {
     const spread = this.rng.int(85, 100) / 100;
     const criticalBonus = critical ? 1.5 : 1;
 
-    const damage = Math.max(1, Math.floor(base * stab * effectiveness * burn * spread * criticalBonus));
+    const held = heldDamageMultiplier(attacker.pokemon, move, effectiveness);
+    const damage = Math.max(1, Math.floor(base * stab * effectiveness * burn * spread * criticalBonus * held));
     return { damage, effectiveness, critical };
   }
 
@@ -571,7 +671,11 @@ export class Battle {
     const reward = gainFromDefeat(
       this.player.pokemon,
       { baseStats: species.stats, baseExp: species.baseExp, level: levelOf(defeated.pokemon) },
-      { trainerBattle: this.trainerBattle },
+      {
+        trainerBattle: this.trainerBattle,
+        experienceMultiplier: heldPassive(this.player.pokemon, 'experience')?.multiplier ?? 1,
+        effortMultiplier: heldPassive(this.player.pokemon, 'effort')?.multiplier ?? 1,
+      },
     );
     this.rewards.push(reward);
 
@@ -595,6 +699,7 @@ function makeCombatant(pokemon, side) {
     pokemon,
     stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
     flinched: false,
+    lockedMove: null,
     turnsTaken: 0,
     side,
   };
@@ -612,9 +717,32 @@ export function effectiveStat(combatant, stat, options = {}) {
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;
 
-  let value = Math.floor(base * stageMultiplier(stage));
+  let value = Math.floor(base * stageMultiplier(stage) * heldStatMultiplier(combatant.pokemon, stat));
   if (stat === 'spe' && combatant.pokemon.status === STATUS.PARALYSIS) value = Math.floor(value * 0.5);
   return Math.max(1, value);
+}
+
+/**
+ * How much a held item changes a stat.
+ *
+ * A Choice Band's fifty percent, an Eviolite's half again for something that
+ * still has an evolution ahead of it, and the Speed a Macho Brace costs for
+ * the effort it earns.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string} stat
+ */
+function heldStatMultiplier(pokemon, stat) {
+  const held = heldPassive(pokemon, 'stat');
+  const effort = heldPassive(pokemon, 'effort');
+  let multiplier = 1;
+
+  if (held?.stats?.includes(stat)) {
+    const unevolved = (speciesOf(pokemon.speciesId).evolutions ?? []).length > 0;
+    if (!held.unevolvedOnly || unevolved) multiplier *= held.multiplier;
+  }
+  if (stat === 'spe' && effort?.speed) multiplier *= effort.speed;
+  return multiplier;
 }
 
 /** Critical-hit chance by the move's crit-rate stage, as in Gen 7+. */
@@ -753,6 +881,27 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
   if (chosen) return chosen;
 
   return bestDamageMove(battle, attacker, defender, usable) ?? battle.rng.pick(usable).move;
+}
+
+/**
+ * How much a held item multiplies the damage of this move.
+ *
+ * A Charcoal lifts fire moves, a Muscle Band every physical one, an Expert
+ * Belt only what the defender is weak to, and a Life Orb the lot — at a price
+ * charged after the hit lands.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {any} move
+ * @param {number} effectiveness
+ */
+function heldDamageMultiplier(pokemon, move, effectiveness) {
+  const held = heldPassive(pokemon, 'damage');
+  if (!held) return 1;
+
+  if (held.moveType) return move.type === held.moveType ? held.multiplier : 1;
+  if (held.damageClass) return move.damageClass === held.damageClass ? held.multiplier : 1;
+  if (held.superEffective) return effectiveness > 1 ? held.multiplier : 1;
+  return held.multiplier ?? 1;
 }
 
 /**

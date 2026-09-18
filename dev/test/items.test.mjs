@@ -120,14 +120,15 @@ test('every medicine the build keeps states what it does', withData, () => {
 
 test('an item the game cannot act on never reaches the bag', withData, () => {
   const items = gameData().items;
-  // The Exp. Share splits experience between party members, and the party is
-  // one Pokémon; the rest have nothing here to act on at all.
-  for (const slug of ['exp-share', 'leftovers', 'choice-band', 'venusaurite', 'normal-gem', 'pp-up']) {
+  // The Exp. Share splits experience between party members and the party here
+  // is one Pokémon; the rest have nothing in this game to act on at all.
+  for (const slug of ['exp-share', 'venusaurite', 'normal-gem', 'pp-up', 'adamant-mint', 'occa-berry']) {
     assert.equal(items[slug], undefined, `${slug} should have been dropped`);
   }
 
-  // And the ones that do something are still here.
-  for (const slug of ['poke-ball', 'tm01', 'fire-stone', 'metal-coat', 'oran-berry', 'rare-candy']) {
+  // And everything with an effect is still here, held items included.
+  for (const slug of ['poke-ball', 'tm01', 'fire-stone', 'metal-coat', 'oran-berry', 'rare-candy',
+    'leftovers', 'choice-band', 'charcoal', 'focus-sash', 'lucky-egg']) {
     assert.ok(items[slug], `${slug} should have been kept`);
   }
 });

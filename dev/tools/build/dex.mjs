@@ -254,10 +254,12 @@ async function buildItems(pool, log) {
  */
 function heldEffect(item) {
   const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
-  const text = effect?.short_effect ?? '';
-  if (!text.startsWith('Held:')) return null;
+  const text = (effect?.short_effect ?? '').replace(/[’']/g, "'");
+  if (!text.startsWith('Held:') && !/^Raises the holder's/i.test(text)) return null;
 
   const at = (match) => (match ? 1 / Number(match) : null);
+
+  // ---- The berries, which are consumed when their moment comes.
 
   // "Consumed at 1/2 max HP to recover 1/4 max HP."
   const fraction = /Consumed at 1\/(\d) max HP to (?:recover|restore) 1\/(\d) (?:of its )?max HP/i.exec(text);
@@ -283,6 +285,90 @@ function heldEffect(item) {
   // "Consumed when a move runs out of PP to restore its PP by 10."
   const pp = /Consumed when a move runs out of PP to restore its PP by (\d+)/i.exec(text);
   if (pp) return { on: 'pp', amount: Number(pp[1]) };
+
+  // ---- The things that simply work while they are held.
+
+  // "Poison-type holder recovers 1/16 max HP each turn. Non-Poison-Types take
+  // 1/8 max HP damage." — the conditional one is read before the plain one.
+  const sludge = /([A-Za-z]+)-type holder recovers 1\/(\d+).*?max HP each turn\..*?take 1\/(\d+).*?max HP damage/i.exec(text);
+  if (sludge) {
+    return {
+      on: 'turn',
+      type: sludge[1].toLowerCase(),
+      heal: { fraction: 1 / Number(sludge[2]) },
+      harm: { fraction: 1 / Number(sludge[3]) },
+    };
+  }
+  const turn = /Restores 1\/(\d+).*?max HP at the end of each turn/i.exec(text);
+  if (turn) return { on: 'turn', heal: { fraction: 1 / Number(turn[1]) } };
+
+  // "Fire-Type moves from holder do 20% more damage."
+  const typed = /([A-Za-z]+)-Type moves from holder do (\d+)% more damage/i.exec(text);
+  if (typed) return { on: 'damage', moveType: typed[1].toLowerCase(), multiplier: 1 + Number(typed[2]) / 100 };
+
+  // "Boosts the damage of physical moves used by the holder by 10%."
+  const classed = /Boosts the damage of (physical|special) moves used by the holder by (?:1\/\d+ \()?(\d+)%/i.exec(text);
+  if (classed) {
+    return { on: 'damage', damageClass: classed[1].toLowerCase(), multiplier: 1 + Number(classed[2]) / 100 };
+  }
+
+  // "Holder's Super Effective moves do 20% extra damage."
+  const superEffective = /Super Effective moves do (\d+)% extra damage/i.exec(text);
+  if (superEffective) {
+    return { on: 'damage', superEffective: true, multiplier: 1 + Number(superEffective[1]) / 100 };
+  }
+
+  // "Holder's moves inflict 30% extra damage, but cost 10% max HP."
+  const orb = /moves inflict (\d+)% extra damage, but cost (\d+)% max HP/i.exec(text);
+  if (orb) return { on: 'damage', multiplier: 1 + Number(orb[1]) / 100, cost: Number(orb[2]) / 100 };
+
+  // "Increases Attack by 50%, but restricts the holder to only one move."
+  const choice = /Increases ([A-Za-z ]+?) by (\d+)%, but restricts the holder to only one move/i.exec(text);
+  if (choice) {
+    const stat = STAT_NAMES[choice[1].trim().toLowerCase()];
+    if (stat) return { on: 'stat', stats: [stat], multiplier: 1 + Number(choice[2]) / 100, lock: true };
+  }
+
+  // "Raises the holder's Special Defense to 1.5×. Prevents the holder from
+  // selecting a status move."
+  const vest = /Raises the holder's ([A-Za-z ]+?) to ([\d.]+)×/i.exec(text);
+  if (vest) {
+    const stat = STAT_NAMES[vest[1].trim().toLowerCase()];
+    const noStatus = /Prevents the holder from selecting a status move/i.test(text);
+    if (stat) return { on: 'stat', stats: [stat], multiplier: Number(vest[2]), noStatus };
+  }
+
+  // "Holder has 1.5× Defense and Special Defense, as long as it's not fully
+  // evolved."
+  const eviolite = /Holder has ([\d.]+)× Defense and Special Defense, as long as it's not fully evolved/i.exec(text);
+  if (eviolite) return { on: 'stat', stats: ['def', 'spd'], multiplier: Number(eviolite[1]), unevolvedOnly: true };
+
+  // "Raises the holder's critical hit ratio by one stage."
+  if (/Raises the holder's critical hit ratio by one stage/i.test(text)) return { on: 'crit', stages: 1 };
+
+  // "Holder survives any single-hit attack at 1 HP if at max HP."
+  if (/survives any single-hit attack at 1 HP if at max HP/i.test(text)) {
+    return { on: 'survive', fromFull: true, consumed: true };
+  }
+  const band = /Holder has (\d+)% chance to survive attacks.*?at 1 HP/i.exec(text);
+  if (band) return { on: 'survive', chance: Number(band[1]) / 100 };
+
+  // "Holder receives 1/8 of the damage it deals when attacking."
+  const shell = /Holder receives 1\/(\d+) of the damage it deals when attacking/i.exec(text);
+  if (shell) return { on: 'drain', fraction: 1 / Number(shell[1]) };
+
+  // "Increases EXP earned in battle by 50%."
+  const experience = /Increases EXP earned in battle by (\d+)%/i.exec(text);
+  if (experience) return { on: 'experience', multiplier: 1 + Number(experience[1]) / 100 };
+
+  // "Holder has a 3/16 (18.75%) chance to move first."
+  const first = /chance to move first/i.test(text) ? /(\d+)\/(\d+)/.exec(text) : null;
+  if (first) return { on: 'first', chance: Number(first[1]) / Number(first[2]) };
+
+  // "Holder gains double effort values from battles, but has halved Speed."
+  if (/gains double effort values from battles/i.test(text)) {
+    return { on: 'effort', multiplier: 2, stats: ['spe'], speed: 0.5 };
+  }
 
   return null;
 }
