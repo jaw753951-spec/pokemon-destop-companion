@@ -625,6 +625,12 @@ canvas {
   bottom: 54px;
 }
 
+.battle-actions {
+  position: absolute;
+  right: 8px;
+  top: 22px;
+}
+
 .battle-name {
   font-size: 11px;
   font-weight: 700;
@@ -1040,6 +1046,28 @@ canvas {
 .item-count {
   color: var(--ink-soft);
   font-size: 9px;
+}
+
+/* The settings behind the last pocket tab: rows like the settings screen's,
+   scrolling as a column so a long note never squeezes a control off. */
+.item-options {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 6px 10px;
+  overflow-y: auto;
+}
+
+.item-options .meta {
+  margin: 0 0 2px;
+  line-height: 1.3;
+}
+
+.item-option .label {
+  width: auto;
+  color: var(--ink);
 }
 
 .item-inspector {

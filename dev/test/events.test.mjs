@@ -110,3 +110,25 @@ test('scheduler state round-trips through a save', () => {
 });
 
 const sum = (weights) => Object.values(weights).reduce((total, value) => total + Number(value), 0);
+
+test('a forced event fires next whatever the weights say', () => {
+  const scheduler = new EventScheduler({ last: 'heal', streak: 3 });
+  // Three rest stops in a row have damped heal out of the running entirely.
+  close(scheduler.weights().heal, 0);
+
+  scheduler.force('heal');
+  assert.equal(scheduler.roll(new Rng(1)), 'heal');
+  // Recorded like any other roll, so the streak carries on damping it.
+  assert.equal(scheduler.last, 'heal');
+  assert.equal(scheduler.streak, 4);
+
+  // And only the once.
+  assert.notEqual(scheduler.roll(new Rng(1)), 'heal');
+});
+
+test('a forced event survives a save and reload', () => {
+  const scheduler = new EventScheduler();
+  scheduler.force('heal');
+  const restored = new EventScheduler(JSON.parse(JSON.stringify(scheduler)));
+  assert.equal(restored.roll(new Rng(5)), 'heal');
+});

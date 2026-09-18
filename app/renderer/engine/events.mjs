@@ -25,12 +25,27 @@ export const REPEAT_WEIGHTS = [10, 1, 0];
 
 export class EventScheduler {
   /**
-   * @param {{last?: EventKind|null, streak?: number}} [state]
+   * @param {{last?: EventKind|null, streak?: number, forced?: EventKind|null}} [state]
    */
   constructor(state = {}) {
     /** @type {EventKind|null} */
     this.last = state.last ?? null;
     this.streak = state.streak ?? 0;
+    /**
+     * An event the game has decided on regardless of the odds — a companion
+     * that has just fainted is walked to a rest stop rather than into whatever
+     * the dice say next.
+     * @type {EventKind|null}
+     */
+    this.forced = state.forced ?? null;
+  }
+
+  /**
+   * Make the next roll return this kind, whatever the weights say.
+   * @param {EventKind} kind
+   */
+  force(kind) {
+    this.forced = kind;
   }
 
   /**
@@ -58,6 +73,16 @@ export class EventScheduler {
    * @returns {EventKind}
    */
   roll(rng) {
+    if (this.forced) {
+      const forced = this.forced;
+      this.forced = null;
+      // Recorded like any other, so a forced rest stop still damps the odds of
+      // the next one being a rest stop too.
+      this.streak = forced === this.last ? this.streak + 1 : 1;
+      this.last = forced;
+      return forced;
+    }
+
     const weights = this.weights();
     const chosen = rng.weighted(EVENT_KINDS.map((kind) => ({ value: kind, weight: weights[kind] })));
     const kind = /** @type {EventKind} */ (chosen ?? EVENT_KINDS[0]);
@@ -67,8 +92,8 @@ export class EventScheduler {
     return kind;
   }
 
-  /** @returns {{last: EventKind|null, streak: number}} */
+  /** @returns {{last: EventKind|null, streak: number, forced: EventKind|null}} */
   toJSON() {
-    return { last: this.last, streak: this.streak };
+    return { last: this.last, streak: this.streak, forced: this.forced };
   }
 }

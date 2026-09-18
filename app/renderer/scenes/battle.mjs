@@ -8,9 +8,11 @@
 import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { el } from '../core/dom.mjs';
+import { button, el } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
+import { edibleBerry, healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { Battler, fitScale } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
@@ -70,6 +72,12 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     player: session.active,
     foes,
     policy: session.autoBattle,
+    // The bag, reduced to the three things a battle asks of it.
+    items: {
+      choose: (pokemon) => autoHeal(session, pokemon),
+      throw: (slug, pokemon) => throwItem(session, slug, pokemon),
+      berry: (pokemon) => edibleBerry(pokemon),
+    },
     trainerBattle: Boolean(trainer),
   });
 
@@ -158,6 +166,9 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       return el('div.screen.battle-screen', {}, [
         el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
         el('div.battle-bar.player', {}, [nameplate(session.active), playerBar.root]),
+        el('div.battle-actions', {}, [
+          button(t('battle.bag'), () => openBag(app), { className: 'small' }),
+        ]),
         message,
       ]);
     },
@@ -201,6 +212,36 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       });
     },
   };
+
+  /**
+   * Open the bag mid-battle.
+   *
+   * Whatever is chosen is thrown on the companion's next action rather than
+   * immediately: a turn spent on an item is a turn not spent attacking, which
+   * is the cost the games charge for it.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  async function openBag(app) {
+    if (finished) return;
+    app.audio.blip('select');
+
+    const usable = healingItems(session, session.active);
+    const chosen = await chooseFromList(
+      app,
+      t('battle.bag'),
+      usable.map(({ slug, count, item, restores }) => ({
+        value: slug,
+        label: localized(item.name, slug),
+        detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
+      })),
+      { empty: t('battle.noItems') },
+    );
+
+    if (!chosen || finished) return;
+    battle.queueItem(chosen);
+    say(t('battle.itemReady', { item: localized(gameData().items[chosen]?.name, chosen) }));
+  }
 
   /**
    * Show one log entry and return how long to hold on it.
@@ -278,6 +319,24 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       case 'heal':
         updateBars();
         break;
+
+      case 'item': {
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(entry.data?.used
+          ? t('battle.itemUsed', { name: nameOf(player), item: name })
+          : t('items.cannotUse'));
+        app.audio.blip(entry.data?.used ? 'confirm' : 'error');
+        updateBars();
+        break;
+      }
+
+      case 'berry': {
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(t('battle.berryEaten', { name: nameOf(player), item: name }));
+        app.audio.blip('confirm');
+        updateBars();
+        break;
+      }
 
       case 'faint': {
         const fainter = entry.side === 'player' ? player : foe;
@@ -403,4 +462,26 @@ function healthBar() {
       text.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
     },
   };
+}
+
+/**
+ * The item the policy would throw this turn, if any.
+ *
+ * A condition is the whole of it — the same vocabulary the auto-battle screen
+ * uses — and `never` means the bag only opens when the player opens it.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ * @returns {string|null}
+ */
+function autoHeal(session, pokemon) {
+  const policy = session.itemPolicy?.healing;
+  if (!policy || policy.condition === 'never') return null;
+
+  const health = pokemon.hp / Math.max(1, maxHp(pokemon));
+  const thresholds = { hpTwoThirds: 2 / 3, hpHalf: 1 / 2, hpThird: 1 / 3, hpQuarter: 1 / 4 };
+  const threshold = thresholds[policy.condition];
+  if (threshold === undefined || health > threshold) return null;
+
+  return healingItemFor(session, pokemon, policy.item);
 }

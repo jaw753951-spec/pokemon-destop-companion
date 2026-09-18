@@ -234,11 +234,38 @@ function startBall(session, spawnAt) {
   return state;
 }
 
-/** A rest stop: everything restored on the spot. */
+/**
+ * How many potions a rest stop hands over, and which one.
+ *
+ * A stop that only heals is worth nothing to a companion already at full
+ * health, and the healing items the bag can throw have to come from somewhere.
+ * Which potion is the one the level has any use for: five Potions are a
+ * kindness at level ten and a rounding error at fifty.
+ */
+const SUPPLY_COUNT = 5;
+
+/** @type {Array<{level: number, item: string}>} highest level last */
+const SUPPLIES = [
+  { level: 20, item: 'potion' },
+  { level: 40, item: 'super-potion' },
+  { level: 60, item: 'hyper-potion' },
+  { level: Infinity, item: 'max-potion' },
+];
+
+/** A rest stop: everything restored, and the bag stocked for the road. */
 function startHeal(session, app) {
   session.heal();
+
+  const level = levelOf(session.active);
+  const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
+  session.addItem(supply.item, SUPPLY_COUNT);
+
   app.audio.playMusic(gameData().bgm.cues.heal ?? null);
-  app.toast(t('event.healed'));
+  app.toast(`${t('event.healed')}\n${t('event.supplied', {
+    name: localized(itemOf(supply.item)?.name, supply.item),
+    count: SUPPLY_COUNT,
+  })}`, 3200);
+
   return { kind: 'heal', worldX: -Infinity, phase: 'show', timer: 1400, flash: 0.55, prop: null, carried: null };
 }
 

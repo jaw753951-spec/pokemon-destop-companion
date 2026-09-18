@@ -39,6 +39,8 @@ export class Session {
 
     /** @type {any} */
     this.autoBattle = normalizeAutoBattle(save.autoBattle);
+    /** @type {any} */
+    this.itemPolicy = normalizeItemPolicy(save.items);
     /** @type {string|null} */
     this.leagueRegion = save.progress?.leagueRegion ?? null;
 
@@ -215,6 +217,7 @@ export class Session {
         champions: [...this.champions],
       },
       autoBattle: this.autoBattle,
+      items: this.itemPolicy,
     };
   }
 
@@ -239,6 +242,39 @@ export function defaultAutoBattle() {
      * reaches for the hardest-hitting one it holds.
      */
     conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
+  };
+}
+
+/**
+ * How the bag is used without being opened.
+ *
+ * `berries` are the restock choices in order of preference, any of which may
+ * be left unset; `healing` names an item to throw, or null for whatever fits
+ * the damage taken, and the health it is thrown at — `never` for a player who
+ * would rather do it by hand.
+ */
+export function defaultItemPolicy() {
+  return {
+    /** @type {Array<string|null>} */
+    berries: [null, null, null],
+    healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
+  };
+}
+
+/** @param {any} policy */
+export function normalizeItemPolicy(policy) {
+  const fresh = defaultItemPolicy();
+  if (!policy) return fresh;
+
+  const berries = Array.isArray(policy.berries) ? policy.berries.slice(0, 3) : [];
+  while (berries.length < 3) berries.push(null);
+
+  return {
+    berries: berries.map((slug) => slug || null),
+    healing: {
+      item: policy.healing?.item ?? null,
+      condition: policy.healing?.condition ?? fresh.healing.condition,
+    },
   };
 }
 

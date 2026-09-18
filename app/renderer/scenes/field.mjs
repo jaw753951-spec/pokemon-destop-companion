@@ -10,6 +10,7 @@ import { FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
 import {
   ACTOR_SCALE,
@@ -181,10 +182,14 @@ export function fieldScene(session) {
    */
   function finishBattle(app, setup, result) {
     if (result.outcome === 'lost') {
-      // Blacking out costs nothing but the walk: the companion is patched up
-      // and carries on, which is what a desktop pet should do.
+      // Blacking out costs the catch and nothing else. A wild Pokémon that was
+      // never beaten cannot be thrown a ball — it is the one that walked away
+      // — while a trainer takes no more from you than the walk to the next
+      // rest stop, which is where the companion heads either way.
       session.heal();
-      app.toast(t('battle.lost'));
+      session.events.force('heal');
+      app.toast(t(setup.trainer ? 'battle.lost' : 'battle.lostWild'));
+      restock(app);
       refreshArt(app);
       return;
     }
@@ -198,12 +203,25 @@ export function fieldScene(session) {
       session.trainerWins++;
       app.audio.playMusic(gameData().bgm.cues.victoryTrainer ?? null);
     } else {
-      // Only wild Pokémon can be caught, so only they reach the tray.
+      // Only wild Pokémon can be caught, so only they reach the tray — and
+      // only when the companion was the one left standing.
       for (const pokemon of result.defeated) session.addToTray(pokemon);
       app.audio.playMusic(gameData().bgm.cues.victoryWild ?? null);
     }
 
+    restock(app);
     refreshArt(app);
+  }
+
+  /**
+   * Put a berry back in the companion's hand if the fight emptied it, which is
+   * what the bag's restock setting is for.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function restock(app) {
+    const berry = restockBerry(session, session.active);
+    if (berry) app.toast(t('items.restocked', { name: localized(gameData().items[berry]?.name, berry) }));
   }
 
   return {

@@ -28,6 +28,9 @@ import { stageMultiplier } from './stats.mjs';
  * @property {Record<string, any>} [data]
  */
 
+/** The health a held berry is eaten at, as the games' pinch berries work. */
+const BERRY_THRESHOLD = 0.5;
+
 /** Status conditions the engine models. */
 export const STATUS = { BURN: 'brn', POISON: 'psn', PARALYSIS: 'par', SLEEP: 'slp', FREEZE: 'frz' };
 
@@ -41,12 +44,25 @@ export class Battle {
    *   player: import('./pokemon.mjs').Pokemon,
    *   foes: import('./pokemon.mjs').Pokemon[],
    *   policy: any,
+   *   items?: {
+   *     choose: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
+   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon) => boolean,
+   *     berry: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
+   *   }|null,
    *   trainerBattle?: boolean,
    * }} options
    */
-  constructor({ rng, player, foes, policy, trainerBattle = false }) {
+  constructor({ rng, player, foes, policy, items = null, trainerBattle = false }) {
     this.rng = rng;
     this.policy = policy;
+    /**
+     * The bag, as far as a battle needs one: what to throw unasked, how to
+     * throw it, and whether a held berry is worth eating.
+     */
+    this.items = items;
+    /** An item the player has chosen to throw, used instead of next turn's move. */
+    /** @type {string|null} */
+    this.pendingItem = null;
     this.trainerBattle = trainerBattle;
 
     this.player = makeCombatant(player, 'player');
@@ -66,6 +82,17 @@ export class Battle {
   /** @returns {boolean} whether the battle is still running */
   get running() {
     return this.outcome === 'ongoing';
+  }
+
+  /**
+   * Throw an item on the companion's next action, which is what opening the
+   * bag mid-battle does in the games: the turn is spent on the item rather
+   * than on a move.
+   *
+   * @param {string} slug
+   */
+  queueItem(slug) {
+    this.pendingItem = slug;
   }
 
   /**
@@ -101,6 +128,7 @@ export class Battle {
         this.endOfTurnStatus(combatant, log);
       }
       this.checkFaint(log);
+      this.eatHeldBerry(log);
     }
 
     return log;
@@ -109,6 +137,20 @@ export class Battle {
   /** Priority first, then Speed, with a coin flip to break an exact tie. */
   orderOfPlay() {
     if (!this.foe) return [this.player];
+
+    // Nothing was thrown by hand, so the policy gets its say before the turn
+    // is planned.
+    if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+
+    // An item is thrown before either Pokémon moves, as it is in the games,
+    // and the companion has no move to commit to that turn.
+    if (this.pendingItem) {
+      this.pendingMoves = new Map([
+        [this.player, null],
+        [this.foe, this.chooseMove(this.foe, this.player)],
+      ]);
+      return [this.player, this.foe];
+    }
 
     // Both sides commit before either acts, so priority can be compared and
     // the choice cannot change once the turn is under way.
@@ -157,6 +199,17 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   resolveMove(attacker, defender, log) {
+    // The item is thrown by the trainer, so nothing about the Pokémon's own
+    // state — asleep, flinching, paralysed — can stop it.
+    if (attacker.side === 'player' && this.pendingItem) {
+      const slug = this.pendingItem;
+      this.pendingItem = null;
+      const used = this.items?.throw(slug, attacker.pokemon) ?? false;
+      attacker.turnsTaken++;
+      log.push({ kind: 'item', side: attacker.side, data: { item: slug, used } });
+      return;
+    }
+
     if (attacker.flinched) {
       attacker.flinched = false;
       log.push({ kind: 'flinch', side: attacker.side });
@@ -189,6 +242,24 @@ export class Battle {
     }
 
     this.applyDamagingMove(attacker, defender, move, log);
+  }
+
+  /**
+   * A held berry is eaten the moment the companion is in trouble, which is
+   * what makes one worth holding — and what the restock setting then replaces.
+   *
+   * @param {LogEntry[]} log
+   */
+  eatHeldBerry(log) {
+    const pokemon = this.player.pokemon;
+    if (pokemon.hp <= 0 || pokemon.hp > maxHp(pokemon) * BERRY_THRESHOLD) return;
+
+    const berry = this.items?.berry(pokemon) ?? null;
+    if (!berry) return;
+    if (!this.items?.throw(berry, pokemon)) return;
+
+    pokemon.heldItem = null;
+    log.push({ kind: 'berry', side: 'player', data: { item: berry } });
   }
 
   /**

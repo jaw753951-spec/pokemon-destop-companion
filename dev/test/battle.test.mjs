@@ -332,6 +332,75 @@ test('a stored policy from either older shape becomes conditions', options, () =
   assert.equal(normalizeAutoBattle(null).conditions.heal, 'hpHalf');
 });
 
+test('an item is thrown before either side moves, and takes the turn', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower']);
+  player.hp = 20;
+
+  const thrown = [];
+  const battle = new Battle({
+    rng: new Rng(11),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+    items: {
+      choose: () => null,
+      throw: (slug, pokemon) => {
+        thrown.push(slug);
+        pokemon.hp += 60;
+        return true;
+      },
+      berry: () => null,
+    },
+  });
+
+  battle.queueItem('super-potion');
+  const log = battle.takeTurn();
+
+  assert.deepEqual(thrown, ['super-potion']);
+  const item = log.find((entry) => entry.kind === 'item');
+  assert.ok(item && item.data.used);
+  // The turn went on the item, so no move of the companion's was used.
+  assert.equal(player.moves[0].pp, 15);
+  assert.ok(log.some((entry) => entry.kind === 'move' && entry.side === 'foe'));
+  assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'));
+  // And only once: the next turn is fought normally.
+  assert.equal(battle.pendingItem, null);
+});
+
+test('a held berry is eaten at half health, once', options, () => {
+  // Two Tackles rather than anything decisive: the berry is the point, and a
+  // battle that ends on turn one has no turn two to eat it in.
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'sitrus-berry';
+
+  let eaten = 0;
+  const battle = new Battle({
+    rng: new Rng(12),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+    items: {
+      choose: () => null,
+      throw: (slug, pokemon) => {
+        eaten++;
+        pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + 30);
+        return true;
+      },
+      berry: (pokemon) => pokemon.heldItem,
+    },
+  });
+
+  // Above half, nothing happens.
+  battle.takeTurn();
+  assert.equal(eaten, 0);
+
+  player.hp = Math.floor(maxHp(player) / 2) - 1;
+  const log = battle.takeTurn();
+  assert.equal(eaten, 1);
+  assert.ok(log.some((entry) => entry.kind === 'berry'));
+  assert.equal(player.heldItem, null, 'the berry is gone once eaten');
+});
+
 test('expected damage ranks a super-effective move above a resisted one', options, () => {
   const battle = new Battle({
     rng: new Rng(1),

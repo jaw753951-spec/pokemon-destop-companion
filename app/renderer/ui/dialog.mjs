@@ -135,9 +135,10 @@ export function prompt(app, title, options = {}) {
  * @param {import('../core/app.mjs').App} app
  * @param {string} title
  * @param {Array<{value: T, label: string, detail?: string}>} entries
+ * @param {{empty?: string}} [options] what to say when there is nothing to choose
  * @returns {Promise<T|null>}
  */
-export function chooseFromList(app, title, entries) {
+export function chooseFromList(app, title, entries, options = {}) {
   return new Promise((resolve) => {
     mountModal(app, (dismiss) => {
       const list = scrollable(
@@ -165,7 +166,7 @@ export function chooseFromList(app, title, entries) {
                   ],
                 ),
               )
-            : [el('p.meta', { text: t('pokemon.noReplacement') })],
+            : [el('p.meta', { text: options.empty ?? t('pokemon.noReplacement') })],
         ),
       );
 

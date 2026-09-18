@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { healingAmount } from '../../app/renderer/ui/itemstab.mjs';
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { itemOf } from '../../app/renderer/core/data.mjs';
+import { berryToHold, healingAmount, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
+
+const ready = await useRealGameData();
+const withData = { skip: ready ? false : NEEDS_ASSETS };
 import { assignRarityTiers } from '../tools/build/items.mjs';
 import { BALL_TIERS } from '../tools/sources.mjs';
 
@@ -156,4 +163,62 @@ test('a language the game has never shipped reads the same way', () => {
   // Nothing about the reading is Korean or English: "HP" is what it looks for.
   assert.equal(healingAmount(withText({ ja: 'ポケモン1匹のHPを20かいふくする。' })), 20);
   assert.equal(healingAmount(withText({ de: 'Stellt 20 HP eines Pokémon wieder her.' })), 20);
+});
+
+/**
+ * Just enough of a session for the bag helpers: a pocket to read and a count
+ * to check. The helpers touch nothing else.
+ *
+ * @param {Record<string, number>} bag
+ */
+function fakeSession(bag) {
+  return /** @type {any} */ ({
+    bag,
+    countOf: (slug) => bag[slug] ?? 0,
+    pocket: (pocket) =>
+      Object.entries(bag)
+        .filter(([slug]) => itemOf(slug)?.pocket === pocket)
+        .map(([slug, count]) => ({ slug, count, item: itemOf(slug) })),
+  });
+}
+
+test('healing items are offered weakest first, and only while they would help', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 3, 'super-potion': 2, 'max-potion': 1, antidote: 1 });
+
+  pokemon.hp = maxHp(pokemon);
+  assert.deepEqual(healingItems(session, pokemon), [], 'nothing to heal');
+
+  pokemon.hp = 1;
+  const offered = healingItems(session, pokemon).map((entry) => entry.slug);
+  // A Potion restores 20 and a Super Potion 60, so they sort that way; the
+  // Antidote cures a status and is not a healing item at all.
+  assert.deepEqual(offered, ['potion', 'super-potion', 'max-potion']);
+});
+
+test('the automatic throw takes the smallest potion that covers the damage', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 3, 'super-potion': 2, 'max-potion': 1 });
+
+  pokemon.hp = maxHp(pokemon) - 15;
+  assert.equal(healingItemFor(session, pokemon, null), 'potion');
+
+  pokemon.hp = maxHp(pokemon) - 50;
+  assert.equal(healingItemFor(session, pokemon, null), 'super-potion');
+
+  // Hurt worse than anything on hand covers: the biggest heal is the answer.
+  pokemon.hp = 1;
+  assert.equal(healingItemFor(session, pokemon, null), 'max-potion');
+
+  // A named item is used whether or not it covers the damage, and only if the
+  // bag still has one.
+  assert.equal(healingItemFor(session, pokemon, 'potion'), 'potion');
+  assert.equal(healingItemFor(session, pokemon, 'full-restore'), null);
+});
+
+test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {
+  const session = fakeSession({ 'sitrus-berry': 1 });
+  assert.equal(berryToHold(session, [null, 'oran-berry', 'sitrus-berry']), 'sitrus-berry');
+  assert.equal(berryToHold(session, [null, null, null]), null);
+  assert.equal(berryToHold(session, ['oran-berry']), null);
 });
