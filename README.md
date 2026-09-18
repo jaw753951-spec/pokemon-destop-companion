@@ -134,8 +134,11 @@ BGM 1.6MB · 트레이너 0.8MB) + 데이터 3.2MB 입니다.
 ## 배포 · 패키징
 
 `npm run dist` 은 `electron-builder` 로 현재 OS용 패키지를 만듭니다. 대상은
-Windows(NSIS 설치본 + zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/` 에
-떨어집니다. 컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
+Windows(zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
+컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
+
+윈도우는 설치본 없이 zip만 냅니다. 설치 프로그램은 서명이 없으면 경고가 한 겹 더 붙고,
+어차피 세이브와 설정을 앱 바깥에 두기 때문에 압축을 푸는 것 이상으로 해줄 일이 없습니다.
 
 에셋은 저장소에 없지만 **패키지 안에는 들어갑니다.** `assets/` 와 `data/` 를
 `extraResources` 로 복사하므로 설치본 하나만 받으면 추가 다운로드 없이 실행됩니다.
