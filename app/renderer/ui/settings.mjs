@@ -2,35 +2,60 @@
  * The settings screen.
  *
  * Reachable from the title and, with "save and quit" added, from the field.
+ * The settings are grouped into tabs the same way the bag is, so each screen
+ * stays short enough to read at the window's own size.
  */
 import { appControl, settings as settingsApi } from '../core/bridge.mjs';
-import { button, el, setChildren } from '../core/dom.mjs';
-import { t } from '../core/i18n.mjs';
+import { button, el, scrollable, setChildren } from '../core/dom.mjs';
+import { languages, t } from '../core/i18n.mjs';
+
+/**
+ * The tabs, in the order they appear. Each names the rows it shows; the
+ * language tab builds its own from the sheet.
+ */
+const TABS = ['display', 'sound', 'language'];
 
 /**
  * @param {{onClose: () => void, onSaveAndQuit?: () => Promise<void>|void}} options
  * @returns {import('../core/app.mjs').Scene}
  */
 export function settingsScene({ onClose, onSaveAndQuit }) {
+  /** Which tab is open, kept across the re-mount a language change causes. */
+  const state = { tab: TABS[0] };
+
   return {
     keepBelow: true,
 
     mount(app) {
-      const rows = el('div.settings-rows');
+      const tabs = el('div.tab-strip');
+      // A tab's rows scroll rather than spill: the language tab is as long as
+      // the sheet is, and the window is only 270 pixels tall.
+      const rows = scrollable(el('div.settings-rows'));
 
       const rebuild = () => {
-        setChildren(rows, [
-          scaleRow(app),
-          volumeRow(app, 'settings.music', 'musicVolume'),
-          volumeRow(app, 'settings.effects', 'effectVolume'),
-          languageRow(app, rebuild),
+        setChildren(tabs, [
+          ...TABS.map((name) =>
+            el('button.tab', {
+              type: 'button',
+              text: t(`settings.tab.${name}`),
+              'aria-pressed': String(state.tab === name),
+              onClick: () => {
+                if (state.tab === name) return;
+                app.audio.blip('select');
+                state.tab = name;
+                rebuild();
+              },
+            }),
+          ),
         ]);
+
+        setChildren(rows, tabRows(app, state.tab, rebuild));
       };
       rebuild();
 
       return el('div.screen', { style: { background: 'rgba(16, 21, 32, 0.9)' } }, [
         el('div.screen-header', {}, [
-          el('span', { text: t('settings.title') }),
+          tabs,
           el('span.spacer'),
           button(t('settings.close'), () => {
             app.audio.blip('cancel');
@@ -39,7 +64,6 @@ export function settingsScene({ onClose, onSaveAndQuit }) {
         ]),
         el('div.screen-body', { style: { display: 'flex', flexDirection: 'column' } }, [
           rows,
-          el('div.spacer', { style: { flex: '1' } }),
           onSaveAndQuit
             ? el('div', { style: { padding: '0 12px 12px' } }, [
                 button(t('settings.saveAndQuit'), async () => {
@@ -52,6 +76,24 @@ export function settingsScene({ onClose, onSaveAndQuit }) {
       ]);
     },
   };
+}
+
+/**
+ * @param {import('../core/app.mjs').App} app
+ * @param {string} tab
+ * @param {() => void} rebuild
+ * @returns {Array<HTMLElement|null>}
+ */
+function tabRows(app, tab, rebuild) {
+  switch (tab) {
+    case 'sound':
+      return [volumeRow(app, 'settings.music', 'musicVolume'), volumeRow(app, 'settings.effects', 'effectVolume')];
+    case 'language':
+      return languageRows(app, rebuild);
+    case 'display':
+    default:
+      return [scaleRow(app)];
+  }
 }
 
 /** @param {import('../core/app.mjs').App} app */
@@ -105,31 +147,43 @@ function volumeRow(app, labelKey, key) {
 }
 
 /**
+ * One checkbox per language the sheet lists, each labelled in its own language
+ * so it can be found without already reading the one in use.
+ *
  * @param {import('../core/app.mjs').App} app
  * @param {() => void} rebuild
+ * @returns {HTMLElement[]}
  */
-function languageRow(app, rebuild) {
-  const options = el(
-    'div.options',
-    {},
-    /** @type {Array<'ko'|'en'>} */ (['ko', 'en']).map((code) =>
-      el('button.chip', {
-        type: 'button',
-        text: t(`settings.language.${code}`),
-        'aria-pressed': String(app.settings.language === code),
-        onClick: async () => {
-          if (app.settings.language === code) return;
-          app.audio.blip('select');
-          // Changing the language re-mounts every scene, this one included, so
-          // there is nothing more to do here.
-          await app.updateSettings({ language: code });
-          rebuild();
-        },
-      }),
-    ),
-  );
+function languageRows(app, rebuild) {
+  return languages().map((entry) => {
+    const checked = app.settings.language === entry.code;
+    const box = el('input.checkbox', {
+      type: 'checkbox',
+      checked,
+      onChange: async (event) => {
+        const input = /** @type {HTMLInputElement} */ (event.target);
+        // One language is always in use, so the checked box cannot be cleared —
+        // another one is ticked to change it.
+        if (checked) {
+          input.checked = true;
+          return;
+        }
+        app.audio.blip('select');
+        await app.updateSettings({ language: entry.code });
+        // A language that took re-mounts every scene, this one included, and
+        // this rebuild is redundant; one the main process refused leaves the
+        // boxes ticked wrongly, and this is what puts them right.
+        rebuild();
+      },
+    });
 
-  return el('div.setting', {}, [el('span.label', { text: t('settings.language') }), options]);
+    // The label wraps the box, so the whole row is the hit target and names the
+    // control without a second label of its own.
+    return el('label.setting.checkrow', {}, [
+      box,
+      el('span.checkrow-label', { text: entry.label, lang: entry.code }),
+    ]);
+  });
 }
 
 /**

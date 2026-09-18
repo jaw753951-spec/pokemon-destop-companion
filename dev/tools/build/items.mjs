@@ -8,7 +8,33 @@ import { readFile } from 'node:fs/promises';
 import { fetchBuffer, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { crop, opaqueBounds } from '../lib/image.mjs';
+import { defaultLanguage } from '../../../app/shared/languages.mjs';
+import { LANGUAGES } from '../languages.mjs';
 import { BALL_TIERS, SPRITES } from '../sources.mjs';
+
+/**
+ * The language the tiers and the generated document are judged in: an item with
+ * no official name of its own in it is one of the dex's unused oddities, and is
+ * kept out of the field pickups.
+ */
+const BASE = defaultLanguage(LANGUAGES);
+
+/**
+ * That language's name for a record, or whatever it falls back to.
+ * @param {{name?: Record<string, string>}} record
+ * @param {string} fallback
+ */
+const label = (record, fallback) => record?.name?.[BASE.code] || fallback;
+
+/**
+ * Whether a record only carries the name it borrowed from another language.
+ * @param {{name?: Record<string, string>}} record
+ */
+function unnamed(record) {
+  const own = record?.name?.[BASE.code];
+  if (!own) return true;
+  return Boolean(BASE.fallback) && own === record.name[/** @type {string} */ (BASE.fallback)];
+}
 
 /**
  * @param {{assetDir: string, dataDir: string, docsDir: string, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
@@ -124,7 +150,7 @@ export function assignRarityTiers(items, moves = {}) {
     if (!item.sprite) continue;
     if (item.pocket === 'key') continue;
     if (EXCLUDED_CATEGORIES.has(item.category)) continue;
-    if (!item.name.ko || item.name.ko === item.name.en) continue;
+    if (unnamed(item)) continue;
 
     let score = item.cost > 0 ? item.cost : UNPRICED_SCORE[item.pocket] ?? 3000;
     // Every TM is priced the same in the data, so rank them by the move they
@@ -175,7 +201,7 @@ function machineScore(move) {
   return Math.round(1200 + power * accuracy * 32);
 }
 
-/** Korean labels for the inventory pockets, used by the generated document. */
+/** Pocket labels for the generated document, which is written in Korean. */
 const POCKET_LABELS = {
   medicine: '회복',
   berries: '나무열매',
@@ -224,20 +250,20 @@ function renderTierDocument(items, tiers, moves = {}) {
     '',
     '| 볼 | 등장 확률 | 아이템 수 |',
     '| --- | ---: | ---: |',
-    ...BALL_TIERS.map((tier) => `| ${items[tier.ball]?.name.ko ?? tier.ball} | ${tier.chance}% | ${tiers[tier.ball].length} |`),
+    ...BALL_TIERS.map((tier) => `| ${label(items[tier.ball], tier.ball)} | ${tier.chance}% | ${tiers[tier.ball].length} |`),
     '',
   ];
 
   for (const tier of BALL_TIERS) {
-    lines.push(`## ${items[tier.ball]?.name.ko ?? tier.ball} (${tier.chance}%)`, '');
+    lines.push(`## ${label(items[tier.ball], tier.ball)} (${tier.chance}%)`, '');
     lines.push('| 아이템 | 포켓 | 비고 |');
     lines.push('| --- | --- | --- |');
     for (const name of tiers[tier.ball]) {
       const item = items[name];
       const note = item.pocket === 'machines'
-        ? moves[item.move]?.name.ko ?? item.move ?? '-'
+        ? label(moves[item.move], item.move ?? '-')
         : item.cost > 0 ? `${item.cost}원` : '-';
-      lines.push(`| ${item.name.ko} | ${POCKET_LABELS[item.pocket] ?? item.pocket} | ${note} |`);
+      lines.push(`| ${label(item, name)} | ${POCKET_LABELS[item.pocket] ?? item.pocket} | ${note} |`);
     }
     lines.push('');
   }

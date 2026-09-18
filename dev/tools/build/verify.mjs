@@ -8,6 +8,8 @@
 import { join } from 'node:path';
 import { readFile, stat } from 'node:fs/promises';
 
+import { defaultLanguage } from '../../../app/shared/languages.mjs';
+import { LANGUAGES } from '../languages.mjs';
 import { MAX_SPECIES } from '../sources.mjs';
 
 /**
@@ -51,16 +53,22 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   // Every species must be playable: a front sprite, an icon and a learnset.
   const noSprite = [];
   const noLearnset = [];
-  const noKorean = [];
+  /** How many species each language shows another language's name for. */
+  const borrowed = new Map(LANGUAGES.map((language) => [language.code, 0]));
   for (const entry of Object.values(species)) {
     const sprite = sprites[entry.id];
     if (!sprite?.front || !sprite.icon) noSprite.push(entry.id);
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
-    if (!entry.name.ko || entry.name.ko === entry.name.en) noKorean.push(entry.id);
+    for (const language of LANGUAGES) {
+      if (!untranslated(entry.name, language)) continue;
+      borrowed.set(language.code, (borrowed.get(language.code) ?? 0) + 1);
+    }
   }
   note(noSprite.length === 0, `species missing art: ${summarize(noSprite)}`);
   note(noLearnset.length === 0, `species missing a level-up learnset: ${summarize(noLearnset)}`);
-  if (noKorean.length) log(`note: ${noKorean.length} species fall back to English names`);
+  for (const [code, count] of borrowed) {
+    if (count) log(`note: ${count} species have no official "${code}" name and fall back`);
+  }
 
   // Every move a learnset names must exist in moves.json.
   const unknownMoves = new Set();
@@ -143,21 +151,29 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
 
   const coveredTypes = new Set(leaders.map((leader) => leader.type));
   note(coveredTypes.size === 18, `gym leaders cover ${coveredTypes.size} of 18 types`);
+  const base = defaultLanguage(LANGUAGES);
   for (const leader of leaders) {
     note(Boolean(types[leader.type]), `leader ${leader.id}: unknown type ${leader.type}`);
-    note(Boolean(leader.name?.ko), `leader ${leader.id}: no Korean name`);
+    note(Boolean(leader.name?.[base.code]), `leader ${leader.id}: no ${base.code} name`);
     if (leader.portrait) {
       note(Boolean(actors.portraits[leader.portrait]), `leader ${leader.id}: no portrait ${leader.portrait}`);
     }
   }
-  const withoutEnglish = leaders.filter((leader) => !leader.name?.en).map((leader) => leader.name.ko);
-  if (withoutEnglish.length) log(`note: ${withoutEnglish.length} leader(s) have no English name (${withoutEnglish.join(', ')})`);
+  // Names for the other languages are authored by hand, so a gap is worth
+  // reporting but never worth failing a build over.
+  for (const language of LANGUAGES) {
+    if (language.code === base.code) continue;
+    const missing = leaders.filter((leader) => !leader.name?.[language.code]);
+    if (!missing.length) continue;
+    const listed = missing.map((leader) => leader.name?.[base.code] ?? leader.id).join(', ');
+    log(`note: ${missing.length} leader(s) have no "${language.code}" name (${listed})`);
+  }
 
   for (const league of leagues) {
     const members = [...league.eliteFour, league.champion];
     note(league.eliteFour.length >= 4, `league ${league.region}: only ${league.eliteFour.length} Elite Four`);
     for (const member of members) {
-      note(Boolean(member.name?.ko), `league ${league.region}/${member.id}: no Korean name`);
+      note(Boolean(member.name?.[base.code]), `league ${league.region}/${member.id}: no ${base.code} name`);
       note((member.party ?? []).length > 0, `league ${league.region}/${member.id}: no party`);
       for (const id of member.party ?? []) {
         note(Boolean(species[id]), `league ${league.region}/${member.id}: unknown species ${id}`);
@@ -181,4 +197,17 @@ async function fileExists(path) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Whether a record shows another language's text under this language's code,
+ * which is what the bundles do when a source carries no name for it.
+ *
+ * @param {Record<string, string>} bundle
+ * @param {import('../../../app/shared/languages.mjs').Language} language
+ */
+function untranslated(bundle, language) {
+  const text = bundle?.[language.code];
+  if (!text) return true;
+  return Boolean(language.fallback) && text === bundle[/** @type {string} */ (language.fallback)];
 }

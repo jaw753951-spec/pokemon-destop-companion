@@ -1,0 +1,22 @@
+{
+  "_comment": "지원 언어 시트. 게임이 아는 모든 언어는 코드가 아니라 이 표에 적혀 있고, 메인 프로세스(설정 검증)·렌더러(화면 문자열)·에셋 파이프라인(공식 명칭 수집)이 모두 이 한 파일을 읽는다. 언어를 늘리려면 여기에 한 줄을 추가하고 strings 가 가리키는 파일을 두면 되며, 코드는 고칠 필요가 없다. code 는 설정에 저장되는 값이자 생성 데이터에서 그 언어의 이름이 담기는 키, label 은 설정 화면에 그 언어로 표시할 이름, source 는 PokeAPI 언어 이름(공식 명칭과 설명문을 여기서 가져온다. 없으면 null), grammar 는 문자열에 필요한 문법 도우미, fallback 은 번역이 빠졌을 때 대신 읽을 언어, default 는 새로 설치했을 때 시작할 언어다.",
+  "languages": [
+    {
+      "code": "ko",
+      "label": "한국어",
+      "strings": "i18n/ko.json",
+      "source": "ko",
+      "grammar": "korean",
+      "fallback": "en",
+      "default": true
+    },
+    {
+      "code": "en",
+      "label": "English",
+      "strings": "i18n/en.json",
+      "source": "en",
+      "grammar": null,
+      "fallback": null
+    }
+  ]
+}

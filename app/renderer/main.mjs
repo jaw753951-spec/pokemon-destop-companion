@@ -21,7 +21,11 @@ async function boot() {
   trackWindowPosition();
 
   const settings = await settingsApi.get();
-  await setLanguage(settings.language);
+  // The sheet has the last word on which languages exist, so a settings file
+  // naming one it no longer lists is written back to whatever was used instead
+  // — otherwise the settings screen would show no language ticked at all.
+  const language = await setLanguage(settings.language);
+  if (language !== settings.language) Object.assign(settings, await settingsApi.set({ language }));
   splash.textContent = t('app.loading');
 
   const [, slots] = await Promise.all([loadGameData(), saves.list()]);
