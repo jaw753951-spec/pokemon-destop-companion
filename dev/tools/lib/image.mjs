@@ -205,16 +205,20 @@ export function keyOut(source, color) {
 export function pickWalkableBand(blockdata, widthInBlocks, heightInBlocks, bandBlocks) {
   if (heightInBlocks <= bandBlocks) return 0;
 
-  /** @type {number[]} */
-  const passablePerRow = [];
+  /** @type {Array<{passable: number, variety: number}>} */
+  const rows = [];
   for (let y = 0; y < heightInBlocks; y++) {
     let passable = 0;
+    /** @type {Set<number>} */
+    const kinds = new Set();
     for (let x = 0; x < widthInBlocks; x++) {
       const offset = (y * widthInBlocks + x) * 2;
       if (offset + 1 >= blockdata.length) continue;
-      if (((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0) passable++;
+      const block = blockdata.readUInt16LE(offset);
+      if (((block >> 10) & 0x03) === 0) passable++;
+      kinds.add(block & 0x03ff);
     }
-    passablePerRow.push(passable);
+    rows.push({ passable, variety: kinds.size });
   }
 
   let bestRow = 0;
@@ -224,7 +228,8 @@ export function pickWalkableBand(blockdata, widthInBlocks, heightInBlocks, bandB
     for (let offset = 0; offset < bandBlocks; offset++) {
       // Weight the middle rows highest: that is where the sprite actually walks.
       const distance = Math.abs(offset - (bandBlocks - 1) / 2);
-      score += passablePerRow[start + offset] * (1 + (bandBlocks / 2 - distance));
+      const row = rows[start + offset];
+      score += (row.passable - row.variety * VARIETY_PENALTY) * (1 + (bandBlocks / 2 - distance));
     }
     if (score > bestScore) {
       bestScore = score;
@@ -233,6 +238,16 @@ export function pickWalkableBand(blockdata, widthInBlocks, heightInBlocks, bandB
   }
   return bestRow;
 }
+
+/**
+ * How hard to push the band away from cluttered rows.
+ *
+ * Open ground and a tree line can be equally walkable, so counting passable
+ * blocks alone happily picks the noisiest strip of the map. Charging each row
+ * for the number of distinct metatiles it uses breaks that tie towards plain
+ * terrain, which is what a route looks like where you actually walk it.
+ */
+const VARIETY_PENALTY = 2;
 
 /**
  * Resample an animation down to at most `maxFrames`, preserving its total

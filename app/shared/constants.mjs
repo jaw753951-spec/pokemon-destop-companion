@@ -8,10 +8,25 @@ export const VIEW_WIDTH = 480;
 export const VIEW_HEIGHT = 270;
 
 /**
- * The scrolling area background fills the window, as the map does in the
+ * The field is drawn at twice the size of everything else.
+ *
+ * At 1:1 the window showed thirty 16px tiles across — twice the handheld's
+ * fifteen — which made the map a busy carpet and every sprite on it a speck.
+ * Doubling brings the framing back to what a Game Boy Advance actually put on
+ * screen, and the companion and the things it meets come up to a size you can
+ * read at a glance.
+ */
+export const FIELD_ZOOM = 2;
+
+/** The field's own coordinate space, which the zoom scales up to the window. */
+export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
+export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
+
+/**
+ * The scrolling area background fills the field, as the map does in the
  * handheld games; the HUD sits over it rather than beside it.
  */
-export const BACKGROUND_HEIGHT = VIEW_HEIGHT;
+export const BACKGROUND_HEIGHT = FIELD_HEIGHT;
 
 /** How often the game writes to the active save slot. */
 export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;

@@ -11,7 +11,7 @@ import { loadImage, loadSprite } from '../core/assets.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { Session } from '../engine/session.mjs';
-import { COMPANION_X, drawBackground, drawStepDust, drawWalker, GROUND_Y, WALK_SPEED } from '../render/field.mjs';
+import { COMPANION_X, drawBackground, drawStepDust, drawWalker, GROUND_Y, inFieldSpace, WALK_SPEED } from '../render/field.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -276,15 +276,17 @@ export function fieldScene(session) {
     },
 
     render(context) {
-      drawBackground(context, background, Math.round(offset));
-      events?.render(context, offset, companion?.height ?? 24);
+      inFieldSpace(context, (field) => {
+        drawBackground(field, background, Math.round(offset));
+        events?.render(field, offset, companion?.height ?? 24);
 
-      if (companion && showActor) {
-        const moving = !paused && (events?.walking ?? true);
-        const walk = { x: COMPANION_X, y: GROUND_Y, distance: offset, moving };
-        drawStepDust(context, walk);
-        drawWalker(context, companion, walk);
-      }
+        if (companion && showActor) {
+          const moving = !paused && (events?.walking ?? true);
+          const walk = { x: COMPANION_X, y: GROUND_Y, distance: offset, moving };
+          drawStepDust(field, walk);
+          drawWalker(field, companion, walk);
+        }
+      });
     },
 
     setPaused(value) {

@@ -53,10 +53,21 @@ const STEPS = [
   // waits for the state it wants rather than for a fixed time.
   { name: '14-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
   { name: '15-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
-  { name: '16-battle', script: 'await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
+  // A level-5 starter loses every wild battle it is thrown into, which left
+  // the tray and capture shots empty. Levelling it first makes the whole tail
+  // of the run — win, tray, capture screen — actually reachable.
+  { name: '16-battle', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
   { name: '17-battle-later', script: 'await wait(5000)' },
-  { name: '18-battle-end', script: 'await waitFor(() => !inBattle(), 60000)' },
-  { name: '19-tray', script: 'await wait(1500)' },
+  { name: '18-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
+  // Seeded rather than won: a wild Pokémon rolls up to fifteen levels above
+  // the companion, so no amount of levelling makes the battle a sure thing,
+  // and these two shots are about the screens, not the fight.
+  { name: '19-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
+  { name: '20-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
+  // Last, because it deliberately leaves an event mid-approach: `forceEvent`
+  // cannot preempt one that is already running, so anything after it would get
+  // this trainer's battle instead of the event it asked for.
+  { name: '21-trainer-approach', script: 'closeAll() && await forceEvent("trainer") && await wait(3500)' },
 ];
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -95,7 +106,7 @@ const delay = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** Injected before every step's script. */
 const HELPERS = `
-const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+const wait = (ms) => new Promise((r) => setTimeout(() => r(true), ms));
 const clickImageAlt = (alts) => {
   const image = [...document.querySelectorAll('img')].find((node) => alts.includes(node.alt));
   if (image) { (image.closest('button') || image).click(); return true; }
@@ -130,6 +141,31 @@ const forceEvent = async (kind) => {
   session.events.roll = () => { session.events.roll = roll; return kind; };
   session.eventTimer = 0;
   return true;
+};
+/**
+ * Make the run capable of reaching the capture screen: a companion that can
+ * win a wild battle, healed through the session so its HP lands on its new
+ * maximum rather than some number out of range, and balls to throw.
+ */
+const equipForCapture = (level) => {
+  const session = app().session;
+  session.active.experience = Math.round(1.2 * level ** 3);
+  session.heal();
+  session.addItem('poke-ball', 5);
+  return true;
+};
+/** Put something in the post-battle tray, whether or not the battle went well. */
+const seedTray = () => {
+  const session = app().session;
+  if (session.tray.length === 0) session.addToTray(JSON.parse(JSON.stringify(session.active)));
+  return true;
+};
+/** Open the menu on the first Pokémon waiting in the post-battle tray. */
+const clickTray = () => {
+  const entry = document.querySelector('.screen button img[src*="/icon.png"]');
+  if (entry) { (entry.closest('button') || entry).click(); return true; }
+  console.log('tray is empty');
+  return false;
 };
 /** Poll until a predicate holds, or give up so a shot is still taken. */
 const waitFor = async (predicate, timeoutMs) => {

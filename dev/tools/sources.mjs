@@ -93,11 +93,16 @@ export const STARTERS = [1, 4, 7];
 export const VIEW_WIDTH = 480;
 export const VIEW_HEIGHT = 270;
 
+/** The field is drawn at twice size; see `FIELD_ZOOM` in the shared constants. */
+export const FIELD_ZOOM = 2;
+export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
+export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
+
 /**
- * The scrolling background fills the window, as the map does in the real
- * games. A map shorter than this contributes every row it has.
+ * The scrolling background fills the field, as the map does in the real games.
+ * A map shorter than this contributes every row it has.
  */
-export const BACKGROUND_HEIGHT = VIEW_HEIGHT;
+export const BACKGROUND_HEIGHT = FIELD_HEIGHT;
 
 /** Cap on stored animation frames per sprite state. */
 export const MAX_SPRITE_FRAMES = 10;

@@ -16,7 +16,7 @@ import {
   tilesetDirName,
 } from '../lib/gba-gfx.mjs';
 import { crop, gradeTime, makeSeamless, pickWalkableBand, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
-import { AREAS, BACKGROUND_HEIGHT, EMERALD, POKEAPI, VIEW_WIDTH } from '../sources.mjs';
+import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sources.mjs';
 
 /**
  * @param {{assetDir: string, dataDir: string, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
@@ -51,7 +51,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const bandBlocks = Math.min(wantedBlocks, layout.height);
     const bandRow = pickWalkableBand(blockdata, layout.width, layout.height, bandBlocks);
     const band = crop(rendered, 0, bandRow * METATILE_SIZE, rendered.width, bandBlocks * METATILE_SIZE);
-    const strip = repeatToWidth(makeSeamless(band), VIEW_WIDTH * 2);
+    const strip = repeatToWidth(makeSeamless(band), FIELD_WIDTH * 2);
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);

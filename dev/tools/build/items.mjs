@@ -6,6 +6,8 @@ import { join } from 'node:path';
 import { readFile } from 'node:fs/promises';
 
 import { fetchBuffer, writeOut } from '../lib/http.mjs';
+import { decodePng, encodePng } from '../lib/png.mjs';
+import { crop, opaqueBounds } from '../lib/image.mjs';
 import { BALL_TIERS, SPRITES } from '../sources.mjs';
 
 /**
@@ -72,11 +74,30 @@ function iconCandidates(name, item, machines, moves) {
   return candidates;
 }
 
-/** @param {string[]} urls */
+/**
+ * The first icon that exists, trimmed to its opaque area.
+ *
+ * The published icons float inside a 30x30 canvas whose padding is most of the
+ * image. In a bag cell that is invisible — the cell is a fixed box and the art
+ * is centred in it either way — but in the field, where a gathered item is
+ * held up over the companion's head at the map's own scale, the padding makes
+ * a berry twice the size of the Pokémon holding it. Trimmed, an item comes out
+ * about a tile across, which is what one looks like on the ground.
+ *
+ * @param {string[]} urls
+ * @returns {Promise<Buffer|null>}
+ */
 async function firstAvailable(urls) {
   for (const url of urls) {
     const buffer = await fetchBuffer(url, { allowMissing: true });
-    if (buffer) return buffer;
+    if (!buffer) continue;
+
+    const png = decodePng(buffer);
+    const bounds = opaqueBounds(png);
+    if (!bounds) continue;
+
+    const trimmed = crop(png, bounds.x, bounds.y, bounds.width, bounds.height);
+    return encodePng(trimmed.width, trimmed.height, trimmed.data);
   }
   return null;
 }

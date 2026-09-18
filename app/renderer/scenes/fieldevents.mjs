@@ -6,7 +6,7 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -21,14 +21,15 @@ const HARVEST_MS = 10000;
 const PICKUP_MS = 5000;
 const SHOW_ITEM_MS = 3000;
 
-/** A prop spawns this far beyond the right edge of the view. */
-const SPAWN_MARGIN = 48;
+/** A prop spawns this far beyond the right edge of the field. */
+const SPAWN_MARGIN = 24;
 
 /**
  * How far to the companion's right the prop ends up. Without a gap the two
  * sprites land on the same spot and the companion hides whatever it met.
+ * Field pixels, so about a tile and a bit at the size they are drawn.
  */
-const MEET_GAP = 34;
+const MEET_GAP = 20;
 
 /**
  * @param {{
@@ -58,7 +59,7 @@ export function createEventRunner({ session, onBattle }) {
      */
     start(kind, offset, app) {
       if (active) return;
-      const spawnAt = offset + (VIEW_WIDTH - COMPANION_X) + SPAWN_MARGIN;
+      const spawnAt = offset + (FIELD_WIDTH - COMPANION_X) + SPAWN_MARGIN;
 
       switch (kind) {
         case 'berry':
@@ -126,7 +127,7 @@ export function createEventRunner({ session, onBattle }) {
       if (!active) return;
       const screenX = COMPANION_X + (active.worldX - offset);
 
-      if (active.prop && screenX < VIEW_WIDTH + 64) {
+      if (active.prop && screenX < FIELD_WIDTH + 64) {
         drawProp(context, active, screenX);
       }
       if (active.phase === 'show' && active.carried) {
@@ -134,7 +135,7 @@ export function createEventRunner({ session, onBattle }) {
       }
       if (active.flash > 0) {
         context.fillStyle = `rgba(255, 255, 255, ${Math.min(0.55, active.flash)})`;
-        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+        context.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
         active.flash -= 0.02;
       }
     },
@@ -396,7 +397,6 @@ function drawProp(context, state, screenX) {
   const sprite = /** @type {Sprite} */ (prop.sprite);
   sprite.draw(context, screenX, GROUND_Y, {
     frame: sprite.frameAt(state.elapsed ?? 0),
-    flip: prop.kind === 'trainer',
   });
 }
 

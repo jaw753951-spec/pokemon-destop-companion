@@ -5,7 +5,7 @@
  * produces back one entry at a time, so the fight reads at a watchable pace
  * even though it was decided instantly.
  */
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { el } from '../core/dom.mjs';
@@ -13,13 +13,16 @@ import { name as localized, t } from '../core/i18n.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { Battler } from '../render/battler.mjs';
+import { inFieldSpace } from '../render/field.mjs';
 
 /** How long each log entry holds the screen. */
 const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
 
 /** Where the two combatants stand. */
-const FOE_SPOT = { x: Math.round(VIEW_WIDTH * 0.74), y: 104 };
-const PLAYER_SPOT = { x: Math.round(VIEW_WIDTH * 0.26), y: 168 };
+// Field coordinates: the battlers are drawn in the same doubled space as the
+// map behind them, so the two stay in proportion.
+const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.74), y: Math.round(FIELD_HEIGHT * 0.39) };
+const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: Math.round(FIELD_HEIGHT * 0.63) };
 
 /**
  * @param {{
@@ -68,6 +71,9 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
     if (!meta) return;
     loadSprite(`pokemon/${foe.speciesId}/front.png`, meta).then((sprite) => {
       if (loadedFoeId !== foe.speciesId) return;
+      // The BW set draws backs and fronts at much the same size (mean height 75
+      // against 78), so the foe is shrunk to put it up the field. Without this
+      // the two sit on the same plane and the battle reads flat.
       foeBattler = new Battler({ sprite, x: FOE_SPOT.x, y: FOE_SPOT.y, facing: -1, scale: 0.8 });
     });
   };
@@ -132,8 +138,10 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       context.fillStyle = 'rgba(12, 16, 26, 0.55)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
 
-      foeBattler?.draw(context);
-      playerBattler?.draw(context);
+      inFieldSpace(context, (field) => {
+        foeBattler?.draw(field);
+        playerBattler?.draw(field);
+      });
     },
   };
 

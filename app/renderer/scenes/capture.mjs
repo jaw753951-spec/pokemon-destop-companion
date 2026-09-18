@@ -5,7 +5,7 @@
  * hold along the bottom with their real odds printed underneath, and the
  * throws you have left counted in the corner. Three throws, then it flees.
  */
-import { CAPTURE_ATTEMPTS, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
@@ -13,6 +13,7 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
 import { Battler } from '../render/battler.mjs';
+import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
 
 /**
@@ -43,10 +44,11 @@ export function captureScene({ session, target, onFinish }) {
       const meta = gameData().sprites[target.speciesId]?.front;
       if (meta) {
         loadSprite(`pokemon/${target.speciesId}/front.png`, meta).then((sprite) => {
+          // Field coordinates, so the target is the size it was on the path.
           battler = new Battler({
             sprite,
-            x: Math.round(VIEW_WIDTH / 2),
-            y: Math.round(VIEW_HEIGHT * 0.52),
+            x: Math.round(FIELD_WIDTH / 2),
+            y: Math.round(FIELD_HEIGHT * 0.52),
             facing: -1,
           });
         });
@@ -74,7 +76,7 @@ export function captureScene({ session, target, onFinish }) {
     render(context) {
       context.fillStyle = 'rgba(10, 14, 24, 0.78)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
-      battler?.draw(context);
+      inFieldSpace(context, (field) => battler?.draw(field));
     },
   };
 

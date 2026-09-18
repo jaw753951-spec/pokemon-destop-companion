@@ -3,24 +3,26 @@
  * walking across it.
  *
  * The aim is the overworld of the handheld games rather than a character on a
- * backdrop, so three things are deliberate. The map fills the window, because
- * a letterboxed strip reads as scenery instead of a place. The companion is
- * drawn from its box icon, which is the only official art that is already in
- * proportion to a 16px tile, at a size a route would actually contain. And the
- * walk cycle is driven by distance travelled rather than by the clock, so the
- * sprite is tied to the ground the way a stepped tile-grid sprite is — speed
- * up the walk and the legs go faster, stop and they stop mid-stride.
+ * backdrop, so four things are deliberate. The whole field is drawn at twice
+ * size, which puts about fifteen tiles across the window — the framing a Game
+ * Boy Advance actually had, instead of twice as much map at half the size. The
+ * map fills that frame, because a letterboxed strip reads as scenery instead
+ * of a place. The companion is drawn from its box icon, the only official art
+ * already in proportion to a 16px tile. And the walk cycle is driven by
+ * distance travelled rather than by the clock, so the sprite is tied to the
+ * ground the way a stepped tile-grid sprite is — speed up the walk and the
+ * legs go faster, stop and they stop mid-stride.
  */
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
 
 /** Where the companion's feet sit: just below centre, as the games frame it. */
-export const GROUND_Y = Math.round(VIEW_HEIGHT * 0.62);
+export const GROUND_Y = Math.round(FIELD_HEIGHT * 0.62);
 
-/** World pixels per second. About one tile every half-second. */
+/** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
 
 /** The companion holds this column while the world slides past it. */
-export const COMPANION_X = Math.round(VIEW_WIDTH * 0.32);
+export const COMPANION_X = Math.round(FIELD_WIDTH * 0.32);
 
 /**
  * Distance covered per walk frame. The GBA moves a character one 16px tile per
@@ -43,30 +45,48 @@ const WALK_CYCLE = [
 ];
 
 /**
+ * Run `draw` in field space: twice size, with pixels kept square.
+ *
+ * Everything inside works in the field's own 240x135 coordinates and comes out
+ * at the window's 480x270, so a source pixel always lands on exactly four
+ * screen pixels and nothing is ever drawn on a half-pixel.
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {(context: CanvasRenderingContext2D) => void} draw
+ */
+export function inFieldSpace(context, draw) {
+  context.save();
+  context.imageSmoothingEnabled = false;
+  context.scale(FIELD_ZOOM, FIELD_ZOOM);
+  draw(context);
+  context.restore();
+}
+
+/**
  * @param {CanvasRenderingContext2D} context
  * @param {HTMLImageElement|null} background
- * @param {number} offset world scroll, in pixels
+ * @param {number} offset world scroll, in field pixels
  */
 export function drawBackground(context, background, offset) {
   context.fillStyle = '#101520';
-  context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+  context.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
   if (!background) return;
 
   const width = background.naturalWidth;
   const height = background.naturalHeight;
   // Anchored to the bottom, so the ground line stays put when a short map
-  // contributes fewer rows than the window has.
-  const top = VIEW_HEIGHT - height;
+  // contributes fewer rows than the field has.
+  const top = FIELD_HEIGHT - height;
 
   // Modulo can be negative for a negative offset; normalise so the first tile
   // always starts at or before the left edge.
   let start = -(((offset % width) + width) % width);
 
-  while (start < VIEW_WIDTH) {
+  while (start < FIELD_WIDTH) {
     const x = Math.round(start);
     context.drawImage(background, x, top, width, height);
-    // The two short maps leave a gap overhead; their own top row fills it, so
-    // the terrain carries on instead of ending at a hard edge.
+    // A map shorter than the field leaves a gap overhead; its own top row
+    // fills it, so the terrain carries on instead of ending at a hard edge.
     if (top > 0) context.drawImage(background, 0, 0, width, 1, x, 0, width, top);
     start += width;
   }
@@ -92,7 +112,7 @@ export function drawShadow(context, x, y, width) {
 /**
  * Which beat of the walk the companion is on after travelling this far.
  *
- * @param {number} distance world pixels covered
+ * @param {number} distance field pixels covered
  * @returns {{lift: number, lean: number}}
  */
 export function walkFrame(distance) {
@@ -101,18 +121,20 @@ export function walkFrame(distance) {
 }
 
 /**
- * Draw the companion as an overworld sprite.
+ * Draw the companion as an overworld sprite, facing the way it is going.
  *
- * The lean is a shear rather than a whole-sprite shift: the feet stay planted
- * on the ground row and the displacement grows towards the head, so the body
- * rocks over its own footing. Standing still resets to the neutral beat, which
- * is what the games do when you let go of the d-pad.
+ * Box icons are drawn three-quarters on, turned towards the viewer's left, so
+ * mirroring them turns the Pokémon down the road it is walking and puts its
+ * tail behind it. The lean is a shear rather than a whole-sprite shift: the
+ * feet stay planted on the ground row and the displacement grows towards the
+ * head, so the body rocks over its own footing. Standing still resets to the
+ * neutral beat, which is what the games do when you let go of the d-pad.
  *
  * @param {CanvasRenderingContext2D} context
  * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{x: number, y: number, distance: number, moving: boolean}} options
+ * @param {{x: number, y: number, distance: number, moving: boolean, flip?: boolean}} options
  */
-export function drawWalker(context, sprite, { x, y, distance, moving }) {
+export function drawWalker(context, sprite, { x, y, distance, moving, flip = true }) {
   const { lift, lean } = moving ? walkFrame(distance) : WALK_CYCLE[0];
 
   drawShadow(context, x, y, sprite.width);
@@ -120,18 +142,26 @@ export function drawWalker(context, sprite, { x, y, distance, moving }) {
   const left = Math.round(x - sprite.width / 2);
   const top = Math.round(y - sprite.height - lift);
 
-  if (lean === 0) {
-    context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, sprite.width, sprite.height);
-    return;
+  context.save();
+  if (flip) {
+    // Mirror about the sprite's own centre column, so flipping does not move
+    // it off the spot it is standing on.
+    context.translate(left * 2 + sprite.width, 0);
+    context.scale(-1, 1);
   }
 
-  // One draw per row is a few dozen tiny blits for a sprite this size, which
-  // is cheaper than the offscreen canvas an equivalent transform would need.
-  for (let row = 0; row < sprite.height; row++) {
-    const weight = 1 - row / sprite.height;
-    const shift = Math.round(lean * weight);
-    context.drawImage(sprite.image, 0, row, sprite.width, 1, left + shift, top + row, sprite.width, 1);
+  if (lean === 0) {
+    context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, sprite.width, sprite.height);
+  } else {
+    // One draw per row is a few dozen tiny blits for a sprite this size, which
+    // is cheaper than the offscreen canvas an equivalent transform would need.
+    for (let row = 0; row < sprite.height; row++) {
+      const weight = 1 - row / sprite.height;
+      const shift = Math.round(lean * weight);
+      context.drawImage(sprite.image, 0, row, sprite.width, 1, left + shift, top + row, sprite.width, 1);
+    }
   }
+  context.restore();
 }
 
 /**
