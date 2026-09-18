@@ -63,7 +63,7 @@ npm run dist         # electron-builder 패키징
 
 | 내용 | 출처 |
 | --- | --- |
-| 룰 데이터 · 한국어 명칭/설명 | [`PokeAPI/api-data`](https://github.com/PokeAPI/api-data) |
+| 룰 데이터 · 언어별 공식 명칭/설명 | [`PokeAPI/api-data`](https://github.com/PokeAPI/api-data) |
 | 포켓몬 스프라이트 (BW·Showdown 애니메이션 포함) | [`PokeAPI/sprites`](https://github.com/PokeAPI/sprites) |
 | 포켓몬 울음소리 | [`PokeAPI/cries`](https://github.com/PokeAPI/cries) |
 | 타일셋 · 맵 · 트레이너 도트 · 아이템 아이콘 · BGM | [`pret/pokeemerald`](https://github.com/pret/pokeemerald), [`pret/pokefirered`](https://github.com/pret/pokefirered) |
@@ -94,7 +94,7 @@ dev/                 ← 개발용. 패키지에 들어가지 않음
   tsconfig.json
 
 data/                ← 데이터
-  authored/          손으로 저술 (관장/사천왕/챔피언, 트레이너 계급, i18n)
+  authored/          손으로 저술 (관장/사천왕/챔피언, 트레이너 계급, i18n · 언어 시트)
   generated/         파이프라인 산출물 (gitignored)
 
 assets/              생성 에셋 (gitignored)
@@ -108,7 +108,7 @@ dist/                패키지 산출물 (gitignored)
 
 | 단계 | 하는 일 | 산출물 |
 | --- | --- | --- |
-| `dex` | 종족값·기술·아이템·타입 상성·기술머신 (한국어 명칭/설명 포함) | `data/generated/{species,moves,items,machines,types}.json` |
+| `dex` | 종족값·기술·아이템·타입 상성·기술머신 (언어 시트에 적힌 모든 언어의 공식 명칭/설명 포함) | `data/generated/{species,moves,items,machines,types}.json` |
 | `sprites` | 포켓몬 1025종의 애니 스프라이트 스트립·박스 아이콘·울음소리 | `assets/pokemon/`, `assets/cries/`, `sprites.json` |
 | `items` | 아이템 아이콘, 볼 등급별 희귀도 티어 | `assets/items/`, `item-tiers.json`, `dev/docs/item-rarity.md` |
 | `actors` | 트레이너 정면/필드 도트, 나무열매 나무, 아이템 볼 | `assets/trainers/`, `assets/props/`, `actors.json` |
@@ -129,7 +129,7 @@ BGM 1.6MB · 트레이너 0.8MB) + 데이터 3.2MB 입니다.
 - `midi.mjs` — SMF 파서 → 절대시간 노트 이벤트
 - `image.mjs` — 크롭 · 미러 · 심리스 스트립 · 시간대 컬러 그레이딩 · 프레임 리샘플
 - `http.mjs` — 디스크 캐시 · 재시도 · 동시성 제한 다운로더
-- `poke.mjs` — PokeAPI 레코드에서 한국어 명칭/최신 설명을 뽑는 헬퍼
+- `poke.mjs` — PokeAPI 레코드에서 언어별 공식 명칭/최신 설명을 뽑는 헬퍼
 
 ## 배포 · 패키징
 
@@ -168,11 +168,42 @@ npm version 0.1.1        # package.json 버전 갱신 + 태그
 git push --follow-tags   # build.yml 이 태그를 받아 드래프트 릴리스 생성
 ```
 
+## 언어
+
+설정의 **언어** 탭에서 언어를 고르면 화면 문자열은 물론 포켓몬·기술·아이템·지역명까지
+그 언어의 공식 명칭으로 즉시 바뀝니다. 지원 언어는 코드가 아니라 시트 한 장에 적혀 있습니다.
+
+```
+data/authored/i18n/
+  languages.json     지원 언어 시트 — 아래 세 곳이 모두 이 파일만 읽습니다
+  ko.json            화면 문자열
+  en.json
+```
+
+| 열 | 뜻 |
+| --- | --- |
+| `code` | 설정에 저장되는 값이자 생성 데이터에서 그 언어의 이름이 담기는 키 |
+| `label` | 설정 화면에 표시할 이름 (그 언어로 적습니다) |
+| `strings` | 화면 문자열 파일 (`data/authored/` 기준 경로) |
+| `source` | PokeAPI 언어 이름. 파이프라인이 공식 명칭·설명을 여기서 가져옵니다 |
+| `grammar` | 문자열에 필요한 문법 도우미 (`korean` = 조사 일치) |
+| `fallback` | 번역이 빠졌을 때 대신 읽을 언어 |
+| `default` | 새로 설치했을 때 시작할 언어 |
+
+**언어를 추가하려면** 시트에 한 줄을 넣고 `strings` 가 가리키는 파일을 두면 됩니다.
+메인 프로세스(설정 검증)·렌더러(화면 문자열)·에셋 파이프라인(공식 명칭 수집)이 모두 같은
+시트를 읽으므로 고칠 코드는 없습니다. 명칭 데이터는 `npm run assets` 를 다시 돌리면
+`source` 에 적은 언어로 채워집니다.
+
+번역이 덜 끝난 언어도 그대로 굴러갑니다 — 빠진 문자열은 `fallback` 에 적은 언어를 거쳐
+시트에 적힌 나머지 언어 순으로 읽고, 그 문자열이 쓰인 언어의 문법 규칙을 따릅니다. 그래서
+영어로 대체된 문장에 한국어 조사 표기가 남는 일은 없습니다.
+
 ## 에리어
 
 수록 에리어는 전부 3세대 호연 지방의 실제 맵입니다. 한 지방으로 통일한 이유는 화풍이
-일관되기도 하지만, PokeAPI가 **호연 지역명의 한국어 정식 명칭을 가지고 있기 때문**입니다
-(관동 지역명에는 한국어가 없습니다). 각 맵에서 통행 가능한 블록이 가장 많은 가로 띠를 골라
+일관되기도 하지만, PokeAPI가 **호연 지역명의 공식 번역명을 가장 많은 언어로 가지고 있기
+때문**입니다 (관동 지역명에는 한국어가 없습니다). 각 맵에서 통행 가능한 블록이 가장 많은 가로 띠를 골라
 잘라낸 뒤, 좌우 반전본을 이어붙여 이음매 없이 순환하는 스크롤 배경으로 만듭니다.
 
 어느 띠를 고르느냐는 통행 가능한 블록 수만 세면 안 됩니다 — 탁 트인 땅과 나무 울타리는

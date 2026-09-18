@@ -1,10 +1,13 @@
 /**
  * Shared helpers for reading PokeAPI records.
  *
- * The game presents official Korean text wherever it exists. Korean coverage
- * thins out for older entries, so every lookup falls back through the version
- * groups newest-first and finally to English rather than showing nothing.
+ * The game presents official text in every language the sheet lists. Coverage
+ * thins out for older entries and for languages PokeAPI carries less of, so
+ * every lookup falls back through the version groups newest-first and then
+ * along the language's own fallback chain rather than showing nothing.
  */
+import { fallbackChain } from '../../../app/shared/languages.mjs';
+import { LANGUAGES } from '../languages.mjs';
 import { VERSION_GROUP_PRIORITY } from '../sources.mjs';
 
 const PRIORITY = new Map(VERSION_GROUP_PRIORITY.map((group, index) => [group, index]));
@@ -22,13 +25,52 @@ export function localizedName(names, language) {
 }
 
 /**
- * Both localizations of a name, with English standing in for a missing Korean.
+ * One piece of text per language in the sheet.
+ *
+ * `read` is given a PokeAPI language name and returns that language's text, or
+ * null when the record has none; every gap is then filled from the first
+ * language along its fallback chain that does, and from `fallback` if none did.
+ *
+ * @param {(language: string) => string|null} read
+ * @param {string} fallback
+ * @returns {Record<string, string>}
+ */
+export function bundle(read, fallback) {
+  /** @type {Record<string, string>} */
+  const texts = {};
+  for (const language of LANGUAGES) {
+    // A language with no source is one PokeAPI has no text for; it is filled in
+    // from its fallback below.
+    const text = language.source ? read(language.source) : null;
+    if (text) texts[language.code] = text;
+  }
+
+  for (const language of LANGUAGES) {
+    if (texts[language.code]) continue;
+    const donor = fallbackChain(LANGUAGES, language.code).find((code) => texts[code]);
+    texts[language.code] = donor ? texts[donor] : fallback;
+  }
+  return texts;
+}
+
+/**
+ * Every localization of a name.
  * @param {Array<{name: string, language: {name: string}}>} names
  * @param {string} fallback
  */
 export function nameBundle(names, fallback) {
-  const en = localizedName(names, 'en') ?? fallback;
-  return { ko: localizedName(names, 'ko') ?? en, en };
+  return bundle((language) => localizedName(names, language), fallback);
+}
+
+/**
+ * Every localization of a species' genus ("Seed Pokémon").
+ * @param {Array<{genus: string, language: {name: string}}>} genera
+ */
+export function genusBundle(genera) {
+  return bundle(
+    (language) => genera?.find((entry) => entry.language.name === language)?.genus ?? null,
+    '',
+  );
 }
 
 /**
@@ -59,13 +101,12 @@ function versionGroupOf(entry) {
 }
 
 /**
- * Both localizations of a flavour text.
+ * Every localization of a flavour text.
  * @param {Array<any>} entries
  * @param {string} [textKey]
  */
 export function flavorBundle(entries, textKey = 'flavor_text') {
-  const en = latestFlavorText(entries, 'en', textKey) ?? '';
-  return { ko: latestFlavorText(entries, 'ko', textKey) ?? en, en };
+  return bundle((language) => latestFlavorText(entries, language, textKey), '');
 }
 
 /** `/api/v2/pokemon/25/` -> `25` */

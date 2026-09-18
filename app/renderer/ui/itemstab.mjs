@@ -132,7 +132,7 @@ export function useItem(session, slug) {
   }
 
   if (item.pocket === 'medicine') {
-    const healed = applyMedicine(pokemon, item);
+    const healed = applyMedicine(pokemon, item, slug);
     if (!healed) return { used: false, ok: false, message: t('items.cannotUse') };
     session.removeItem(slug);
     return { used: true, ok: true, message: t('items.used', { name: label }) };
@@ -172,12 +172,13 @@ export function useItem(session, slug) {
  *
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  * @param {any} item
+ * @param {string} slug the item's own id, which is the same in every language
  * @returns {boolean} whether anything changed
  */
-function applyMedicine(pokemon, item) {
+function applyMedicine(pokemon, item, slug) {
   const max = maxHp(pokemon);
 
-  if (item.category === 'status-cures' || item.name.en === 'Full Heal') {
+  if (item.category === 'status-cures' || slug === 'full-heal') {
     if (!pokemon.status) return false;
     pokemon.status = null;
     pokemon.statusTurns = 0;
@@ -190,7 +191,7 @@ function applyMedicine(pokemon, item) {
     return true;
   }
 
-  if (item.name.en === 'Full Restore' || item.category === 'pp-recovery') {
+  if (slug === 'full-restore' || item.category === 'pp-recovery') {
     const before = { hp: pokemon.hp, status: pokemon.status };
     fullyHeal(pokemon);
     return before.hp !== pokemon.hp || before.status !== pokemon.status;
@@ -202,11 +203,27 @@ function applyMedicine(pokemon, item) {
   return true;
 }
 
+/**
+ * Where the amount sits relative to the word "HP" is a matter of grammar —
+ * "by 20 points" in English, "HP를 20" in Korean — so the description is only
+ * required to mention HP at all, and the first two- or three-digit number in it
+ * is taken as the amount. A description with no such number, as a Max Potion's
+ * has none, promises a full restore instead.
+ */
+const MENTIONS_HP = /HP/i;
+const AMOUNT = /(?<!\d)(\d{2,3})(?!\d)/;
+
 /** The number of hit points an item's description promises, when it names one. */
 function healingAmount(item) {
-  const text = `${item.text?.en ?? ''} ${item.text?.ko ?? ''}`;
-  const match = /(\d{2,3})\s*(?:HP|만큼)/i.exec(text);
-  return match ? Number(match[1]) : null;
+  // Every localization is searched, not just the chosen one: the description
+  // the player is reading may be the one that leaves the number out.
+  for (const text of Object.values(item.text ?? {})) {
+    const description = String(text);
+    if (!MENTIONS_HP.test(description)) continue;
+    const match = AMOUNT.exec(description);
+    if (match) return Number(match[1]);
+  }
+  return null;
 }
 
 /**

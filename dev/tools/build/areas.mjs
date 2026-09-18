@@ -16,6 +16,7 @@ import {
   tilesetDirName,
 } from '../lib/gba-gfx.mjs';
 import { crop, gradeTime, makeSeamless, pickWalkableBand, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
+import { nameBundle } from '../lib/poke.mjs';
 import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sources.mjs';
 
 /**
@@ -24,7 +25,7 @@ import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sour
 export async function buildAreas({ assetDir, dataDir, log, pool }) {
   const layouts = await loadLayouts();
   const encounters = await loadEncounterTables();
-  const koreanNames = await loadKoreanLocationNames(pool);
+  const locationNames = await loadLocationNames(pool);
   const tilesetCache = new Map();
 
   const wantedBlocks = Math.ceil(BACKGROUND_HEIGHT / METATILE_SIZE);
@@ -64,7 +65,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const music = map.music && map.music !== 'MUS_NONE' ? map.music.toLowerCase() : null;
     manifest.push({
       id: area.id,
-      name: { ko: koreanNames.get(area.location) ?? titleize(area.location), en: titleize(area.location) },
+      name: nameBundle(locationNames.get(area.location) ?? [], titleize(area.location)),
       tags: area.tags,
       width: strip.width,
       height: strip.height,
@@ -121,14 +122,18 @@ async function loadEncounterTables() {
 }
 
 /**
- * Official Korean location names, which PokeAPI carries for Hoenn.
+ * The official name of each shipped location in every language PokeAPI has one
+ * for, left as PokeAPI's own list so the caller can bundle it against the right
+ * fallback. Hoenn is the region with the widest coverage, which is why the game
+ * stays in it.
+ *
  * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
- * @returns {Promise<Map<string, string>>}
+ * @returns {Promise<Map<string, Array<{name: string, language: {name: string}}>>>}
  */
-async function loadKoreanLocationNames(pool) {
+async function loadLocationNames(pool) {
   const wanted = new Set(AREAS.map((area) => area.location));
   const index = await fetchJson(`${POKEAPI}/location/index.json`);
-  /** @type {Map<string, string>} */
+  /** @type {Map<string, Array<{name: string, language: {name: string}}>>} */
   const names = new Map();
 
   await Promise.all(
@@ -137,8 +142,7 @@ async function loadKoreanLocationNames(pool) {
       .map((entry) =>
         pool(async () => {
           const location = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`);
-          const korean = location.names.find((name) => name.language.name === 'ko');
-          if (korean) names.set(entry.name, korean.name);
+          names.set(entry.name, location.names ?? []);
         }),
       ),
   );

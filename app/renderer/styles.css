@@ -364,6 +364,8 @@ canvas {
 /* ----------------------------------------------------------------- settings */
 
 .settings-rows {
+  flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -371,6 +373,9 @@ canvas {
 }
 
 .setting {
+  /* Never shrink: in a scrolling column the rows keep their height and the
+     list scrolls, rather than squeezing together until they are unreadable. */
+  flex: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -416,6 +421,38 @@ canvas {
   border-color: var(--accent-dark);
   background: var(--accent);
   color: #fff;
+}
+
+/* A settings choice that is either on or off, one row per option. */
+.setting.checkrow {
+  -webkit-app-region: no-drag;
+  gap: 6px;
+  padding: 3px 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.setting.checkrow:hover {
+  border-color: var(--frame-light);
+}
+
+.setting.checkrow:has(.checkbox:checked) .checkrow-label {
+  color: var(--accent-dark);
+  font-weight: 700;
+}
+
+.checkbox {
+  -webkit-app-region: no-drag;
+  flex: none;
+  width: 11px;
+  height: 11px;
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.checkrow-label {
+  color: var(--ink);
 }
 
 /* ------------------------------------------------------------------ dialogs */

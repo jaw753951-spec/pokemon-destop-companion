@@ -17,15 +17,14 @@
   "slot.overwrite": "이 슬롯에는 이미 데이터가 있습니다. 덮어쓰시겠습니까?",
   "slot.delete": "이 세이브를 지우시겠습니까?",
 
-  "settings.title": "설정",
+  "settings.tab.display": "화면",
+  "settings.tab.sound": "소리",
+  "settings.tab.language": "언어",
   "settings.scale": "화면 크기",
   "settings.music": "음악",
   "settings.effects": "효과음",
-  "settings.language": "언어",
   "settings.saveAndQuit": "저장 후 종료",
   "settings.close": "닫기",
-  "settings.language.ko": "한국어",
-  "settings.language.en": "English",
 
   "starter.prompt": "함께 여행할 포켓몬을 골라 주세요.",
   "starter.confirm": "{name}(으)로 하시겠습니까?",

@@ -11,6 +11,7 @@ import { join } from 'node:path';
 import { fetchJson, writeOut } from '../lib/http.mjs';
 import {
   flavorBundle,
+  genusBundle,
   idFromUrl,
   nameBundle,
   newestVersionGroupFor,
@@ -257,12 +258,7 @@ async function buildSpecies(pool, log, limit) {
           id,
           slug: species.name,
           name: nameBundle(species.names, species.name),
-          genus: {
-            ko: species.genera.find((entry) => entry.language.name === 'ko')?.genus
-              ?? species.genera.find((entry) => entry.language.name === 'en')?.genus
-              ?? '',
-            en: species.genera.find((entry) => entry.language.name === 'en')?.genus ?? '',
-          },
+          genus: genusBundle(species.genera),
           types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
           stats,
           abilities: pokemon.abilities.map((entry) => ({
