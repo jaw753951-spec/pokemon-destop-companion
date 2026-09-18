@@ -18,7 +18,7 @@ import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
  * }} handlers
  */
 export function createHud(handlers) {
-  const areaLabel = el('span', { style: { fontSize: '10px', color: 'var(--paper)' } });
+  const areaLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink)', fontWeight: '700' } });
   const nameLabel = el('span', { style: { fontSize: '11px', fontWeight: '700' } });
   const levelLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink-soft)' } });
   const hpFill = el('i', { style: barFill('#63bb5b') });
@@ -28,8 +28,8 @@ export function createHud(handlers) {
   const leagueButton = button(t('field.toLeague'), handlers.onLeague, { className: 'small primary' });
   leagueButton.hidden = true;
   leagueButton.style.position = 'absolute';
-  leagueButton.style.left = '50%';
-  leagueButton.style.bottom = '100px';
+  leagueButton.style.left = '32%';
+  leagueButton.style.top = '70%';
   leagueButton.style.transform = 'translateX(-50%)';
 
   const tray = el('div', {
@@ -44,7 +44,7 @@ export function createHud(handlers) {
     },
   });
 
-  const status = el('div.panel', {
+  const status = el('div.panel.hud-window', {
     style: {
       position: 'absolute',
       left: '6px',
@@ -73,14 +73,12 @@ export function createHud(handlers) {
     button(t('field.settings'), handlers.onSettings, { className: 'small' }),
   ]);
 
-  const areaBadge = el('div', {
+  const areaBadge = el('div.hud-window', {
     style: {
       position: 'absolute',
       right: '6px',
       bottom: '6px',
       padding: '2px 8px',
-      borderRadius: '9px',
-      background: 'rgba(16, 21, 32, 0.72)',
     },
   }, [areaLabel]);
 
@@ -130,7 +128,7 @@ export function createHud(handlers) {
     updateTray(entries, onSelect) {
       setChildren(tray, [
         ...entries.map((pokemon, index) =>
-          el('button', {
+          el('button.hud-window', {
             type: 'button',
             title: localized(speciesOf(pokemon.speciesId)?.name, ''),
             style: {
@@ -138,9 +136,6 @@ export function createHud(handlers) {
               width: '30px',
               height: '30px',
               padding: '0',
-              border: '1px solid rgba(255,255,255,0.35)',
-              borderRadius: '6px',
-              background: 'rgba(16, 21, 32, 0.6)',
               cursor: 'pointer',
             },
             onClick: () => onSelect(index),

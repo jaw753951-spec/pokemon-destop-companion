@@ -27,7 +27,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
   const koreanNames = await loadKoreanLocationNames(pool);
   const tilesetCache = new Map();
 
-  const bandBlocks = Math.ceil(BACKGROUND_HEIGHT / METATILE_SIZE);
+  const wantedBlocks = Math.ceil(BACKGROUND_HEIGHT / METATILE_SIZE);
   /** @type {any[]} */
   const manifest = [];
 
@@ -46,6 +46,9 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const blockdata = await fetchBuffer(`${EMERALD}/${layout.blockdata_filepath}`);
 
     const rendered = renderMap(blockdata, layout.width, layout.height, tileset, metatiles);
+    // Two of the thirty maps are shorter than the window; they give what they
+    // have and the field fills the remainder from their own top row.
+    const bandBlocks = Math.min(wantedBlocks, layout.height);
     const bandRow = pickWalkableBand(blockdata, layout.width, layout.height, bandBlocks);
     const band = crop(rendered, 0, bandRow * METATILE_SIZE, rendered.width, bandBlocks * METATILE_SIZE);
     const strip = repeatToWidth(makeSeamless(band), VIEW_WIDTH * 2);

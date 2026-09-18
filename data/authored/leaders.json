@@ -1,5 +1,5 @@
 {
-  "_comment": "체육관 관장. 이 게임의 뱃지는 지방이 아니라 타입 단위이므로 관장도 타입별로 모아둔다. 한 타입의 뱃지를 얻으면 그 타입 관장은 더 이상 등장하지 않는다. name.ko 는 한국어 정식 명칭, portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방 관장에만 존재하고 나머지는 null 이다. name.en 이 null 인 항목은 한국어 명칭에 대응하는 영어 이름을 확인하지 못한 경우이며, 영어 모드에서도 한국어 명칭이 그대로 표시된다.",
+  "_comment": "체육관 관장. 이 게임의 뱃지는 지방이 아니라 타입 단위이므로 관장도 타입별로 모아둔다. 한 타입의 뱃지를 얻으면 그 타입 관장은 더 이상 등장하지 않는다. name.ko 는 한국어 정식 명칭, portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방 관장에만 존재하고 나머지는 null 이다.",
   "leaders": [
     { "id": "rock-brock", "type": "rock", "name": { "ko": "웅", "en": "Brock" }, "portrait": null },
     { "id": "rock-roxanne", "type": "rock", "name": { "ko": "원규", "en": "Roxanne" }, "portrait": "leader_roxanne" },
@@ -68,7 +68,7 @@
     { "id": "poison-koga", "type": "poison", "name": { "ko": "독수", "en": "Koga" }, "portrait": null },
     { "id": "poison-janine", "type": "poison", "name": { "ko": "도희", "en": "Janine" }, "portrait": null },
     { "id": "poison-roxie", "type": "poison", "name": { "ko": "보미카", "en": "Roxie" }, "portrait": null },
-    { "id": "poison-dojeong", "type": "poison", "name": { "ko": "도정", "en": null }, "portrait": null },
+    { "id": "poison-klara", "type": "poison", "name": { "ko": "도정", "en": "Klara" }, "portrait": null },
 
     { "id": "ghost-morty", "type": "ghost", "name": { "ko": "유빈", "en": "Morty" }, "portrait": null },
     { "id": "ghost-fantina", "type": "ghost", "name": { "ko": "멜리사", "en": "Fantina" }, "portrait": null },

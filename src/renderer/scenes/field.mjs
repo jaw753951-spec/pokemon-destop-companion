@@ -11,7 +11,7 @@ import { loadImage, loadSprite } from '../core/assets.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { Session } from '../engine/session.mjs';
-import { COMPANION_X, drawApron, drawBackground, drawShadow, GROUND_Y, WALK_SPEED, walkBob } from '../render/field.mjs';
+import { COMPANION_X, drawBackground, drawStepDust, drawWalker, GROUND_Y, WALK_SPEED } from '../render/field.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -46,7 +46,6 @@ export function fieldScene(session) {
   let loadedAreaKey = '';
   let loadedSpriteId = 0;
   let offset = 0;
-  let elapsed = 0;
   /** Set while a menu or battle is on top; the walk and its timers stop. */
   let paused = false;
   /**
@@ -80,9 +79,12 @@ export function fieldScene(session) {
     const speciesId = session.active.speciesId;
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
-      const meta = gameData().sprites[speciesId]?.front;
+      // The box icon, not the battle sprite: it is the only official art drawn
+      // at overworld scale, so a Wurmple stays ankle-high and a Wailord fills
+      // the road, each in proportion to the map's own tiles.
+      const meta = gameData().sprites[speciesId]?.icon;
       if (meta) {
-        loadSprite(`pokemon/${speciesId}/front.png`, meta)
+        loadSprite(`pokemon/${speciesId}/icon.png`, { ...meta, frames: 1, delay: 1000 })
           .then((sprite) => {
             if (loadedSpriteId === speciesId) companion = sprite;
           })
@@ -247,7 +249,6 @@ export function fieldScene(session) {
     },
 
     update(deltaMs, app) {
-      elapsed += deltaMs;
       if (paused) return;
 
       const walking = events?.walking ?? true;
@@ -276,14 +277,13 @@ export function fieldScene(session) {
 
     render(context) {
       drawBackground(context, background, Math.round(offset));
-      events?.render(context, offset);
-      drawApron(context);
+      events?.render(context, offset, companion?.height ?? 24);
 
       if (companion && showActor) {
         const moving = !paused && (events?.walking ?? true);
-        const lift = moving ? walkBob(elapsed, companion.duration) : 0;
-        drawShadow(context, COMPANION_X, GROUND_Y, companion.width);
-        companion.draw(context, COMPANION_X, GROUND_Y - lift, { frame: companion.frameAt(elapsed) });
+        const walk = { x: COMPANION_X, y: GROUND_Y, distance: offset, moving };
+        drawStepDust(context, walk);
+        drawWalker(context, companion, walk);
       }
     },
 

@@ -48,10 +48,10 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
           missing.back.push(id);
         }
 
-        const icon = await firstAvailable(ICON_SOURCES.map((path) => path(id)));
+        const icon = await buildIcon(ICON_SOURCES.map((path) => path(id)));
         if (icon) {
-          await writeOut(join(assetDir, 'pokemon', String(id), 'icon.png'), icon);
-          entry.icon = true;
+          await writeOut(join(assetDir, 'pokemon', String(id), 'icon.png'), icon.png);
+          entry.icon = icon.meta;
         } else {
           missing.icon.push(id);
         }
@@ -100,11 +100,32 @@ const ICON_SOURCES = [
   (id) => `${SPRITES}/pokemon/${id}.png`,
 ];
 
-/** @param {string[]} urls */
-async function firstAvailable(urls) {
+/**
+ * The box icon, trimmed to its opaque area.
+ *
+ * The published icons float inside a fixed 68x56 canvas, which is fine for a
+ * grid cell and useless in the field, where the sprite has to stand on the
+ * ground — the padding would hold it in the air. Trimmed, the bottom edge is
+ * the Pokémon's feet, and the size is already in proportion to the 16px map
+ * tiles, so this doubles as the overworld sprite.
+ *
+ * @param {string[]} urls
+ * @returns {Promise<{png: Buffer, meta: {width: number, height: number}}|null>}
+ */
+async function buildIcon(urls) {
   for (const url of urls) {
     const buffer = await fetchBuffer(url, { allowMissing: true });
-    if (buffer) return buffer;
+    if (!buffer) continue;
+
+    const png = decodePng(buffer);
+    const bounds = opaqueBounds(png);
+    if (!bounds) continue;
+
+    const trimmed = crop(png, bounds.x, bounds.y, bounds.width, bounds.height);
+    return {
+      png: encodePng(trimmed.width, trimmed.height, trimmed.data),
+      meta: { width: trimmed.width, height: trimmed.height },
+    };
   }
   return null;
 }

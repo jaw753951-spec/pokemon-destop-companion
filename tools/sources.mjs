@@ -93,8 +93,11 @@ export const STARTERS = [1, 4, 7];
 export const VIEW_WIDTH = 480;
 export const VIEW_HEIGHT = 270;
 
-/** How much of the view the scrolling area background occupies. */
-export const BACKGROUND_HEIGHT = 176;
+/**
+ * The scrolling background fills the window, as the map does in the real
+ * games. A map shorter than this contributes every row it has.
+ */
+export const BACKGROUND_HEIGHT = VIEW_HEIGHT;
 
 /** Cap on stored animation frames per sprite state. */
 export const MAX_SPRITE_FRAMES = 10;

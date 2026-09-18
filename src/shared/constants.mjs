@@ -7,8 +7,11 @@
 export const VIEW_WIDTH = 480;
 export const VIEW_HEIGHT = 270;
 
-/** Height of the scrolling area background within the view. */
-export const BACKGROUND_HEIGHT = 176;
+/**
+ * The scrolling area background fills the window, as the map does in the
+ * handheld games; the HUD sits over it rather than beside it.
+ */
+export const BACKGROUND_HEIGHT = VIEW_HEIGHT;
 
 /** How often the game writes to the active save slot. */
 export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;

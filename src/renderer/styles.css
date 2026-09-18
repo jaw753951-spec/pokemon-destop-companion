@@ -197,6 +197,18 @@ canvas {
   box-shadow: inset 0 0 0 2px rgba(255, 255, 255, 0.7), 0 2px 0 rgba(0, 0, 0, 0.18);
 }
 
+/*
+ * The same frame for the overlays that sit directly on the map. The field lost
+ * its apron when the background grew to fill the window, so each overlay now
+ * carries its own window, the way the handheld games' HP and location boxes do.
+ */
+.hud-window {
+  border: 2px solid var(--frame);
+  border-radius: 5px;
+  background: var(--paper);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.7), 0 1px 0 rgba(0, 0, 0, 0.3);
+}
+
 .scroll {
   overflow-y: auto;
   scrollbar-width: thin;

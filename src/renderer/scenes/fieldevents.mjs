@@ -6,7 +6,7 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { BACKGROUND_HEIGHT, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -122,7 +122,7 @@ export function createEventRunner({ session, onBattle }) {
      * @param {CanvasRenderingContext2D} context
      * @param {number} offset
      */
-    render(context, offset) {
+    render(context, offset, actorHeight = 24) {
       if (!active) return;
       const screenX = COMPANION_X + (active.worldX - offset);
 
@@ -130,11 +130,11 @@ export function createEventRunner({ session, onBattle }) {
         drawProp(context, active, screenX);
       }
       if (active.phase === 'show' && active.carried) {
-        drawCarried(context, active.carried);
+        drawCarried(context, active.carried, actorHeight);
       }
       if (active.flash > 0) {
         context.fillStyle = `rgba(255, 255, 255, ${Math.min(0.55, active.flash)})`;
-        context.fillRect(0, 0, VIEW_WIDTH, BACKGROUND_HEIGHT);
+        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
         active.flash -= 0.02;
       }
     },
@@ -260,9 +260,9 @@ function startWild(session, spawnAt) {
     },
   };
 
-  const meta = gameData().sprites[wild.speciesId]?.front;
+  const meta = gameData().sprites[wild.speciesId]?.icon;
   if (meta) {
-    loadSprite(`pokemon/${wild.speciesId}/front.png`, meta).then((sprite) => {
+    loadSprite(`pokemon/${wild.speciesId}/icon.png`, { ...meta, frames: 1, delay: 1000 }).then((sprite) => {
       state.prop.sprite = sprite;
     });
   }
@@ -397,7 +397,6 @@ function drawProp(context, state, screenX) {
   sprite.draw(context, screenX, GROUND_Y, {
     frame: sprite.frameAt(state.elapsed ?? 0),
     flip: prop.kind === 'trainer',
-    scale: prop.kind === 'trainer' ? 1.4 : 1,
   });
 }
 
@@ -415,7 +414,7 @@ function drawBerryTree(context, prop, screenX) {
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;
-  const scale = 1.6;
+  const scale = 1;
 
   context.drawImage(
     image,
@@ -438,7 +437,7 @@ function drawBerryTree(context, prop, screenX) {
 function drawBall(context, prop, screenX) {
   const { image } = prop.sprite;
   const size = image.naturalHeight;
-  const scale = 1.5;
+  const scale = 1;
   const drawn = size * scale;
   const left = Math.round(screenX - drawn / 2);
   const top = Math.round(GROUND_Y - drawn);
@@ -459,10 +458,13 @@ function drawBall(context, prop, screenX) {
   context.restore();
 }
 
-/** The item held up over the companion's head after a gather. */
-function drawCarried(context, carried) {
+/**
+ * The item held up over the companion's head after a gather, clear of whatever
+ * height that species happens to be.
+ */
+function drawCarried(context, carried, actorHeight) {
   if (!carried.sprite) return;
-  carried.sprite.draw(context, COMPANION_X, GROUND_Y - 58, { scale: 1.5 });
+  carried.sprite.draw(context, COMPANION_X, GROUND_Y - actorHeight - 4);
 }
 
 /** @param {HTMLImageElement} image */
