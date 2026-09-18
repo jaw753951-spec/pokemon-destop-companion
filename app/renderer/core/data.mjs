@@ -19,7 +19,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Record<string, any>} actors
  * @property {{cues: Record<string, string>, tracks: Record<string, any>}} bgm
  * @property {Record<string, string[]>} itemTiers
- * @property {{backdrops: Record<string, any>, tags: Record<string, string>, badges: string[]}} battle
+ * @property {{backdrops: Record<string, any>, rooms: Record<string, any>, tags: Record<string, string>, badges: string[]}} battle
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues

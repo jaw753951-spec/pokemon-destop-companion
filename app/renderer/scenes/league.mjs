@@ -2,9 +2,11 @@
  * The Pokémon League.
  *
  * Opens once eight badges are in hand. Which region's Elite Four and Champion
- * you face is decided on entry and then fixed for the run, and between rounds
- * the companion is fully restored and you choose whether to go straight on or
- * step back out to the field and prepare.
+ * you face is rolled each time you walk in — the four and their champion are
+ * one line-up and travel together, so a challenge is always somebody's real
+ * league rather than a pick-and-mix. Between rounds the companion is fully
+ * restored and you choose whether to go straight on or step back out to the
+ * field and prepare.
  */
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
@@ -13,7 +15,7 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { evolveToLevel } from '../engine/encounter.mjs';
-import { backdropForLeagueRound, drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
+import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
 
@@ -34,7 +36,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
   let index = 0;
   let busy = false;
-  /** The chamber this round is fought in, drawn behind the challenge screen. */
+  /** The room this round is challenged in, drawn behind the challenge screen. */
   let room = /** @type {HTMLImageElement|null} */ (null);
   let loadedRoom = '';
 
@@ -49,7 +51,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     mount(app) {
       app.audio.playMusic(gameData().bgm.cues.league ?? null);
       render(app);
-      loadRoom();
+      refreshRoom();
 
       return el('div.screen.league-screen', {}, [
         heading,
@@ -65,10 +67,10 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
         return;
       }
-      // The chamber itself, dimmed enough for the portrait and the buttons in
+      // The room itself, dimmed enough for the portrait and the buttons in
       // front of it to stay legible.
       inFieldSpace(context, (field) => drawBackdrop(field, room));
-      context.fillStyle = 'rgba(8, 10, 20, 0.55)';
+      context.fillStyle = 'rgba(8, 10, 20, 0.5)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
     },
   };
@@ -94,12 +96,12 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     ]);
   }
 
-  /** The chamber for the round about to be fought. */
-  function loadRoom() {
+  /** The room the round about to be fought is challenged in. */
+  function refreshRoom() {
     const id = backdropForLeagueRound(index, rounds.length);
     if (id === loadedRoom) return;
     loadedRoom = id;
-    loadBackdrop(id).then((image) => {
+    loadRoom(id).then((image) => {
       if (loadedRoom === id) room = image;
     });
   }
@@ -143,7 +145,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
           index++;
           app.toast(t('league.healed'));
           render(app);
-          loadRoom();
+          refreshRoom();
         },
       }),
     );
@@ -163,7 +165,12 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 }
 
 /**
- * The league this run faces, chosen once and then remembered in the save.
+ * The league this challenge faces, rolled from every line-up the game ships.
+ *
+ * A line-up is a set: the Elite Four a region sends out and the champion
+ * waiting behind them are the people of one game, and splitting them would
+ * make the ladder a collection of strangers. So one whole league is drawn, and
+ * the region is remembered only to say afterwards which one was beaten.
  *
  * @param {import('../engine/session.mjs').Session} session
  */
@@ -171,8 +178,7 @@ export function resolveLeague(session) {
   const leagues = gameData().leagues ?? [];
   if (leagues.length === 0) return generatedLeague(session);
 
-  const remembered = leagues.find((league) => league.region === session.leagueRegion);
-  const chosen = remembered ?? session.rng.pick(leagues);
+  const chosen = session.rng.pick(leagues);
   session.leagueRegion = chosen.region;
   return chosen;
 }

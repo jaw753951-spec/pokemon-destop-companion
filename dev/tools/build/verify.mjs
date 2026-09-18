@@ -107,6 +107,11 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   for (const [tag, backdrop] of Object.entries(battle.tags)) {
     note(Boolean(battle.backdrops[backdrop]), `tag ${tag}: names unbuilt backdrop ${backdrop}`);
   }
+  for (const id of Object.keys(battle.rooms)) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'rooms', `${id}.png`)), `league room ${id}: not built`);
+    note(Boolean(battle.backdrops[id]), `league room ${id}: no backdrop of the same name`);
+  }
   for (const type of battle.badges) {
     // eslint-disable-next-line no-await-in-loop
     note(await fileExists(join(assetDir, 'badges', `${type}.png`)), `badge ${type}: not built`);

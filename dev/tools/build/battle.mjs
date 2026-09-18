@@ -1,5 +1,5 @@
 /**
- * Render the battle backdrops and the gym badges.
+ * Render the battle backdrops, the league's rooms, and the gym badges.
  *
  * A battle in the handheld games is fought in front of a terrain backdrop, not
  * over the map, and the Elite Four have a room of their own. Both are ordinary
@@ -7,13 +7,20 @@
  * screen-entry tilemap and a palette — so each one is composed here once and
  * shipped as a flat PNG the battle scene can simply draw.
  *
+ * The rooms are something else: the challenge screen is not a battle, it is
+ * standing in a doorway deciding whether to walk in, so it shows the room the
+ * champion actually stands in — the real interior map, drawn the same way the
+ * routes are.
+ *
  * Badges come from the trainer card sheet, eight 16x16 icons in a row.
  */
 import { join } from 'node:path';
 
 import { fetchBuffer, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { parseJascPal, sliceTiles, TILE_SIZE } from '../lib/gba-gfx.mjs';
+import { METATILE_SIZE, parseJascPal, sliceTiles, TILE_SIZE } from '../lib/gba-gfx.mjs';
+import { crop } from '../lib/image.mjs';
+import { openMaps } from '../lib/maps.mjs';
 import { BATTLE_HEIGHT, BATTLE_WIDTH, EMERALD, HOENN_BADGE_TYPES } from '../sources.mjs';
 
 /** Screen entries across one GBA screenblock. */
@@ -54,6 +61,23 @@ const BACKDROPS = [
   { id: 'elite-drake', dir: 'stadium', palette: 'drake' },
   { id: 'champion', dir: 'stadium', palette: 'wallace' },
 ];
+
+/**
+ * The rooms the league is challenged in, one per backdrop the league uses.
+ *
+ * Every Elite Four chamber in Ever Grande City is its own interior map, and
+ * the trainer stands in the middle of it — which is the picture the challenge
+ * screen wants, rather than the arena the fight itself happens in.
+ *
+ * @type {Record<string, string>}
+ */
+const ROOMS = {
+  'elite-sidney': 'EverGrandeCity_SidneysRoom',
+  'elite-phoebe': 'EverGrandeCity_PhoebesRoom',
+  'elite-glacia': 'EverGrandeCity_GlaciasRoom',
+  'elite-drake': 'EverGrandeCity_DrakesRoom',
+  champion: 'EverGrandeCity_ChampionsRoom',
+};
 
 /**
  * Which backdrop an area's terrain tags call for, in the order the tags are
@@ -106,10 +130,13 @@ export async function buildBattle({ assetDir, dataDir, log, pool }) {
   }
   log(`backdrops ${Object.keys(backdrops).length}`);
 
+  const rooms = await buildRooms(assetDir, pool);
+  log(`rooms ${Object.keys(rooms).length}`);
+
   const badges = await buildBadges(assetDir);
   log(`badges ${badges.length}`);
 
-  const manifest = { backdrops, tags: TAG_BACKDROPS, badges };
+  const manifest = { backdrops, rooms, tags: TAG_BACKDROPS, badges };
   await writeOut(join(dataDir, 'battle.json'), JSON.stringify(manifest));
   return manifest;
 }
@@ -191,6 +218,102 @@ function compose(tiles, map, palette) {
 }
 
 const EMPTY_TILE = new Uint8Array(TILE_SIZE * TILE_SIZE);
+
+/**
+ * Draw each league room, cropped to the window around the spot its trainer
+ * stands on.
+ *
+ * The rooms are taller and narrower than the window. Centring on the trainer's
+ * own tile — which the map file gives as the one object event it carries —
+ * keeps the throne, the carpet and the doorway in frame rather than whichever
+ * corner a fixed crop happened to land on. Whatever the crop cannot fill is
+ * left to the room's own darkest corner colour, so the edges read as more
+ * room rather than as a border.
+ *
+ * @param {string} assetDir
+ * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
+ */
+async function buildRooms(assetDir, pool) {
+  const maps = await openMaps(pool);
+  /** @type {Record<string, {width: number, height: number}>} */
+  const built = {};
+
+  for (const [id, dir] of Object.entries(ROOMS)) {
+    const { map, image } = await maps.render(dir);
+    const stands = map.object_events?.[0];
+    const focusX = (Number(stands?.x ?? 0) + 0.5) * METATILE_SIZE;
+    const focusY = (Number(stands?.y ?? 0) + 1) * METATILE_SIZE;
+
+    const left = clamp(Math.round(focusX - BATTLE_WIDTH / 2), 0, Math.max(0, image.width - BATTLE_WIDTH));
+    const top = clamp(Math.round(focusY - BATTLE_HEIGHT / 2), 0, Math.max(0, image.height - BATTLE_HEIGHT));
+    const room = crop(image, left, top, Math.min(BATTLE_WIDTH, image.width), Math.min(BATTLE_HEIGHT, image.height));
+
+    const framed = center(room, BATTLE_WIDTH, BATTLE_HEIGHT);
+    await writeOut(join(assetDir, 'rooms', `${id}.png`), encodePng(framed.width, framed.height, framed.data));
+    built[id] = { width: framed.width, height: framed.height };
+  }
+
+  return built;
+}
+
+/** @param {number} value @param {number} low @param {number} high */
+function clamp(value, low, high) {
+  return Math.max(low, Math.min(high, value));
+}
+
+/**
+ * Place an image in the middle of a window of the given size, filling the rest
+ * with the darkest colour the image itself uses.
+ *
+ * @param {{width: number, height: number, data: Uint8Array}} source
+ * @param {number} width
+ * @param {number} height
+ */
+function center(source, width, height) {
+  if (source.width === width && source.height === height) return source;
+
+  const data = new Uint8Array(width * height * 4);
+  const fill = darkest(source);
+  for (let i = 0; i < width * height; i++) {
+    data[i * 4] = fill[0];
+    data[i * 4 + 1] = fill[1];
+    data[i * 4 + 2] = fill[2];
+    data[i * 4 + 3] = 255;
+  }
+
+  const left = Math.round((width - source.width) / 2);
+  const top = Math.round((height - source.height) / 2);
+  for (let y = 0; y < source.height; y++) {
+    const destY = top + y;
+    if (destY < 0 || destY >= height) continue;
+    for (let x = 0; x < source.width; x++) {
+      const destX = left + x;
+      if (destX < 0 || destX >= width) continue;
+      const from = (y * source.width + x) * 4;
+      const to = (destY * width + destX) * 4;
+      data[to] = source.data[from];
+      data[to + 1] = source.data[from + 1];
+      data[to + 2] = source.data[from + 2];
+      data[to + 3] = 255;
+    }
+  }
+
+  return { width, height, data };
+}
+
+/** @param {{width: number, height: number, data: Uint8Array}} source */
+function darkest(source) {
+  let best = /** @type {[number, number, number]} */ ([0, 0, 0]);
+  let bestSum = Infinity;
+  for (let i = 0; i < source.width * source.height; i++) {
+    const sum = source.data[i * 4] + source.data[i * 4 + 1] + source.data[i * 4 + 2];
+    if (sum < bestSum) {
+      bestSum = sum;
+      best = [source.data[i * 4], source.data[i * 4 + 1], source.data[i * 4 + 2]];
+    }
+  }
+  return best;
+}
 
 /**
  * The eight Hoenn badges, cut out of the trainer card sheet and named for the

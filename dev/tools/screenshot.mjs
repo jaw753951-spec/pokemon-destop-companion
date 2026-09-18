@@ -210,7 +210,7 @@ const equipForCapture = (level) => {
 const leagueBattle = async (round) => {
   closeAll();
   const session = app().session;
-  session.leagueRegion = 'hoenn';
+  useLeague('hoenn');
   // The league patches the challenger up between rounds, and a companion left
   // fainted by the gym leader would lose this battle before the shot is taken.
   session.heal();
@@ -274,12 +274,22 @@ const seedBadges = (count) => {
   return true;
 };
 /**
- * Pin the league to a region whose line-up ships portraits: only Hoenn's Elite
- * Four have official art in pret/pokeemerald, so any other region draws the
- * screen without one.
+ * Pin the next league challenge to a region whose line-up ships portraits:
+ * only Hoenn's Elite Four have official art in pret/pokeemerald, so any other
+ * region draws the screen without one.
+ *
+ * The game rolls a whole line-up on entry, so this leans on the roll itself
+ * and puts it back the moment it has served one.
  */
 const useLeague = (region) => {
-  app().session.leagueRegion = region;
+  const session = app().session;
+  const pick = session.rng.pick.bind(session.rng);
+  session.rng.pick = (list) => {
+    const match = Array.isArray(list) ? list.find((entry) => entry && entry.region === region) : null;
+    if (!match) return pick(list);
+    session.rng.pick = pick;
+    return match;
+  };
   return true;
 };
 /** Guarantee the next trainer is a gym leader rather than a passer-by. */

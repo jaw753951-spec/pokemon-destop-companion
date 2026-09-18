@@ -59,6 +59,19 @@ export function loadBackdrop(id) {
 }
 
 /**
+ * Load the room a league round is challenged in — the real interior map the
+ * trainer stands in, which is what the challenge screen shows rather than the
+ * arena the fight itself is drawn in.
+ *
+ * @param {string} id
+ * @returns {Promise<HTMLImageElement|null>}
+ */
+export function loadRoom(id) {
+  if (!gameData().battle?.rooms?.[id]) return Promise.resolve(null);
+  return loadImage(`rooms/${id}.png`).catch(() => null);
+}
+
+/**
  * @param {CanvasRenderingContext2D} context in field space
  * @param {HTMLImageElement} image
  */
