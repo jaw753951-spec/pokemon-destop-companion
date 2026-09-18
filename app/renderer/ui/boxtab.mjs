@@ -8,11 +8,12 @@ import { url } from '../core/bridge.mjs';
 import { speciesOf } from '../core/data.mjs';
 import { el, scrollable } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { BOX_LIMIT } from '../../shared/constants.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
 import { chooseAction, confirm } from './dialog.mjs';
 
-/** Spaces shown even when empty, so the grid keeps its shape. */
-const MIN_SPACES = 30;
+/** The whole box is shown, empty spaces and all, so its size is visible. */
+const MIN_SPACES = BOX_LIMIT;
 
 /**
  * @param {import('../core/app.mjs').App} app
@@ -22,7 +23,7 @@ const MIN_SPACES = 30;
  * @returns {HTMLElement}
  */
 export function boxTab(app, session, refresh, state) {
-  const spaces = Math.max(MIN_SPACES, session.box.length + 1);
+  const spaces = Math.min(BOX_LIMIT, Math.max(MIN_SPACES, session.box.length + 1));
   const grid = el('div.box-grid');
 
   for (let index = 0; index < spaces; index++) {
@@ -32,7 +33,7 @@ export function boxTab(app, session, refresh, state) {
   return el('div.tab-body.box-tab', {}, [
     state.moving !== null && state.moving !== undefined
       ? el('div.box-hint', { text: t('box.moveTarget') })
-      : null,
+      : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length, limit: BOX_LIMIT }) }),
     scrollable(grid),
   ]);
 }

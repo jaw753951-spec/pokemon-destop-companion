@@ -2,7 +2,10 @@
  * Starter selection.
  *
  * Three Poké Balls on a table; picking one opens it to reveal the Pokémon,
- * which is how the Gen-4 games stage this moment.
+ * which is how the Gen-4 games stage this moment. The one under the pointer
+ * stands above the balls at battle size, and the confirmation is asked along
+ * the bottom of the screen — you decide while looking at what you are
+ * deciding about, rather than at a box covering it.
  */
 import { STARTERS } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
@@ -24,31 +27,26 @@ const STARTER_LEVEL = 5;
 export function starterScene({ slot }) {
   return {
     mount(app) {
-      const caption = el('p', {
-        text: t('starter.prompt'),
-        style: { fontSize: '11px', textAlign: 'center', color: 'var(--paper)' },
-      });
+      const caption = el('p.starter-caption', { text: t('starter.prompt') });
+      const stage = el('div.starter-stage');
 
       const balls = el(
-        'div',
-        { style: { display: 'flex', gap: '26px', justifyContent: 'center', alignItems: 'flex-end' } },
-        STARTERS.map((speciesId) => ballButton(app, speciesId, slot, caption)),
+        'div.starter-balls',
+        {},
+        STARTERS.map((speciesId) => ballButton(app, speciesId, slot, caption, stage)),
       );
 
-      return el(
-        'div.screen',
-        { style: { background: 'linear-gradient(180deg, #2b3448, #151a26)', justifyContent: 'center', gap: '16px' } },
-        [
-          caption,
-          balls,
-          el('div', { style: { display: 'flex', justifyContent: 'center' } }, [
-            button(t('common.back'), () => {
-              app.audio.blip('cancel');
-              app.pop();
-            }, { className: 'small ghost' }),
-          ]),
-        ],
-      );
+      return el('div.screen.starter-screen', {}, [
+        stage,
+        caption,
+        balls,
+        el('div.starter-back', {}, [
+          button(t('common.back'), () => {
+            app.audio.blip('cancel');
+            app.pop();
+          }, { className: 'small ghost' }),
+        ]),
+      ]);
     },
   };
 }
@@ -58,55 +56,61 @@ export function starterScene({ slot }) {
  * @param {number} speciesId
  * @param {number} slot
  * @param {HTMLElement} caption
+ * @param {HTMLElement} stage
  */
-function ballButton(app, speciesId, slot, caption) {
+function ballButton(app, speciesId, slot, caption, stage) {
   const species = speciesOf(speciesId);
   const label = localized(species.name, species.slug);
 
-  const sprite = el('img', {
-    src: url('assets', `pokemon/${speciesId}/icon.png`),
-    alt: label,
-    style: { width: '56px', height: '56px', objectFit: 'contain', opacity: '0', transition: 'opacity 160ms' },
-  });
+  const ball = el('img.starter-ball', { src: url('assets', 'items/poke-ball.png'), alt: label });
 
-  const ball = el('img', {
-    src: url('assets', 'items/poke-ball.png'),
-    alt: '',
-    style: { width: '28px', height: '28px', objectFit: 'contain' },
-  });
-
+  let cried = false;
   const reveal = () => {
-    sprite.style.opacity = '1';
-    app.audio.playCry(speciesId);
-    caption.textContent = localized(species.name, species.slug);
+    stage.replaceChildren(portrait(speciesId));
+    caption.textContent = label;
+    // The cry belongs to opening the ball, not to the pointer passing over it.
+    if (!cried) app.audio.playCry(speciesId);
+    cried = true;
   };
 
-  return el(
-    'button',
-    {
-      type: 'button',
-      style: {
-        '-webkit-app-region': 'no-drag',
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        gap: '2px',
-        padding: '4px',
-        border: '0',
-        background: 'transparent',
-        cursor: 'pointer',
-      },
-      onMouseEnter: reveal,
-      onFocus: reveal,
-      onClick: async () => {
-        app.audio.blip('confirm');
-        reveal();
-        if (!(await confirm(app, t('starter.confirm', { name: label })))) return;
-        await begin(app, slot, speciesId);
-      },
+  return el('button.starter-pick', {
+    type: 'button',
+    title: label,
+    onMouseEnter: reveal,
+    onMouseLeave: () => { cried = false; },
+    onFocus: reveal,
+    onClick: async () => {
+      app.audio.blip('confirm');
+      reveal();
+      // Asked along the bottom, so the Pokémon it is asking about stays in
+      // view above the question.
+      if (!(await confirm(app, t('starter.confirm', { name: label }), { align: 'bottom' }))) return;
+      await begin(app, slot, speciesId);
     },
-    [sprite, ball],
-  );
+  }, [ball]);
+}
+
+/**
+ * The battle sprite, at twice size and held on its first frame.
+ *
+ * The strip is one wide image of every animation frame, so it is shown as a
+ * background sized to the whole strip and parked at its start — an `img` would
+ * stretch all ten frames across the stage.
+ *
+ * @param {number} speciesId
+ */
+function portrait(speciesId) {
+  const meta = gameData().sprites[speciesId]?.front;
+  if (!meta) return el('div.starter-sprite');
+
+  return el('div.starter-sprite', {
+    style: {
+      width: `${meta.width * 2}px`,
+      height: `${meta.height * 2}px`,
+      backgroundImage: `url("${url('assets', `pokemon/${speciesId}/front.png`)}")`,
+      backgroundSize: `${meta.width * meta.frames * 2}px ${meta.height * 2}px`,
+    },
+  });
 }
 
 /**

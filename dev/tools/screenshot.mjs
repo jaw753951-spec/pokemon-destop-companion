@@ -9,12 +9,20 @@
  * screen can be photographed. Nothing here is part of the shipped app.
  */
 import { app } from 'electron';
-import { mkdir, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-import { registerHandlers, registerProtocolHandler, registerProtocolScheme } from '../../app/main/ipc.mjs';
-import { loadSettings } from '../../app/main/settings.mjs';
-import { createWindow } from '../../app/main/window.mjs';
+// Every run starts from nothing. A pass that reaches the end writes a save, and
+// the next one would then open its slot on "overwrite this?" rather than on the
+// starter screen — so the whole script would photograph the wrong screens.
+// `userData` decides where that save lands and is read as `paths.mjs` loads,
+// which is why the main-process modules are imported after it moves.
+app.setPath('userData', await mkdtemp(join(tmpdir(), 'pdc-shots-')));
+
+const { registerHandlers, registerProtocolHandler, registerProtocolScheme } = await import('../../app/main/ipc.mjs');
+const { loadSettings } = await import('../../app/main/settings.mjs');
+const { createWindow } = await import('../../app/main/window.mjs');
 
 const args = process.argv.slice(2);
 const option = (flag, fallback) => {
@@ -25,49 +33,94 @@ const option = (flag, fallback) => {
 const OUT_DIR = option('--out', join(process.cwd(), 'shots'));
 const SETTLE_MS = Number(option('--wait', '2500'));
 
+/** How long a screen is left to settle before it is photographed. */
+const SETTLE_AFTER_MS = 1200;
+
 /**
  * Each step names a shot and the renderer-side script that sets it up.
  * Selectors are matched on visible text so the script survives restyling.
+ *
+ * A shot is taken a moment after its script returns, so a screen that is still
+ * settling is photographed settled. `settle` shortens that wait for the steps
+ * that are chasing a particular frame of an animation rather than a screen.
  */
 const STEPS = [
   { name: '01-title', script: 'null' },
   { name: '02-slots', script: 'clickText("button", ["새 게임", "New Game"])' },
   { name: '03-starter', script: 'clickText("button", ["1."])' },
   {
-    name: '04-starter-picked',
+    name: '04-starter-confirm',
     script: 'clickImageAlt(["파이리", "Charmander"])',
   },
   {
     name: '05-field',
     script: 'clickText("button", ["예", "Yes"])',
   },
-  { name: '06-settings', script: 'clickText("button", ["설정", "Settings"])' },
-  { name: '07-field-again', script: 'clickText("button", ["닫기", "Close"])' },
-  { name: '08-inventory-pokemon', script: 'clickText("button", ["가방", "Bag"])' },
-  { name: '09-inventory-items', script: 'clickText("button.tab", ["아이템", "Items"])' },
-  { name: '10-inventory-box', script: 'clickText("button.tab", ["박스", "Box"])' },
-  { name: '11-auto-battle', script: 'clickText("button.tab", ["포켓몬", "Pokémon"]) && await wait(250) && clickText("button", ["자동전투", "Auto-battle"])' },
-  { name: '12-pokedex', script: 'closeAll() && clickText("button", ["도감", "Pokédex"])' },
-  { name: '13-dex-entry', script: 'clickText("button.dex-entry", [])' },
+  { name: '06-settings-display', script: 'clickText("button", ["설정", "Settings"])' },
+  { name: '07-settings-sound', script: 'clickText("button.tab", ["소리", "Sound"])' },
+  { name: '08-settings-language', script: 'clickText("button.tab", ["언어", "Language"])' },
+  { name: '09-bag-pokemon', script: 'clickText("button", ["닫기", "Close"]) && await wait(250) && clickText("button", ["가방", "Bag"])' },
+  // A fresh run owns three potions and nothing else, and its box is empty, so
+  // these three tabs are stocked first — as with the badges below, the shot is
+  // of the screen, not of what an hour of play happens to have earned.
+  { name: '10-bag-items', script: 'seedBag() && clickText("button.tab", ["아이템", "Items"])' },
+  // What the bag does by itself, which is a screen of its own behind the last
+  // pocket tab.
+  { name: '11-bag-options', script: 'clickText("button.chip", ["사용 설정", "Use"]) && await wait(300)' },
+  { name: '12-bag-box', script: 'seedBox() && clickText("button.tab", ["박스", "Box"])' },
+  { name: '13-bag-treasures', script: 'seedBadges(3) && clickText("button.tab", ["소중한 것", "Treasures"])' },
+  { name: '14-auto-battle', script: 'clickText("button.tab", ["포켓몬", "Pokémon"]) && await wait(250) && clickText("button", ["자동전투", "Auto-battle"])' },
+  // The list behind one of those conditions, which is where a kind is switched
+  // off as well as gated.
+  { name: '15-auto-condition', script: 'clickText("button.chip", ["체력 1/2 이하", "HP at half or less"]) && await wait(400)' },
+  { name: '16-pokedex', script: 'closeAll() && clickText("button", ["도감", "Pokédex"])' },
+  // Charmander, because the starter is the one species this run has certainly
+  // caught: an entry only seen shows a silhouette and no description.
+  { name: '17-dex-entry', script: 'clickDexEntry(4)' },
   // An event spawns beyond the right edge and is walked into, so each of these
   // waits for the state it wants rather than for a fixed time.
-  { name: '14-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
-  { name: '15-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  { name: '18-event-berry', script: 'closeAll() && await forceEvent("berry") && await waitFor(() => walkStopped(), 25000)' },
+  { name: '19-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  { name: '20-event-ball', script: 'closeAll() && await forceEvent("ball") && await waitFor(() => walkStopped(), 25000)' },
+  { name: '21-event-ball-held', script: 'await waitFor(() => bagGrew(), 16000)' },
+  // A rest stop is a Pokémon Center to walk up to, so it is waited for like
+  // the berry tree — and then held on long enough for the door to open and the
+  // companion to step inside.
+  { name: '22-event-center', script: 'closeAll() && await forceEvent("heal") && await waitFor(() => walkStopped(1), 25000, 100)', settle: 0 },
+  { name: '23-event-center-inside', script: 'await wait(900)', settle: 0 },
+  { name: '24-event-center-out', script: 'await wait(4700)', settle: 0 },
   // A level-5 starter loses every wild battle it is thrown into, which left
   // the tray and capture shots empty. Levelling it first makes the whole tail
   // of the run — win, tray, capture screen — actually reachable.
-  { name: '16-battle', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
-  { name: '17-battle-later', script: 'await wait(5000)' },
-  { name: '18-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
+  { name: '25-battle-wild', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
+  { name: '26-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
   // Seeded rather than won: a wild Pokémon rolls up to fifteen levels above
   // the companion, so no amount of levelling makes the battle a sure thing,
   // and these two shots are about the screens, not the fight.
-  { name: '19-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
-  { name: '20-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
-  // Last, because it deliberately leaves an event mid-approach: `forceEvent`
-  // cannot preempt one that is already running, so anything after it would get
-  // this trainer's battle instead of the event it asked for.
-  { name: '21-trainer-approach', script: 'closeAll() && await forceEvent("trainer") && await wait(3500)' },
+  { name: '27-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
+  { name: '28-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
+  // Last of the events, because it deliberately leaves one mid-approach:
+  // `forceEvent` cannot preempt an event that is already running, so anything
+  // after it would get this trainer's battle instead of what it asked for.
+  { name: '29-trainer-approach', script: 'closeAll() && summonLeader() && await forceEvent("trainer") && await wait(2200)' },
+  // A gym leader battle, which the wild one does not show: a portrait, a name
+  // plate and a party of more than one.
+  { name: '30-battle-leader', script: 'await waitFor(() => inBattle(), 25000) && await wait(1800)' },
+  // The league opens on the eighth badge, so the case is filled the rest of
+  // the way rather than played through.
+  { name: '31-league', script: 'closeAll() && seedBadges(8) && useLeague("hoenn") && await wait(900) && clickText("button", ["포켓몬 리그로 간다", "To the League"]) && await wait(1200)' },
+  // The league's own rooms. Fighting four rounds to reach the champion would
+  // take longer than the whole run and could be lost on any of them, so each
+  // round's battle is opened directly — the same scene the league opens, with
+  // the same party and the same chamber behind it.
+  { name: '32-battle-elite', script: 'await leagueBattle(0) && await wait(2000)' },
+  { name: '33-battle-champion', script: 'await leagueBattle(-1) && await wait(2000)' },
+  // Saving turns Continue on, and the slot list then shows a run in progress
+  // rather than three empty rows. The settings screen's own Save and quit
+  // closes the window, which would end the run before these two were taken,
+  // so the save is written and the title rebuilt in its place.
+  { name: '34-title-saved', script: 'await saveAndShowTitle()' },
+  { name: '35-slots-filled', script: 'clickText("button", ["계속하기", "Continue"])' },
 ];
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -91,7 +144,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.error(`step ${step.name} failed: ${error}`);
     }
-    await delay(1200);
+    await delay(step.settle ?? SETTLE_AFTER_MS);
     const image = await window.webContents.capturePage();
     await writeFile(join(OUT_DIR, `${step.name}.png`), image.toPNG());
     console.log(`captured ${step.name}`);
@@ -115,8 +168,13 @@ const clickImageAlt = (alts) => {
 };
 const app = () => window.__pdcApp;
 const closeAll = () => {
+  // Press the screen's own close button where there is one: popping the stack
+  // skips the handler that unpauses the field and puts the companion back on
+  // the path, which left later field shots with an empty patch of grass.
+  for (let i = 0; i < 4 && app().stack.length > 1; i++) {
+    if (!clickText('button', ['닫기', 'Close', '취소', 'Cancel'])) break;
+  }
   while (app().stack.length > 1) app().pop();
-  // Menus pause the field through their close handler, which popping skips.
   app().scene.setPaused?.(false);
   return true;
 };
@@ -154,6 +212,105 @@ const equipForCapture = (level) => {
   session.addItem('poke-ball', 5);
   return true;
 };
+/**
+ * Open one round of the league challenge, in its own chamber.
+ *
+ * Round -1 means the last one, the champion's. The scene is built from the
+ * league's own data rather than fought for: winning four rounds to photograph
+ * the fifth would take longer than everything before it and could fail on any
+ * of them.
+ */
+const leagueBattle = async (round) => {
+  closeAll();
+  const session = app().session;
+  useLeague('hoenn');
+  // The league patches the challenger up between rounds, and a companion left
+  // fainted by the gym leader would lose this battle before the shot is taken.
+  session.heal();
+
+  const { battleScene } = await import('./scenes/battle.mjs');
+  const { buildParty, resolveLeague } = await import('./scenes/league.mjs');
+  const { backdropForLeagueRound } = await import('./render/backdrop.mjs');
+
+  const league = resolveLeague(session);
+  const rounds = [...league.eliteFour, league.champion];
+  const index = round < 0 ? rounds.length + round : round;
+  const trainer = rounds[index];
+
+  app().push(battleScene({
+    session,
+    foes: buildParty(session, trainer, 4),
+    trainer,
+    backdrop: backdropForLeagueRound(index, rounds.length),
+    onFinish: () => app().pop(),
+  }));
+  return true;
+};
+/**
+ * Write the run to its slot and go back to the title, the way Save and quit
+ * would if it did not also close the window.
+ */
+const saveAndShowTitle = async () => {
+  const session = app().session;
+  const { saves } = await import('./core/bridge.mjs');
+  const { titleScene } = await import('./scenes/title.mjs');
+  await saves.write(session.slot, session.toSave());
+  while (app().stack.length > 1) app().pop();
+  app().setScene(titleScene({ slots: await saves.list() }));
+  return true;
+};
+/** Stock the bag across every pocket, which a fresh run has not had time to do. */
+const seedBag = () => {
+  const session = app().session;
+  for (const [item, count] of [['potion', 5], ['super-potion', 2], ['revive', 1], ['poke-ball', 10],
+    ['great-ball', 3], ['oran-berry', 4], ['sitrus-berry', 2], ['tm01', 1], ['fire-stone', 1]]) {
+    session.addItem(item, count);
+  }
+  return true;
+};
+/** Put a few Pokémon in the box, which is empty until something is caught. */
+const seedBox = () => {
+  const session = app().session;
+  if (session.box.filter(Boolean).length > 0) return true;
+  for (const speciesId of ['10', '25', '52', '74', '129', '133']) {
+    const entry = JSON.parse(JSON.stringify(session.active));
+    entry.speciesId = speciesId;
+    entry.nickname = null;
+    session.storeInBox(entry);
+  }
+  return true;
+};
+/** Fill the badge case, which no screenshot run is long enough to earn. */
+const BADGE_TYPES = ['rock', 'water', 'electric', 'grass', 'poison', 'psychic', 'fire', 'ground'];
+const seedBadges = (count) => {
+  app().session.badges = BADGE_TYPES.slice(0, count);
+  return true;
+};
+/**
+ * Pin the next league challenge to a region whose line-up ships portraits:
+ * only Hoenn's Elite Four have official art in pret/pokeemerald, so any other
+ * region draws the screen without one.
+ *
+ * The game rolls a whole line-up on entry, so this leans on the roll itself
+ * and puts it back the moment it has served one.
+ */
+const useLeague = (region) => {
+  const session = app().session;
+  const pick = session.rng.pick.bind(session.rng);
+  session.rng.pick = (list) => {
+    const match = Array.isArray(list) ? list.find((entry) => entry && entry.region === region) : null;
+    if (!match) return pick(list);
+    session.rng.pick = pick;
+    return match;
+  };
+  return true;
+};
+/** Guarantee the next trainer is a gym leader rather than a passer-by. */
+const summonLeader = () => {
+  app().session.trainerWins = 999;
+  app().session.badges = [];
+  return true;
+};
 /** Put something in the post-battle tray, whether or not the battle went well. */
 const seedTray = () => {
   const session = app().session;
@@ -167,12 +324,26 @@ const clickTray = () => {
   console.log('tray is empty');
   return false;
 };
-/** Poll until a predicate holds, or give up so a shot is still taken. */
-const waitFor = async (predicate, timeoutMs) => {
+/** Open one Pokédex entry by its number, rather than whatever sorts first. */
+const clickDexEntry = (id) => {
+  const number = String(id).padStart(4, '0');
+  const entry = [...document.querySelectorAll('button.dex-entry')]
+    .find((node) => node.querySelector('.dex-number')?.textContent === number);
+  if (entry) { entry.click(); return true; }
+  console.log('no dex entry numbered ' + number);
+  return false;
+};
+/**
+ * Poll until a predicate holds, or give up so a shot is still taken.
+ *
+ * The interval is how closely a shot can chase a moment: a step waiting for a
+ * door to start opening has to look more often than one waiting for a battle.
+ */
+const waitFor = async (predicate, timeoutMs, intervalMs = 200) => {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     if (predicate()) return true;
-    await wait(200);
+    await wait(intervalMs);
   }
   console.log('waitFor timed out');
   return true;
@@ -180,11 +351,11 @@ const waitFor = async (predicate, timeoutMs) => {
 const inBattle = () => app().stack.length > 1;
 let lastOffset = -1;
 let stillFrames = 0;
-const walkStopped = () => {
+const walkStopped = (frames = 3) => {
   const offset = Math.round(app().scene.offset ?? 0);
   stillFrames = offset === lastOffset ? stillFrames + 1 : 0;
   lastOffset = offset;
-  return stillFrames > 3;
+  return stillFrames > frames;
 };
 let bagAtStart = -1;
 const bagGrew = () => {

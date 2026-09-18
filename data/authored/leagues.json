@@ -1,5 +1,5 @@
 {
-  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 이 중 하나가 무작위로 결정되어 그 세이브에 고정된다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방에만 존재한다. 가라르는 사천왕이 없어 리그가 없다.",
+  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 도전할 수 있고, 리그에 들어설 때마다 이 중 한 묶음이 통째로 뽑힌다 — 사천왕 넷과 그 뒤의 챔피언은 한 게임의 사람들이라 따로 섞지 않는다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 pret/pokeemerald 에 공식 도트가 있는 호연 지방에만 존재한다. 가라르는 사천왕이 없어 리그가 없다.",
   "leagues": [
     {
       "region": "johto",
@@ -15,7 +15,7 @@
             "en": "Will"
           },
           "type": "psychic",
-          "portrait": null,
+          "portrait": "will",
           "party": [
             178,
             124,
@@ -31,7 +31,7 @@
             "en": "Koga"
           },
           "type": "poison",
-          "portrait": null,
+          "portrait": "koga",
           "party": [
             168,
             49,
@@ -47,7 +47,7 @@
             "en": "Bruno"
           },
           "type": "fighting",
-          "portrait": null,
+          "portrait": "bruno",
           "party": [
             237,
             106,
@@ -63,7 +63,7 @@
             "en": "Karen"
           },
           "type": "dark",
-          "portrait": null,
+          "portrait": "karen",
           "party": [
             197,
             45,
@@ -80,7 +80,7 @@
           "en": "Lance"
         },
         "type": "dragon",
-        "portrait": null,
+        "portrait": "lance",
         "party": [
           130,
           142,

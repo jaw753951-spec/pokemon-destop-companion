@@ -8,38 +8,75 @@
 import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { el } from '../core/dom.mjs';
+import { button, el } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
+import { healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
-import { Battler } from '../render/battler.mjs';
+import { Battler, fitScale } from '../render/battler.mjs';
+import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
 /** How long each log entry holds the screen. */
 const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
 
-/** Where the two combatants stand. */
-// Field coordinates: the battlers are drawn in the same doubled space as the
-// map behind them, so the two stay in proportion.
-const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.74), y: Math.round(FIELD_HEIGHT * 0.39) };
-const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: Math.round(FIELD_HEIGHT * 0.63) };
+/**
+ * The message box's top edge, in field pixels: it is 34 tall and sits 8 from
+ * the bottom of the window, which is half that in the field's own space.
+ */
+const MESSAGE_TOP = FIELD_HEIGHT - 21;
+
+/**
+ * Where the two combatants stand: on the two platforms the backdrop draws, the
+ * foe on the far one and the companion on the near one.
+ *
+ * Field coordinates, because the battlers are drawn in the same doubled space
+ * as the backdrop behind them, and the backdrop is composed at exactly that
+ * size — so these are the platforms' own pixels rather than a guess.
+ */
+const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) };
+const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: MESSAGE_TOP - 3 };
+
+/**
+ * How much room each side has to stand in, in field pixels.
+ *
+ * The foe has everything above its platform: its own name plate is over on the
+ * left, away from it. The companion's head has to stay clear of that plate, so
+ * it gets the window below it. Both are kept inside the window horizontally by
+ * the room either side of the spot they stand on.
+ */
+const FOE_ROOM = {
+  width: 2 * Math.min(FOE_SPOT.x, FIELD_WIDTH - FOE_SPOT.x),
+  height: FOE_SPOT.y - 2,
+};
+const PLAYER_ROOM = {
+  width: 2 * Math.min(PLAYER_SPOT.x, FIELD_WIDTH - PLAYER_SPOT.x),
+  height: PLAYER_SPOT.y - 30,
+};
 
 /**
  * @param {{
  *   session: import('../engine/session.mjs').Session,
  *   foes: import('../engine/pokemon.mjs').Pokemon[],
  *   trainer?: {name: {ko: string, en: string}, portrait?: string|null, kind?: string}|null,
+ *   backdrop?: string|null,
  *   music?: string|null,
  *   onFinish: (result: {outcome: 'won'|'lost', defeated: import('../engine/pokemon.mjs').Pokemon[]}) => void,
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function battleScene({ session, foes, trainer = null, music = null, onFinish }) {
+export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, onFinish }) {
   const battle = new Battle({
     rng: session.rng,
     player: session.active,
     foes,
     policy: session.autoBattle,
+    // The bag, reduced to the three things a battle asks of it.
+    items: {
+      choose: (pokemon) => autoHeal(session, pokemon),
+      throw: (slug, pokemon) => throwItem(session, slug, pokemon),
+    },
     trainerBattle: Boolean(trainer),
   });
 
@@ -50,6 +87,8 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
   /** @type {import('../engine/pokemon.mjs').Pokemon[]} */
   const defeated = [];
 
+  /** @type {HTMLImageElement|null} */
+  let backdropImage = null;
   /** @type {Battler|null} */
   let playerBattler = null;
   /** @type {Battler|null} */
@@ -74,7 +113,13 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       // The BW set draws backs and fronts at much the same size (mean height 75
       // against 78), so the foe is shrunk to put it up the field. Without this
       // the two sit on the same plane and the battle reads flat.
-      foeBattler = new Battler({ sprite, x: FOE_SPOT.x, y: FOE_SPOT.y, facing: -1, scale: 0.8 });
+      foeBattler = new Battler({
+        sprite,
+        x: FOE_SPOT.x,
+        y: FOE_SPOT.y,
+        facing: -1,
+        scale: fitScale(sprite, FOE_ROOM, 0.8),
+      });
     });
   };
 
@@ -86,14 +131,30 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       const meta = gameData().sprites[active.speciesId];
       if (meta?.back) {
         loadSprite(`pokemon/${active.speciesId}/back.png`, meta.back).then((sprite) => {
-          playerBattler = new Battler({ sprite, x: PLAYER_SPOT.x, y: PLAYER_SPOT.y, facing: 1 });
+          playerBattler = new Battler({
+            sprite,
+            x: PLAYER_SPOT.x,
+            y: PLAYER_SPOT.y,
+            facing: 1,
+            scale: fitScale(sprite, PLAYER_ROOM, 1),
+          });
         });
       } else if (meta?.front) {
         loadSprite(`pokemon/${active.speciesId}/front.png`, meta.front).then((sprite) => {
-          playerBattler = new Battler({ sprite, x: PLAYER_SPOT.x, y: PLAYER_SPOT.y, facing: 1 });
+          // No back art: the front sprite stands in, mirrored so the companion
+          // still looks up the field at what it is fighting.
+          playerBattler = new Battler({
+            sprite,
+            x: PLAYER_SPOT.x,
+            y: PLAYER_SPOT.y,
+            facing: 1,
+            scale: fitScale(sprite, PLAYER_ROOM, 1),
+            flip: true,
+          });
         });
       }
       loadFoeSprite();
+      if (backdrop) loadBackdrop(backdrop).then((image) => { backdropImage = image; });
 
       app.audio.playMusic(music ?? gameData().bgm.cues[trainer ? 'battleTrainer' : 'battleWild']);
       app.audio.playCry(battle.foe?.pokemon.speciesId ?? active.speciesId);
@@ -104,6 +165,9 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       return el('div.screen.battle-screen', {}, [
         el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
         el('div.battle-bar.player', {}, [nameplate(session.active), playerBar.root]),
+        el('div.battle-actions', {}, [
+          button(t('battle.bag'), () => openBag(app), { className: 'small' }),
+        ]),
         message,
       ]);
     },
@@ -133,17 +197,50 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
     },
 
     render(context) {
-      // Dim whatever the field left on the canvas, so the battle reads as a
-      // layer over the world rather than a separate place.
-      context.fillStyle = 'rgba(12, 16, 26, 0.55)';
-      context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      // Until the backdrop has decoded, dim whatever the field left on the
+      // canvas rather than flashing the map at full brightness for a frame.
+      if (!backdropImage) {
+        context.fillStyle = 'rgba(12, 16, 26, 0.55)';
+        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+      }
 
       inFieldSpace(context, (field) => {
+        if (backdropImage) drawBackdrop(field, backdropImage);
         foeBattler?.draw(field);
         playerBattler?.draw(field);
       });
     },
   };
+
+  /**
+   * Open the bag mid-battle.
+   *
+   * Whatever is chosen is thrown on the companion's next action rather than
+   * immediately: a turn spent on an item is a turn not spent attacking, which
+   * is the cost the games charge for it.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  async function openBag(app) {
+    if (finished) return;
+    app.audio.blip('select');
+
+    const usable = healingItems(session, session.active);
+    const chosen = await chooseFromList(
+      app,
+      t('battle.bag'),
+      usable.map(({ slug, count, item, restores }) => ({
+        value: slug,
+        label: localized(item.name, slug),
+        detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
+      })),
+      { empty: t('battle.noItems') },
+    );
+
+    if (!chosen || finished) return;
+    battle.queueItem(chosen);
+    say(t('battle.itemReady', { item: localized(gameData().items[chosen]?.name, chosen) }));
+  }
 
   /**
    * Show one log entry and return how long to hold on it.
@@ -221,6 +318,33 @@ export function battleScene({ session, foes, trainer = null, music = null, onFin
       case 'heal':
         updateBars();
         break;
+
+      case 'item': {
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(entry.data?.used
+          ? t('battle.itemUsed', { name: nameOf(player), item: name })
+          : t('items.cannotUse'));
+        app.audio.blip(entry.data?.used ? 'confirm' : 'error');
+        updateBars();
+        break;
+      }
+
+      case 'berry': {
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(t('battle.berryEaten', { name: nameOf(player), item: name }));
+        app.audio.blip('confirm');
+        updateBars();
+        break;
+      }
+
+      case 'endure': {
+        const holder = entry.side === 'player' ? player : foe;
+        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        say(t('battle.endured', { name: nameOf(holder), item: name }));
+        app.audio.blip('hit');
+        updateBars();
+        break;
+      }
 
       case 'faint': {
         const fainter = entry.side === 'player' ? player : foe;
@@ -346,4 +470,26 @@ function healthBar() {
       text.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
     },
   };
+}
+
+/**
+ * The item the policy would throw this turn, if any.
+ *
+ * A condition is the whole of it — the same vocabulary the auto-battle screen
+ * uses — and `never` means the bag only opens when the player opens it.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ * @returns {string|null}
+ */
+function autoHeal(session, pokemon) {
+  const policy = session.itemPolicy?.healing;
+  if (!policy || policy.condition === 'never') return null;
+
+  const health = pokemon.hp / Math.max(1, maxHp(pokemon));
+  const thresholds = { hpTwoThirds: 2 / 3, hpHalf: 1 / 2, hpThird: 1 / 3, hpQuarter: 1 / 4 };
+  const threshold = thresholds[policy.condition];
+  if (threshold === undefined || health > threshold) return null;
+
+  return healingItemFor(session, pokemon, policy.item);
 }

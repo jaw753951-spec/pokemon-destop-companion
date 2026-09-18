@@ -3,9 +3,17 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { typeEffectiveness } from '../../app/renderer/core/data.mjs';
-import { Battle, categoryOf, choosePolicyMove, expectedDamage, STATUS } from '../../app/renderer/engine/battle.mjs';
+import { moveOf, typeEffectiveness } from '../../app/renderer/core/data.mjs';
+import {
+  Battle,
+  categoryOf,
+  choosePolicyMove,
+  effectiveStat,
+  expectedDamage,
+  STATUS,
+} from '../../app/renderer/engine/battle.mjs';
 import { createPokemon, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
+import { defaultAutoBattle, normalizeAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { computeStat, experienceForLevel, levelForExperience, stageMultiplier } from '../../app/renderer/engine/stats.mjs';
 
 const ready = await useRealGameData();
@@ -216,7 +224,7 @@ test('an explicit move order is followed in sequence and then repeated', options
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatAll', order: ['slash', 'ember'], weights: {}, conditions: {} },
+    policy: { mode: 'repeatAll', order: ['slash', 'ember'], conditions: {} },
   });
 
   const usable = player.moves;
@@ -234,7 +242,7 @@ test('repeatLast holds on the final move of the order', options, () => {
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatLast', order: ['slash', 'ember'], weights: {}, conditions: {} },
+    policy: { mode: 'repeatLast', order: ['slash', 'ember'], conditions: {} },
   });
 
   const picks = [];
@@ -245,32 +253,288 @@ test('repeatLast holds on the final move of the order', options, () => {
   assert.deepEqual(picks, ['slash', 'ember', 'ember', 'ember']);
 });
 
-test('damageFirst ignores the weights and picks the strongest attack', options, () => {
+test('damageFirst ignores the conditions and picks the strongest attack', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    // Growl is weighted far above everything, and must still lose out.
-    policy: { mode: 'damageFirst', order: [], weights: { damage: 1, stat: 999 }, conditions: {} },
+    // Attacks are switched off and stat moves left on, and damageFirst must
+    // still pick the strongest attack.
+    policy: { mode: 'damageFirst', order: [], conditions: { damage: 'never', stat: 'always' } },
   });
 
   const pick = choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
   assert.equal(pick, 'flamethrower');
 });
 
-test('a zero weight takes a category out of the running', options, () => {
+test('a kind set to never takes a category out of the running', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['ember', 'growl']);
   const battle = new Battle({
     rng: new Rng(4),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    policy: { mode: 'repeatAll', order: [], weights: { damage: 10, stat: 0 }, conditions: {} },
+    policy: { mode: 'repeatAll', order: [], conditions: { damage: 'always', stat: 'never' } },
   });
 
   for (let attempt = 0; attempt < 20; attempt++) {
     assert.equal(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves), 'ember');
   }
+});
+
+test('with no order, several attacks come down to the hardest-hitting one', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle', 'ember', 'flamethrower']);
+  const battle = new Battle({
+    rng: new Rng(7),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    // The shipped defaults, which name no order at all.
+    policy: defaultAutoBattle(),
+  });
+
+  // Attacks never compete with each other, so this holds on every roll.
+  for (let attempt = 0; attempt < 20; attempt++) {
+    assert.equal(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves), 'flamethrower');
+  }
+});
+
+test('a healing move waits for the health its condition names', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['recover', 'flamethrower']);
+  const battle = new Battle({
+    rng: new Rng(3),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: { mode: 'repeatAll', order: [], conditions: { damage: 'never', heal: 'hpThird' } },
+  });
+
+  const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+
+  // Above a third, healing is out and nothing else is allowed, so the fallback
+  // attack is all that is left.
+  player.hp = Math.ceil(maxHp(player) * 0.5);
+  assert.equal(pick(), 'flamethrower');
+
+  player.hp = Math.floor(maxHp(player) / 3);
+  assert.equal(pick(), 'recover');
+});
+
+test('a stored policy from either older shape becomes conditions', options, () => {
+  // Weights, where zero meant "never".
+  const weighted = normalizeAutoBattle({
+    mode: 'repeatAll',
+    order: [],
+    weights: { damage: 10, stat: 0 },
+    conditions: { damage: 'always', stat: 'firstTurn' },
+  });
+  assert.equal(weighted.conditions.damage, 'always');
+  assert.equal(weighted.conditions.stat, 'never');
+  assert.equal(weighted.weights, undefined);
+
+  // Tick boxes, where an unticked kind meant the same.
+  const ticked = normalizeAutoBattle({ mode: 'repeatAll', order: [], use: { heal: false } });
+  assert.equal(ticked.conditions.heal, 'never');
+  assert.equal(ticked.use, undefined);
+
+  // And half health, which used to have a name of its own.
+  assert.equal(normalizeAutoBattle(null).conditions.heal, 'hpHalf');
+});
+
+test('an item is thrown before either side moves, and takes the turn', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower']);
+  player.hp = 20;
+
+  const thrown = [];
+  const battle = new Battle({
+    rng: new Rng(11),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+    items: {
+      choose: () => null,
+      throw: (slug, pokemon) => {
+        thrown.push(slug);
+        pokemon.hp += 60;
+        return true;
+      },
+    },
+  });
+
+  battle.queueItem('super-potion');
+  const log = battle.takeTurn();
+
+  assert.deepEqual(thrown, ['super-potion']);
+  const item = log.find((entry) => entry.kind === 'item');
+  assert.ok(item && item.data.used);
+  // The turn went on the item, so no move of the companion's was used.
+  assert.equal(player.moves[0].pp, 15);
+  assert.ok(log.some((entry) => entry.kind === 'move' && entry.side === 'foe'));
+  assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'));
+  // And only once: the next turn is fought normally.
+  assert.equal(battle.pendingItem, null);
+});
+
+test('a Sitrus Berry is eaten at half health, for a quarter of the bar', options, () => {
+  // Two Tackles rather than anything decisive: the berry is the point, and a
+  // battle that ends on turn one has no turn two to eat it in.
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'sitrus-berry';
+
+  const battle = new Battle({
+    rng: new Rng(12),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  // Above half, nothing happens.
+  player.hp = maxHp(player);
+  battle.takeTurn();
+  assert.equal(player.heldItem, 'sitrus-berry');
+
+  const half = Math.floor(maxHp(player) / 2) - 1;
+  player.hp = half;
+  const log = battle.takeTurn();
+
+  assert.ok(log.some((entry) => entry.kind === 'berry'));
+  assert.equal(player.heldItem, null, 'the berry is gone once eaten');
+  // A quarter of the bar, on top of whatever the turn did to it.
+  assert.ok(player.hp >= half - 40 + Math.floor(maxHp(player) / 4));
+});
+
+test('a Cheri Berry waits for the paralysis it cures', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'cheri-berry';
+
+  const battle = new Battle({
+    rng: new Rng(13),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  battle.takeTurn();
+  assert.equal(player.heldItem, 'cheri-berry', 'nothing to cure yet');
+
+  player.status = STATUS.PARALYSIS;
+  battle.takeTurn();
+  assert.equal(player.status, null);
+  assert.equal(player.heldItem, null);
+});
+
+test('a Liechi Berry waits for a quarter, and raises a stage', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'liechi-berry';
+
+  const battle = new Battle({
+    rng: new Rng(14),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  // Half health is not a pinch as far as this berry is concerned.
+  player.hp = Math.floor(maxHp(player) / 2);
+  battle.takeTurn();
+  assert.equal(player.heldItem, 'liechi-berry');
+
+  player.hp = Math.floor(maxHp(player) / 4);
+  battle.takeTurn();
+  assert.equal(player.heldItem, null);
+  assert.equal(battle.player.stages.atk, 1);
+});
+
+test('Leftovers pays a sixteenth at the end of each turn', options, () => {
+  // Both sides have to last the turn out: the upkeep is paid at the end of
+  // one, and a battle that ends first never reaches it.
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'leftovers';
+  player.hp = maxHp(player) - 40;
+
+  const battle = new Battle({
+    rng: new Rng(21),
+    player,
+    foes: [makeFixed(BLASTOISE, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const log = battle.takeTurn();
+  const healed = log.find((entry) => entry.kind === 'heal' && entry.side === 'player');
+
+  assert.ok(healed, 'nothing was restored');
+  assert.equal(healed.data.amount, Math.floor(maxHp(player) / 16));
+  assert.equal(healed.data.item, 'leftovers');
+});
+
+test('a Choice Band lifts Attack and holds the move it picked', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle', 'flamethrower']);
+  const battle = new Battle({
+    rng: new Rng(22),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const plain = effectiveStat(battle.player, 'atk');
+  player.heldItem = 'choice-band';
+  assert.equal(effectiveStat(battle.player, 'atk'), Math.floor(plain * 1.5));
+
+  // The first choice sticks, even though the policy would otherwise reconsider
+  // once the better move is the only sensible answer.
+  const first = battle.chooseMove(battle.player, /** @type {any} */ (battle.foe));
+  battle.player.lockedMove = first;
+  for (let turn = 0; turn < 5; turn++) {
+    assert.equal(battle.chooseMove(battle.player, /** @type {any} */ (battle.foe)), first);
+  }
+});
+
+test('a Charcoal lifts fire moves and leaves the rest alone', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'slash']);
+  const battle = new Battle({
+    rng: new Rng(23),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const fire = expectedDamage(battle.player, /** @type {any} */ (battle.foe), moveOf('flamethrower'));
+  player.heldItem = 'charcoal';
+
+  // `expectedDamage` is the planner's view and does not read held items, so
+  // the real roll is what this compares: twenty per cent more, every time.
+  const roll = (seed) => {
+    const fight = new Battle({
+      rng: new Rng(seed),
+      player,
+      foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+      policy: defaultAutoBattle(),
+    });
+    return fight.computeDamage(fight.player, /** @type {any} */ (fight.foe), moveOf('flamethrower')).damage;
+  };
+  const withCharcoal = roll(5);
+  player.heldItem = null;
+  const without = roll(5);
+
+  assert.ok(fire > 0);
+  assert.ok(withCharcoal > without, `${withCharcoal} should beat ${without}`);
+  assert.equal(withCharcoal, Math.max(1, Math.floor(without * 1.2)));
+});
+
+test('a Focus Sash leaves one hit point, once', options, () => {
+  const player = makeFixed(CHARIZARD, 5, ['tackle']);
+  player.heldItem = 'focus-sash';
+  player.hp = maxHp(player);
+
+  const battle = new Battle({
+    rng: new Rng(24),
+    player,
+    // A Blastoise fifty levels up would end this in one hit.
+    foes: [makeFixed(BLASTOISE, 60, ['surf'])],
+    policy: defaultAutoBattle(),
+  });
+
+  battle.takeTurn();
+  assert.equal(player.hp, 1, 'the sash should have held');
+  assert.equal(player.heldItem, null, 'and been used up');
 });
 
 test('expected damage ranks a super-effective move above a resisted one', options, () => {

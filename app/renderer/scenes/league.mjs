@@ -2,9 +2,11 @@
  * The Pokémon League.
  *
  * Opens once eight badges are in hand. Which region's Elite Four and Champion
- * you face is decided on entry and then fixed for the run, and between rounds
- * the companion is fully restored and you choose whether to go straight on or
- * step back out to the field and prepare.
+ * you face is rolled each time you walk in — the four and their champion are
+ * one line-up and travel together, so a challenge is always somebody's real
+ * league rather than a pick-and-mix. Between rounds the companion is fully
+ * restored and you choose whether to go straight on or step back out to the
+ * field and prepare.
  */
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
@@ -13,6 +15,8 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { evolveToLevel } from '../engine/encounter.mjs';
+import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
+import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
 
 /** How far above the challenger each round is pitched. */
@@ -32,6 +36,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
   let index = 0;
   let busy = false;
+  /** The room this round is challenged in, drawn behind the challenge screen. */
+  let room = /** @type {HTMLImageElement|null} */ (null);
+  let loadedRoom = '';
 
   const heading = el('div.league-heading');
   const portrait = /** @type {HTMLImageElement} */ (el('img.league-portrait', { alt: '' }));
@@ -44,6 +51,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     mount(app) {
       app.audio.playMusic(gameData().bgm.cues.league ?? null);
       render(app);
+      refreshRoom();
 
       return el('div.screen.league-screen', {}, [
         heading,
@@ -54,7 +62,15 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     },
 
     render(context) {
-      context.fillStyle = 'rgba(8, 10, 20, 0.88)';
+      if (!room) {
+        context.fillStyle = 'rgba(8, 10, 20, 0.88)';
+        context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+        return;
+      }
+      // The room itself, dimmed enough for the portrait and the buttons in
+      // front of it to stay legible.
+      inFieldSpace(context, (field) => drawBackdrop(field, room));
+      context.fillStyle = 'rgba(8, 10, 20, 0.5)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
     },
   };
@@ -67,9 +83,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     heading.textContent = `${localized(league.name, league.region)} ${t(last ? 'league.champion' : 'league.eliteFour')}`;
     caption.textContent = localized(round.name, round.id);
 
-    const art = round.portrait ? `trainers/portraits/${round.portrait}.png` : null;
+    const art = portraitFor(round);
     portrait.hidden = !art;
-    if (art) portrait.src = url('assets', art);
+    if (art) portrait.src = url('assets', `trainers/portraits/${art}.png`);
 
     setChildren(actions, [
       button(t('league.next'), () => startRound(app), { className: 'primary', disabled: busy }),
@@ -78,6 +94,16 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         onLeave();
       }, { disabled: busy }),
     ]);
+  }
+
+  /** The room the round about to be fought is challenged in. */
+  function refreshRoom() {
+    const id = backdropForLeagueRound(index, rounds.length);
+    if (id === loadedRoom) return;
+    loadedRoom = id;
+    loadRoom(id).then((image) => {
+      if (loadedRoom === id) room = image;
+    });
   }
 
   /** @param {import('../core/app.mjs').App} app */
@@ -93,6 +119,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         session,
         foes: buildParty(session, round, LEVEL_STEP[Math.min(index, LEVEL_STEP.length - 1)]),
         trainer: round,
+        backdrop: backdropForLeagueRound(index, rounds.length),
         music: gameData().bgm.cues[last ? 'battleChampion' : 'battleEliteFour'],
         onFinish: (result) => {
           app.pop();
@@ -100,8 +127,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
           if (result.outcome === 'lost') {
             // A loss ends the challenge rather than the run: the companion is
-            // patched up and sent back to the field to try again.
-            session.heal();
+            // sent back to the field on its last hit point, and to the rest
+            // stop the field will now put in its way.
+            session.blackOut();
             app.toast(t('battle.lost'));
             onLeave();
             return;
@@ -118,6 +146,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
           index++;
           app.toast(t('league.healed'));
           render(app);
+          refreshRoom();
         },
       }),
     );
@@ -137,7 +166,45 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 }
 
 /**
- * The league this run faces, chosen once and then remembered in the save.
+ * The picture to put a name to.
+ *
+ * Hoenn's league was drawn by the game this art all comes from, and Kanto's
+ * and Johto's people were drawn by two others the pipeline also reads. Nobody
+ * from Sinnoh onwards was ever drawn on a Game Boy Advance, and there is no
+ * honest way to invent a likeness — so they are shown as a trainer of their
+ * speciality instead, which is what the games themselves do with everyone who
+ * is not a name. The choice is fixed by the person's own id, so the same
+ * champion is met by the same stand-in every time.
+ *
+ * @param {any} trainer
+ * @returns {string|null}
+ */
+function portraitFor(trainer) {
+  const portraits = gameData().actors?.portraits ?? {};
+  if (trainer.portrait && portraits[trainer.portrait]) return trainer.portrait;
+
+  const classes = (gameData().trainerClasses ?? []).filter(
+    (entry) => entry.portrait && portraits[entry.portrait] && entry.types?.includes(trainer.type),
+  );
+  if (classes.length === 0) return null;
+
+  return classes[fingerprint(trainer.id ?? '') % classes.length].portrait;
+}
+
+/** A small stable number from a string, so a choice made from it never moves. */
+function fingerprint(text) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index++) hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  return hash;
+}
+
+/**
+ * The league this challenge faces, rolled from every line-up the game ships.
+ *
+ * A line-up is a set: the Elite Four a region sends out and the champion
+ * waiting behind them are the people of one game, and splitting them would
+ * make the ladder a collection of strangers. So one whole league is drawn, and
+ * the region is remembered only to say afterwards which one was beaten.
  *
  * @param {import('../engine/session.mjs').Session} session
  */
@@ -145,8 +212,7 @@ export function resolveLeague(session) {
   const leagues = gameData().leagues ?? [];
   if (leagues.length === 0) return generatedLeague(session);
 
-  const remembered = leagues.find((league) => league.region === session.leagueRegion);
-  const chosen = remembered ?? session.rng.pick(leagues);
+  const chosen = session.rng.pick(leagues);
   session.leagueRegion = chosen.region;
   return chosen;
 }

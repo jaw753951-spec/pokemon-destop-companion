@@ -4,18 +4,11 @@
  */
 import { join } from 'node:path';
 
-import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
-import { decodePng, encodePng } from '../lib/png.mjs';
-import {
-  combineMetatiles,
-  combineTilesets,
-  METATILE_SIZE,
-  parseJascPal,
-  renderMap,
-  sliceTiles,
-  tilesetDirName,
-} from '../lib/gba-gfx.mjs';
-import { crop, gradeTime, makeSeamless, pickWalkableBand, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
+import { fetchJson, writeOut } from '../lib/http.mjs';
+import { encodePng } from '../lib/png.mjs';
+import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
+import { openMaps } from '../lib/maps.mjs';
+import { crop, gradeTime, makeSeamless, pickWalkableBand, pickWalkLane, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
 import { nameBundle } from '../lib/poke.mjs';
 import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sources.mjs';
 
@@ -23,36 +16,26 @@ import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sour
  * @param {{assetDir: string, dataDir: string, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
  */
 export async function buildAreas({ assetDir, dataDir, log, pool }) {
-  const layouts = await loadLayouts();
+  const maps = await openMaps(pool);
   const encounters = await loadEncounterTables();
   const locationNames = await loadLocationNames(pool);
-  const tilesetCache = new Map();
 
   const wantedBlocks = Math.ceil(BACKGROUND_HEIGHT / METATILE_SIZE);
   /** @type {any[]} */
   const manifest = [];
 
   for (const area of AREAS) {
-    const map = await fetchJson(`${EMERALD}/data/maps/${area.dir}/map.json`);
-    const layout = layouts.get(map.layout);
-    if (!layout) throw new Error(`No layout ${map.layout} for area ${area.id}`);
-
-    const primary = await loadTileset(tilesetCache, pool, 'primary', layout.primary_tileset);
-    const secondary = layout.secondary_tileset
-      ? await loadTileset(tilesetCache, pool, 'secondary', layout.secondary_tileset)
-      : null;
-
-    const tileset = combineTilesets(primary, secondary);
-    const metatiles = combineMetatiles(primary.metatiles, secondary ? secondary.metatiles : null);
-    const blockdata = await fetchBuffer(`${EMERALD}/${layout.blockdata_filepath}`);
-
-    const rendered = renderMap(blockdata, layout.width, layout.height, tileset, metatiles);
+    const { map, layout, blockdata, image: rendered } = await maps.render(area.dir);
     // Two of the thirty maps are shorter than the window; they give what they
     // have and the field fills the remainder from their own top row.
     const bandBlocks = Math.min(wantedBlocks, layout.height);
     const bandRow = pickWalkableBand(blockdata, layout.width, layout.height, bandBlocks);
     const band = crop(rendered, 0, bandRow * METATILE_SIZE, rendered.width, bandBlocks * METATILE_SIZE);
     const strip = repeatToWidth(makeSeamless(band), FIELD_WIDTH * 2);
+    // Where the companion's feet go within the strip: the bottom edge of the
+    // lane whose blocks are clear, rather than a fixed fraction of the window.
+    const laneRow = pickWalkLane(blockdata, layout.width, bandRow, bandBlocks);
+    const groundY = Math.min(strip.height, (laneRow - bandRow + 1) * METATILE_SIZE);
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
@@ -69,22 +52,20 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       tags: area.tags,
       width: strip.width,
       height: strip.height,
+      groundY,
       music,
       weather: map.weather ? map.weather.replace('WEATHER_', '').toLowerCase() : 'none',
       encounters: encounters.get(map.id) ?? [],
     });
 
-    log(`area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}`);
+    log(
+      `area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  ground=${groundY}  ` +
+        `music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}`,
+    );
   }
 
   await writeOut(join(dataDir, 'areas.json'), JSON.stringify(manifest));
   return manifest;
-}
-
-/** @returns {Promise<Map<string, any>>} keyed by `LAYOUT_*` id */
-async function loadLayouts() {
-  const { layouts } = await fetchJson(`${EMERALD}/data/layouts/layouts.json`);
-  return new Map(layouts.filter((layout) => layout && layout.id).map((layout) => [layout.id, layout]));
 }
 
 /**
@@ -147,38 +128,6 @@ async function loadLocationNames(pool) {
       ),
   );
   return names;
-}
-
-/**
- * @param {Map<string, any>} cache
- * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
- * @param {'primary'|'secondary'} role
- * @param {string} symbol
- */
-async function loadTileset(cache, pool, role, symbol) {
-  const key = `${role}/${symbol}`;
-  const cached = cache.get(key);
-  if (cached) return cached;
-
-  const base = `${EMERALD}/data/tilesets/${role}/${tilesetDirName(symbol)}`;
-  const tiles = sliceTiles(decodePng(await fetchBuffer(`${base}/tiles.png`)));
-
-  /** @type {Array<Array<[number, number, number]>>} */
-  const palettes = new Array(16);
-  await Promise.all(
-    Array.from({ length: 16 }, (_, index) =>
-      pool(async () => {
-        const file = await fetchBuffer(`${base}/palettes/${String(index).padStart(2, '0')}.pal`, {
-          allowMissing: true,
-        });
-        if (file) palettes[index] = parseJascPal(file);
-      }),
-    ),
-  );
-
-  const tileset = { tiles, palettes, metatiles: await fetchBuffer(`${base}/metatiles.bin`) };
-  cache.set(key, tileset);
-  return tileset;
 }
 
 /** `hoenn-route-101` -> `Hoenn Route 101` */

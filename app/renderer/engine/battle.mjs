@@ -8,6 +8,7 @@
  * of log entries per turn which the battle scene plays back as animation.
  */
 import { moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
+import { applyHeldEffect, heldPassive, heldTrigger } from './items.mjs';
 import { gainFromDefeat, levelOf, maxHp, statsOf } from './pokemon.mjs';
 import { stageMultiplier } from './stats.mjs';
 
@@ -16,6 +17,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {import('./pokemon.mjs').Pokemon} pokemon
  * @property {Record<string, number>} stages
  * @property {boolean} flinched
+ * @property {string|null} lockedMove the move a Choice item has it committed to
  * @property {number} turnsTaken
  * @property {'player'|'foe'} side
  */
@@ -27,6 +29,9 @@ import { stageMultiplier } from './stats.mjs';
  * @property {'player'|'foe'} [side]
  * @property {Record<string, any>} [data]
  */
+
+/** The stats a Starf Berry can land on. */
+const STAT_KEYS = ['atk', 'def', 'spa', 'spd', 'spe'];
 
 /** Status conditions the engine models. */
 export const STATUS = { BURN: 'brn', POISON: 'psn', PARALYSIS: 'par', SLEEP: 'slp', FREEZE: 'frz' };
@@ -41,12 +46,24 @@ export class Battle {
    *   player: import('./pokemon.mjs').Pokemon,
    *   foes: import('./pokemon.mjs').Pokemon[],
    *   policy: any,
+   *   items?: {
+   *     choose: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
+   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon) => boolean,
+   *   }|null,
    *   trainerBattle?: boolean,
    * }} options
    */
-  constructor({ rng, player, foes, policy, trainerBattle = false }) {
+  constructor({ rng, player, foes, policy, items = null, trainerBattle = false }) {
     this.rng = rng;
     this.policy = policy;
+    /**
+     * The bag, as far as a battle needs one: what to throw unasked, how to
+     * throw it, and whether a held berry is worth eating.
+     */
+    this.items = items;
+    /** An item the player has chosen to throw, used instead of next turn's move. */
+    /** @type {string|null} */
+    this.pendingItem = null;
     this.trainerBattle = trainerBattle;
 
     this.player = makeCombatant(player, 'player');
@@ -66,6 +83,17 @@ export class Battle {
   /** @returns {boolean} whether the battle is still running */
   get running() {
     return this.outcome === 'ongoing';
+  }
+
+  /**
+   * Throw an item on the companion's next action, which is what opening the
+   * bag mid-battle does in the games: the turn is spent on the item rather
+   * than on a move.
+   *
+   * @param {string} slug
+   */
+  queueItem(slug) {
+    this.pendingItem = slug;
   }
 
   /**
@@ -93,14 +121,20 @@ export class Battle {
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
       this.checkFaint(log);
+      // Checked between the two sides' moves as well as at the end of the
+      // turn: a berry that waits until the turn is over is a berry that lets
+      // its holder faint first.
+      this.eatHeldBerry(log);
     }
 
     if (this.running) {
       for (const combatant of [this.player, this.foe]) {
         if (!combatant || combatant.pokemon.hp <= 0) continue;
+        this.endOfTurnHeld(combatant, log);
         this.endOfTurnStatus(combatant, log);
       }
       this.checkFaint(log);
+      this.eatHeldBerry(log);
     }
 
     return log;
@@ -109,6 +143,20 @@ export class Battle {
   /** Priority first, then Speed, with a coin flip to break an exact tie. */
   orderOfPlay() {
     if (!this.foe) return [this.player];
+
+    // Nothing was thrown by hand, so the policy gets its say before the turn
+    // is planned.
+    if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+
+    // An item is thrown before either Pokémon moves, as it is in the games,
+    // and the companion has no move to commit to that turn.
+    if (this.pendingItem) {
+      this.pendingMoves = new Map([
+        [this.player, null],
+        [this.foe, this.chooseMove(this.foe, this.player)],
+      ]);
+      return [this.player, this.foe];
+    }
 
     // Both sides commit before either acts, so priority can be compared and
     // the choice cannot change once the turn is under way.
@@ -125,6 +173,10 @@ export class Battle {
       return playerPriority > foePriority ? [this.player, this.foe] : [this.foe, this.player];
     }
 
+    // A Quick Claw sometimes ignores the speed check altogether.
+    const claw = heldPassive(this.player.pokemon, 'first');
+    if (claw && this.rng.chance(claw.chance)) return [this.player, this.foe];
+
     const playerSpeed = effectiveStat(this.player, 'spe');
     const foeSpeed = effectiveStat(this.foe, 'spe');
     if (playerSpeed === foeSpeed) {
@@ -140,15 +192,33 @@ export class Battle {
    * @returns {string} a move slug, or `struggle` when nothing has PP
    */
   chooseMove(attacker, defender) {
-    const usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
+    let usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
     if (usable.length === 0) return 'struggle';
+
+    const restriction = heldPassive(attacker.pokemon, 'stat');
+
+    // A Choice item locks its holder into the first move it picks, for as long
+    // as that move has PP — which is the price it charges for the power.
+    if (restriction?.lock) {
+      const locked = usable.find((slot) => slot.move === attacker.lockedMove);
+      if (locked) return locked.move;
+    }
+
+    // An Assault Vest buys Special Defence with the holder's status moves.
+    if (restriction?.noStatus) {
+      const attacks = usable.filter((slot) => moveOf(slot.move)?.damageClass !== 'status');
+      if (attacks.length > 0) usable = attacks;
+    }
 
     // The player's side follows the policy the user configured; the opponent
     // plays a simple best-damage game, as the games' trainers broadly do.
-    if (attacker.side === 'player' && this.policy) {
-      return choosePolicyMove(this, attacker, defender, usable);
-    }
-    return bestDamageMove(this, attacker, defender, usable) ?? this.rng.pick(usable).move;
+    const chosen =
+      attacker.side === 'player' && this.policy
+        ? choosePolicyMove(this, attacker, defender, usable)
+        : bestDamageMove(this, attacker, defender, usable) ?? this.rng.pick(usable).move;
+
+    if (restriction?.lock) attacker.lockedMove = chosen;
+    return chosen;
   }
 
   /**
@@ -157,6 +227,17 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   resolveMove(attacker, defender, log) {
+    // The item is thrown by the trainer, so nothing about the Pokémon's own
+    // state — asleep, flinching, paralysed — can stop it.
+    if (attacker.side === 'player' && this.pendingItem) {
+      const slug = this.pendingItem;
+      this.pendingItem = null;
+      const used = this.items?.throw(slug, attacker.pokemon) ?? false;
+      attacker.turnsTaken++;
+      log.push({ kind: 'item', side: attacker.side, data: { item: slug, used } });
+      return;
+    }
+
     if (attacker.flinched) {
       attacker.flinched = false;
       log.push({ kind: 'flinch', side: attacker.side });
@@ -189,6 +270,87 @@ export class Battle {
     }
 
     this.applyDamagingMove(attacker, defender, move, log);
+  }
+
+  /**
+   * The upkeep a held item pays, or charges, at the end of a turn: the
+   * Leftovers that give a sixteenth back, the Black Sludge that does the same
+   * for a Poison type and poisons anything else that carries it.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  endOfTurnHeld(combatant, log) {
+    const held = heldPassive(combatant.pokemon, 'turn');
+    if (!held) return;
+
+    const max = maxHp(combatant.pokemon);
+    const suits = !held.type || speciesOf(combatant.pokemon.speciesId).types.includes(held.type);
+
+    if (suits && held.heal) {
+      if (combatant.pokemon.hp >= max) return;
+      const healed = Math.max(1, Math.floor(max * held.heal.fraction));
+      combatant.pokemon.hp = Math.min(max, combatant.pokemon.hp + healed);
+      log.push({ kind: 'heal', side: combatant.side, data: { amount: healed, item: combatant.pokemon.heldItem } });
+      return;
+    }
+
+    if (!suits && held.harm) {
+      const damage = Math.max(1, Math.floor(max * held.harm.fraction));
+      combatant.pokemon.hp = Math.max(0, combatant.pokemon.hp - damage);
+      log.push({ kind: 'damage', side: combatant.side, data: { amount: damage, item: combatant.pokemon.heldItem } });
+    }
+  }
+
+  /**
+   * Whether a held item keeps its holder standing through a hit that would
+   * otherwise knock it out — a Focus Sash from full health, a Focus Band on a
+   * roll.
+   *
+   * @param {Combatant} defender
+   * @param {number} damage
+   * @returns {{consumed: boolean}|null}
+   */
+  survivesHit(defender, damage) {
+    if (damage < defender.pokemon.hp) return null;
+    const held = heldPassive(defender.pokemon, 'survive');
+    if (!held) return null;
+
+    if (held.fromFull && defender.pokemon.hp < maxHp(defender.pokemon)) return null;
+    if (held.chance !== undefined && !this.rng.chance(held.chance)) return null;
+    return { consumed: Boolean(held.consumed) };
+  }
+
+  /**
+   * Eat the held berry if its moment has come, which is what makes one worth
+   * holding — and what the bag's restock setting then replaces.
+   *
+   * Only the companion's is checked: nothing the game sends against it is
+   * given anything to hold.
+   *
+   * @param {LogEntry[]} log
+   */
+  eatHeldBerry(log) {
+    const combatant = this.player;
+    const trigger = heldTrigger(combatant.pokemon);
+    if (!trigger) return;
+
+    const { slug, held } = trigger;
+    if (held.stat) {
+      // A stat berry raises a stage, which lives on the combatant rather than
+      // on the Pokémon, so the battle applies that one itself.
+      const stat = held.stat === 'random' ? this.rng.pick(STAT_KEYS) : held.stat;
+      const before = combatant.stages[stat] ?? 0;
+      const after = Math.max(-6, Math.min(6, before + (held.stages ?? 1)));
+      if (after === before) return;
+      combatant.stages[stat] = after;
+      log.push({ kind: 'stat', side: combatant.side, data: { stat, change: after - before } });
+    } else if (!applyHeldEffect(combatant.pokemon, held)) {
+      return;
+    }
+
+    combatant.pokemon.heldItem = null;
+    log.push({ kind: 'berry', side: combatant.side, data: { item: slug } });
   }
 
   /**
@@ -260,8 +422,14 @@ export class Battle {
       critical = critical || result.critical;
       if (result.effectiveness === 0) break;
 
-      defender.pokemon.hp = Math.max(0, defender.pokemon.hp - result.damage);
+      const survives = this.survivesHit(defender, result.damage);
+      defender.pokemon.hp = Math.max(survives ? 1 : 0, defender.pokemon.hp - result.damage);
       total += result.damage;
+      if (survives) {
+        log.push({ kind: 'endure', side: defender.side, data: { item: defender.pokemon.heldItem } });
+        if (survives.consumed) defender.pokemon.heldItem = null;
+        break;
+      }
     }
 
     if (effectiveness === 0) {
@@ -287,6 +455,25 @@ export class Battle {
       log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
+    // A Shell Bell pays its holder a share of what it just dealt, and a Life
+    // Orb charges for the extra damage it added.
+    const shell = heldPassive(attacker.pokemon, 'drain');
+    if (shell && total > 0 && attacker.pokemon.hp > 0) {
+      const healed = Math.max(1, Math.floor(total * shell.fraction));
+      const before = attacker.pokemon.hp;
+      attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
+      if (attacker.pokemon.hp !== before) {
+        log.push({ kind: 'heal', side: attacker.side, data: { amount: attacker.pokemon.hp - before } });
+      }
+    }
+
+    const orb = heldPassive(attacker.pokemon, 'damage');
+    if (orb?.cost && total > 0) {
+      const cost = Math.max(1, Math.floor(maxHp(attacker.pokemon) * orb.cost));
+      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - cost);
+      log.push({ kind: 'damage', side: attacker.side, data: { amount: cost, recoil: true } });
+    }
+
     this.applySecondaryEffects(attacker, defender, move, log);
   }
 
@@ -304,7 +491,8 @@ export class Battle {
 
     // A critical hit ignores the defender's positive defence stages and the
     // attacker's negative offence ones.
-    const critical = this.rng.next() < criticalChance(move.meta?.critRate ?? 0);
+    const critStage = (move.meta?.critRate ?? 0) + (heldPassive(attacker.pokemon, 'crit')?.stages ?? 0);
+    const critical = this.rng.next() < criticalChance(critStage);
     const attack = effectiveStat(attacker, attackStat, critical ? { ignoreNegative: true } : {});
     const defence = effectiveStat(defender, defenceStat, critical ? { ignorePositive: true } : {});
 
@@ -322,7 +510,8 @@ export class Battle {
     const spread = this.rng.int(85, 100) / 100;
     const criticalBonus = critical ? 1.5 : 1;
 
-    const damage = Math.max(1, Math.floor(base * stab * effectiveness * burn * spread * criticalBonus));
+    const held = heldDamageMultiplier(attacker.pokemon, move, effectiveness);
+    const damage = Math.max(1, Math.floor(base * stab * effectiveness * burn * spread * criticalBonus * held));
     return { damage, effectiveness, critical };
   }
 
@@ -482,7 +671,11 @@ export class Battle {
     const reward = gainFromDefeat(
       this.player.pokemon,
       { baseStats: species.stats, baseExp: species.baseExp, level: levelOf(defeated.pokemon) },
-      { trainerBattle: this.trainerBattle },
+      {
+        trainerBattle: this.trainerBattle,
+        experienceMultiplier: heldPassive(this.player.pokemon, 'experience')?.multiplier ?? 1,
+        effortMultiplier: heldPassive(this.player.pokemon, 'effort')?.multiplier ?? 1,
+      },
     );
     this.rewards.push(reward);
 
@@ -506,6 +699,7 @@ function makeCombatant(pokemon, side) {
     pokemon,
     stages: { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 },
     flinched: false,
+    lockedMove: null,
     turnsTaken: 0,
     side,
   };
@@ -523,9 +717,32 @@ export function effectiveStat(combatant, stat, options = {}) {
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;
 
-  let value = Math.floor(base * stageMultiplier(stage));
+  let value = Math.floor(base * stageMultiplier(stage) * heldStatMultiplier(combatant.pokemon, stat));
   if (stat === 'spe' && combatant.pokemon.status === STATUS.PARALYSIS) value = Math.floor(value * 0.5);
   return Math.max(1, value);
+}
+
+/**
+ * How much a held item changes a stat.
+ *
+ * A Choice Band's fifty percent, an Eviolite's half again for something that
+ * still has an evolution ahead of it, and the Speed a Macho Brace costs for
+ * the effort it earns.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string} stat
+ */
+function heldStatMultiplier(pokemon, stat) {
+  const held = heldPassive(pokemon, 'stat');
+  const effort = heldPassive(pokemon, 'effort');
+  let multiplier = 1;
+
+  if (held?.stats?.includes(stat)) {
+    const unevolved = (speciesOf(pokemon.speciesId).evolutions ?? []).length > 0;
+    if (!held.unevolvedOnly || unevolved) multiplier *= held.multiplier;
+  }
+  if (stat === 'spe' && effort?.speed) multiplier *= effort.speed;
+  return multiplier;
 }
 
 /** Critical-hit chance by the move's crit-rate stage, as in Gen 7+. */
@@ -607,8 +824,9 @@ export function expectedDamage(attacker, defender, move) {
  *
  * The policy has three parts, applied in order: an explicit move order the
  * user laid out, the `mode` that decides what happens once that order runs
- * out, and per-category weights with a condition each. Anything the policy
- * cannot decide falls through to the strongest attack.
+ * out, and the kinds of move the companion may reach for, each with a
+ * condition. Anything the policy cannot decide falls through to the strongest
+ * attack.
  *
  * @param {Battle} battle
  * @param {Combatant} attacker
@@ -634,25 +852,56 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
 
   /** @type {Array<{value: string, weight: number}>} */
   const candidates = [];
+  /** The hardest-hitting attack, which is the only one of its kind offered. */
+  let bestDamage = /** @type {{value: string, damage: number}|null} */ (null);
+
   for (const slot of usable) {
     const move = moveOf(slot.move);
     if (!move) continue;
     const category = categoryOf(move);
     if (!conditionHolds(policy.conditions?.[category] ?? 'always', battle, attacker, defender)) continue;
 
-    let weight = policy.weights?.[category] ?? 1;
-    if (weight <= 0) continue;
-    // Within a category, prefer the option that would actually accomplish
-    // something: a stronger attack, or a stage that is not already maxed.
-    if (category === 'damage') weight *= 1 + expectedDamage(attacker, defender, move) / 40;
+    // Attacks do not compete with each other: holding four of them and no
+    // instructions about which to use means using the one that hits hardest,
+    // rather than rolling between a Flamethrower and a Tackle every turn.
+    if (category === 'damage') {
+      const damage = expectedDamage(attacker, defender, move);
+      if (!bestDamage || damage > bestDamage.damage) bestDamage = { value: slot.move, damage };
+      continue;
+    }
+
+    // A stat move that cannot move anything accomplishes nothing.
     if (category === 'stat' && !hasRoomToChange(move, attacker, defender)) continue;
-    candidates.push({ value: slot.move, weight });
+    candidates.push({ value: slot.move, weight: 1 });
   }
+
+  if (bestDamage) candidates.push({ value: bestDamage.value, weight: 1 });
 
   const chosen = battle.rng.weighted(candidates);
   if (chosen) return chosen;
 
   return bestDamageMove(battle, attacker, defender, usable) ?? battle.rng.pick(usable).move;
+}
+
+/**
+ * How much a held item multiplies the damage of this move.
+ *
+ * A Charcoal lifts fire moves, a Muscle Band every physical one, an Expert
+ * Belt only what the defender is weak to, and a Life Orb the lot — at a price
+ * charged after the hit lands.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {any} move
+ * @param {number} effectiveness
+ */
+function heldDamageMultiplier(pokemon, move, effectiveness) {
+  const held = heldPassive(pokemon, 'damage');
+  if (!held) return 1;
+
+  if (held.moveType) return move.type === held.moveType ? held.multiplier : 1;
+  if (held.damageClass) return move.damageClass === held.damageClass ? held.multiplier : 1;
+  if (held.superEffective) return effectiveness > 1 ? held.multiplier : 1;
+  return held.multiplier ?? 1;
 }
 
 /**
@@ -669,23 +918,43 @@ export function categoryOf(move) {
 }
 
 /**
+ * Whether a kind of move may be used this turn.
+ *
+ * One condition per kind is the whole of the auto-battle policy beyond the
+ * move order: `never` takes a kind out of the fight altogether, and the rest
+ * name the moment it is worth reaching for.
+ *
  * @param {string} condition
  * @param {Battle} battle
  * @param {Combatant} attacker
  * @param {Combatant} defender
  */
 function conditionHolds(condition, battle, attacker, defender) {
+  const health = () => attacker.pokemon.hp / Math.max(1, maxHp(attacker.pokemon));
+
   switch (condition) {
-    case 'noStatus':
-      return !defender.pokemon.status;
-    case 'lowHp':
-      return attacker.pokemon.hp <= maxHp(attacker.pokemon) / 2;
+    case 'never':
+      return false;
     case 'firstTurn':
       return attacker.turnsTaken === 0;
+    case 'noStatus':
+      return !defender.pokemon.status;
+    case 'foeStatus':
+      return Boolean(defender.pokemon.status);
     case 'noField':
       // No weather or terrain is modelled yet, so a field move is always fair
       // game under this condition.
       return true;
+    case 'hpTwoThirds':
+      return health() <= 2 / 3;
+    // `lowHp` is what half health was called before the fractions were named.
+    case 'lowHp':
+    case 'hpHalf':
+      return health() <= 1 / 2;
+    case 'hpThird':
+      return health() <= 1 / 3;
+    case 'hpQuarter':
+      return health() <= 1 / 4;
     case 'always':
     default:
       return true;

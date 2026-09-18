@@ -27,10 +27,13 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 
   const types = await buildTypes(pool, log);
   const moves = await buildMoves(pool, log);
-  const items = await buildItems(pool, log);
+  const everyItem = await buildItems(pool, log);
   const machines = await buildMachines(pool, log);
   const natures = await buildNatures(pool, log);
   const species = await buildSpecies(pool, log, limit);
+
+  // Which items the game ships is decided here rather than in the screens.
+  const items = shippedItems(everyItem, { machines, moves, species, log });
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
   await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
@@ -41,6 +44,138 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 
   return { types, moves, items, machines, natures, species };
 }
+
+/**
+ * The items the game ships, which is everything but the ones it can never have
+ * a use for.
+ *
+ * The line is not "does this work yet". A Mint changes a nature, an Ability
+ * Capsule swaps an ability, a PP Up raises a move's PP, a vitamin raises
+ * effort, a type-protection Berry softens a hit of one type — the save already
+ * carries a nature, an ability, PP, effort and types, so each of those acts on
+ * something this game has, whether or not the engine reads it today. Keeping
+ * them means the bag is the bag of a Pokémon game, and implementing one later
+ * is a change to the engine rather than to the data.
+ *
+ * What goes is what belongs to a system this game will not have: Mega Stones,
+ * Z-Crystals, Dynamax Crystals and Tera Shards change forms; apricorns and TM
+ * materials are crafting; curry, sandwiches and Pokéblock berries are cooking;
+ * a bicycle and a Rod belong to a world with towns in it. And a handful named
+ * one by one, of which the Exp. Share is the clearest: it splits experience
+ * between party members, and this game walks a single Pokémon.
+ *
+ * Each kept item is marked with whether the engine reads it yet, so a screen
+ * can say "no effect in this game yet" rather than leaving a player to find
+ * out by using one.
+ *
+ * @param {Record<string, any>} items
+ * @param {{machines: Record<string, string>, moves: Record<string, any>, species: Record<string, any>, log: (message: string) => void}} context
+ */
+function shippedItems(items, { machines, moves, species, log }) {
+  /** Items some species evolves by, held or used. */
+  const evolutionItems = new Set();
+  for (const entry of Object.values(species)) {
+    for (const evolution of entry.evolutions ?? []) {
+      if (evolution.item) evolutionItems.add(evolution.item);
+      if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+    }
+  }
+
+  /** @type {Record<string, any>} */
+  const out = {};
+  /** @type {Record<string, number>} */
+  const dropped = {};
+
+  for (const [slug, item] of Object.entries(items)) {
+    // A machine is only worth carrying if the move it teaches was shipped.
+    if (item.pocket === 'machines' && !moves[machines[slug]]) {
+      dropped['unknown move'] = (dropped['unknown move'] ?? 0) + 1;
+      continue;
+    }
+
+    const reason = KEPT_ITEMS[slug] ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+    if (reason) {
+      dropped[reason] = (dropped[reason] ?? 0) + 1;
+      continue;
+    }
+
+    out[slug] = {
+      ...item,
+      works:
+        Boolean(item.use) ||
+        Boolean(item.held) ||
+        item.pocket === 'pokeballs' ||
+        item.pocket === 'machines' ||
+        evolutionItems.has(slug),
+    };
+  }
+
+  const inert = Object.values(out).filter((item) => !item.works).length;
+  log(`items ${Object.keys(out).length - inert} of them read by the engine, ${inert} waiting on one`);
+
+  const summary = Object.entries(dropped)
+    .sort((a, b) => b[1] - a[1])
+    .map(([reason, count]) => `${reason} ${count}`)
+    .join(', ');
+  log(`items ${Object.keys(out).length} kept, ${Object.values(dropped).reduce((a, b) => a + b, 0)} dropped (${summary})`);
+  return out;
+}
+
+/**
+ * Item categories that belong to systems this game does not have, and the
+ * reason each one goes — which is also what would have to change for it to
+ * come back.
+ *
+ * @type {Record<string, string>}
+ */
+const RETIRED_CATEGORIES = {
+  'mega-stones': 'form changes',
+  'dynamax-crystals': 'form changes',
+  'z-crystals': 'form changes',
+  'tera-shard': 'form changes',
+  'species-candies': 'form changes',
+  'tm-materials': 'crafting',
+  'apricorn-box': 'crafting',
+  'curry-ingredients': 'cooking',
+  'sandwich-ingredients': 'cooking',
+  picnic: 'cooking',
+  'baking-only': 'cooking',
+  mulch: 'berry growing',
+  scarves: 'contests',
+  spelunking: 'a world with towns in it',
+  gameplay: 'a world with towns in it',
+  'plot-advancement': 'a story',
+  'event-items': 'a story',
+  'data-cards': 'a story',
+  'dex-completion': 'a story',
+  collectibles: 'selling',
+  loot: 'selling',
+  unused: 'unused in the games too',
+};
+
+/**
+ * The few that stay on their own account, because the category they were
+ * filed under says nothing about what they are for. A Bottle Cap is listed as
+ * loot and is really how a Pokémon's genes are maxed out.
+ *
+ * @type {Record<string, true>}
+ */
+const KEPT_ITEMS = {
+  'bottle-cap': true,
+  'gold-bottle-cap': true,
+};
+
+/**
+ * The few that go on their own account rather than by category.
+ *
+ * @type {Record<string, string>}
+ */
+const RETIRED_ITEMS = {
+  'exp-share': 'nothing to share with',
+  'exp-share-gen6': 'nothing to share with',
+  'amulet-coin': 'selling',
+  'luck-incense': 'selling',
+};
 
 /** The 18 battle types with their Korean names and full damage relations. */
 async function buildTypes(pool, log) {
@@ -160,6 +295,8 @@ async function buildItems(pool, log) {
           flingPower: item.fling_power,
           attributes: (item.attributes ?? []).map((attribute) => attribute.name),
           text: flavorBundle(item.flavor_text_entries, 'text'),
+          held: heldEffect(item),
+          use: useEffect(item),
           sprite: Boolean(item.sprites?.default),
         };
       }),
@@ -169,6 +306,222 @@ async function buildItems(pool, log) {
   log(`items ${Object.keys(out).length} across ${[...POCKETS].join('/')}`);
   return out;
 }
+
+/**
+ * What an item does while a Pokémon is holding it, read from the one place
+ * that states it exactly.
+ *
+ * The flavour text a player sees is deliberately vague — a Sitrus Berry
+ * "restores a little HP" — but PokeAPI's short effect for the same item spells
+ * the rule out: "Held: Consumed at 1/2 max HP to recover 1/4 max HP." Parsing
+ * that leaves the berries behaving as they do in the games without a table of
+ * numbers typed out here, which would be one more thing to keep in step with
+ * the data.
+ *
+ * Anything whose effect is not one of these shapes — the type-resisting
+ * berries, the ones that only matter when cooking — comes back null and is
+ * simply carried.
+ *
+ * @param {any} item
+ * @returns {any}
+ */
+function heldEffect(item) {
+  const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
+  const text = (effect?.short_effect ?? '').replace(/[’']/g, "'");
+  if (!text.startsWith('Held:') && !/^Raises the holder's/i.test(text)) return null;
+
+  const at = (match) => (match ? 1 / Number(match) : null);
+
+  // ---- The berries, which are consumed when their moment comes.
+
+  // "Consumed at 1/2 max HP to recover 1/4 max HP."
+  const fraction = /Consumed at 1\/(\d) max HP to (?:recover|restore) 1\/(\d) (?:of its )?max HP/i.exec(text);
+  if (fraction) return { on: 'hp', at: at(fraction[1]), heal: { fraction: 1 / Number(fraction[2]) } };
+
+  // "Consumed at 1/2 max HP to recover 10 HP."
+  const fixed = /Consumed at 1\/(\d) max HP to (?:recover|restore) (\d+) HP/i.exec(text);
+  if (fixed) return { on: 'hp', at: at(fixed[1]), heal: { amount: Number(fixed[2]) } };
+
+  // "Consumed at 1/4 max HP to boost Attack." — and one that rolls a stat.
+  const boost = /Consumed at 1\/(\d) max HP to (?:sharply )?boost (?:its )?([A-Za-z ]+?)(?: by two stages)?\./i.exec(text);
+  if (boost) {
+    const stat = STAT_NAMES[boost[2].trim().toLowerCase()];
+    const stages = /two stages/i.test(text) ? 2 : 1;
+    if (stat) return { on: 'hp', at: at(boost[1]), stat, stages };
+  }
+
+  // "Consumed when paralyzed to cure paralysis." and its siblings.
+  const cure = /Consumed when (paralyzed|asleep|poisoned|burned|frozen) to cure/i.exec(text);
+  if (cure) return { on: 'status', status: STATUS_NAMES[cure[1].toLowerCase()] };
+  if (/Consumed to cure any status condition/i.test(text)) return { on: 'status', status: 'any' };
+
+  // "Consumed when a move runs out of PP to restore its PP by 10."
+  const pp = /Consumed when a move runs out of PP to restore its PP by (\d+)/i.exec(text);
+  if (pp) return { on: 'pp', amount: Number(pp[1]) };
+
+  // ---- The things that simply work while they are held.
+
+  // "Poison-type holder recovers 1/16 max HP each turn. Non-Poison-Types take
+  // 1/8 max HP damage." — the conditional one is read before the plain one.
+  const sludge = /([A-Za-z]+)-type holder recovers 1\/(\d+).*?max HP each turn\..*?take 1\/(\d+).*?max HP damage/i.exec(text);
+  if (sludge) {
+    return {
+      on: 'turn',
+      type: sludge[1].toLowerCase(),
+      heal: { fraction: 1 / Number(sludge[2]) },
+      harm: { fraction: 1 / Number(sludge[3]) },
+    };
+  }
+  const turn = /Restores 1\/(\d+).*?max HP at the end of each turn/i.exec(text);
+  if (turn) return { on: 'turn', heal: { fraction: 1 / Number(turn[1]) } };
+
+  // "Fire-Type moves from holder do 20% more damage."
+  const typed = /([A-Za-z]+)-Type moves from holder do (\d+)% more damage/i.exec(text);
+  if (typed) return { on: 'damage', moveType: typed[1].toLowerCase(), multiplier: 1 + Number(typed[2]) / 100 };
+
+  // "Boosts the damage of physical moves used by the holder by 10%."
+  const classed = /Boosts the damage of (physical|special) moves used by the holder by (?:1\/\d+ \()?(\d+)%/i.exec(text);
+  if (classed) {
+    return { on: 'damage', damageClass: classed[1].toLowerCase(), multiplier: 1 + Number(classed[2]) / 100 };
+  }
+
+  // "Holder's Super Effective moves do 20% extra damage."
+  const superEffective = /Super Effective moves do (\d+)% extra damage/i.exec(text);
+  if (superEffective) {
+    return { on: 'damage', superEffective: true, multiplier: 1 + Number(superEffective[1]) / 100 };
+  }
+
+  // "Holder's moves inflict 30% extra damage, but cost 10% max HP."
+  const orb = /moves inflict (\d+)% extra damage, but cost (\d+)% max HP/i.exec(text);
+  if (orb) return { on: 'damage', multiplier: 1 + Number(orb[1]) / 100, cost: Number(orb[2]) / 100 };
+
+  // "Increases Attack by 50%, but restricts the holder to only one move."
+  const choice = /Increases ([A-Za-z ]+?) by (\d+)%, but restricts the holder to only one move/i.exec(text);
+  if (choice) {
+    const stat = STAT_NAMES[choice[1].trim().toLowerCase()];
+    if (stat) return { on: 'stat', stats: [stat], multiplier: 1 + Number(choice[2]) / 100, lock: true };
+  }
+
+  // "Raises the holder's Special Defense to 1.5×. Prevents the holder from
+  // selecting a status move."
+  const vest = /Raises the holder's ([A-Za-z ]+?) to ([\d.]+)×/i.exec(text);
+  if (vest) {
+    const stat = STAT_NAMES[vest[1].trim().toLowerCase()];
+    const noStatus = /Prevents the holder from selecting a status move/i.test(text);
+    if (stat) return { on: 'stat', stats: [stat], multiplier: Number(vest[2]), noStatus };
+  }
+
+  // "Holder has 1.5× Defense and Special Defense, as long as it's not fully
+  // evolved."
+  const eviolite = /Holder has ([\d.]+)× Defense and Special Defense, as long as it's not fully evolved/i.exec(text);
+  if (eviolite) return { on: 'stat', stats: ['def', 'spd'], multiplier: Number(eviolite[1]), unevolvedOnly: true };
+
+  // "Raises the holder's critical hit ratio by one stage."
+  if (/Raises the holder's critical hit ratio by one stage/i.test(text)) return { on: 'crit', stages: 1 };
+
+  // "Holder survives any single-hit attack at 1 HP if at max HP."
+  if (/survives any single-hit attack at 1 HP if at max HP/i.test(text)) {
+    return { on: 'survive', fromFull: true, consumed: true };
+  }
+  const band = /Holder has (\d+)% chance to survive attacks.*?at 1 HP/i.exec(text);
+  if (band) return { on: 'survive', chance: Number(band[1]) / 100 };
+
+  // "Holder receives 1/8 of the damage it deals when attacking."
+  const shell = /Holder receives 1\/(\d+) of the damage it deals when attacking/i.exec(text);
+  if (shell) return { on: 'drain', fraction: 1 / Number(shell[1]) };
+
+  // "Increases EXP earned in battle by 50%."
+  const experience = /Increases EXP earned in battle by (\d+)%/i.exec(text);
+  if (experience) return { on: 'experience', multiplier: 1 + Number(experience[1]) / 100 };
+
+  // "Holder has a 3/16 (18.75%) chance to move first."
+  const first = /chance to move first/i.test(text) ? /(\d+)\/(\d+)/.exec(text) : null;
+  if (first) return { on: 'first', chance: Number(first[1]) / Number(first[2]) };
+
+  // "Holder gains double effort values from battles, but has halved Speed."
+  if (/gains double effort values from battles/i.test(text)) {
+    return { on: 'effort', multiplier: 2, stats: ['spe'], speed: 0.5 };
+  }
+
+  return null;
+}
+
+/**
+ * What an item does when it is used on a Pokémon, from the same sentence the
+ * held effects are read from.
+ *
+ * "Restores 20 HP." is a Potion; "Restores 10 PP for one move." is an Ether;
+ * "Raises Attack effort and happiness." is a Protein. An item whose effect is
+ * not one of these — a Mega Stone, a sandwich ingredient, an Exp. Share — comes
+ * back null, and the build then leaves it out of the game altogether.
+ *
+ * @param {any} item
+ * @returns {any}
+ */
+function useEffect(item) {
+  const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
+  const text = effect?.short_effect ?? '';
+  if (!text || text.startsWith('Held:')) return null;
+
+  /** @type {any} */
+  const use = {};
+
+  // "Revives with half HP." — checked first, since a revival also restores HP
+  // and would otherwise read as an ordinary potion.
+  const revive = /Revives(?: [^.]+?)? with (half|full) HP/i.exec(text);
+  if (revive) return { revive: revive[1].toLowerCase() === 'full' ? 1 : 0.5 };
+
+  if (/Restores HP to full/i.test(text)) use.hp = 'full';
+  const hp = /Restores (\d+) HP/i.exec(text);
+  if (hp) use.hp = Number(hp[1]);
+
+  // "Restores 10 PP for one move." and "Restores PP to full for each move."
+  const pp = /Restores (?:(\d+) PP|PP to full) (?:for|of) (one|each|a single|all) move/i.exec(text);
+  if (pp) use.pp = { amount: pp[1] ? Number(pp[1]) : 'full', scope: /each|all/i.test(pp[2]) ? 'all' : 'one' };
+
+  if (/[Cc]ures any status ailment/.test(text)) use.status = 'any';
+  const cure = /Cures (poison|paralysis|sleep|burns?|freezing|infatuation|confusion)\b/i.exec(text);
+  if (cure && !use.status) {
+    const status = CURE_NAMES[cure[1].toLowerCase().replace(/s$/, '')];
+    if (status) use.status = status;
+  }
+
+  // "Raises Attack effort and happiness." and the berries that undo it.
+  const raise = /Raises ([A-Za-z ]+?)(?: effort)? and happiness/i.exec(text);
+  if (raise) {
+    const stat = STAT_NAMES[raise[1].trim().toLowerCase()];
+    if (stat && stat !== 'random') use.effort = { stat, amount: EFFORT_STEP };
+  }
+  const drop = /Drops ([A-Za-z ]+?) Effort Values by (\d+)/i.exec(text);
+  if (drop) {
+    const stat = STAT_NAMES[drop[1].trim().toLowerCase()];
+    if (stat && stat !== 'random') use.effort = { stat, amount: -Number(drop[2]) };
+  }
+
+  if (/Causes a level-up/i.test(text)) use.level = 1;
+
+  return Object.keys(use).length > 0 ? use : null;
+}
+
+/** How much effort a vitamin adds, as the games have always given. */
+const EFFORT_STEP = 10;
+
+/** The conditions a medicine can cure, as its effect text names them. */
+const CURE_NAMES = { poison: 'psn', paralysis: 'par', sleep: 'slp', burn: 'brn', freezing: 'frz' };
+
+/** The stats a berry can raise, as the effect text names them. */
+const STAT_NAMES = {
+  hp: 'hp',
+  attack: 'atk',
+  defense: 'def',
+  'special attack': 'spa',
+  'special defense': 'spd',
+  speed: 'spe',
+  'a random stat': 'random',
+};
+
+/** The conditions a berry can cure, as the effect text names them. */
+const STATUS_NAMES = { paralyzed: 'par', asleep: 'slp', poisoned: 'psn', burned: 'brn', frozen: 'frz' };
 
 /**
  * Which move each TM/HM teaches. An item is reused across generations with

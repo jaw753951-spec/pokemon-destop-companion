@@ -26,26 +26,44 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   const readAuthored = async (name) =>
     JSON.parse(await readFile(join(dataDir, '..', 'authored', name), 'utf8'));
 
-  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers] = await Promise.all(
-    [
-      'species.json',
-      'moves.json',
-      'items.json',
-      'machines.json',
-      'natures.json',
-      'types.json',
-      'areas.json',
-      'sprites.json',
-      'actors.json',
-      'bgm.json',
-      'item-tiers.json',
-    ].map(read),
-  );
+  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers, battle] =
+    await Promise.all(
+      [
+        'species.json',
+        'moves.json',
+        'items.json',
+        'machines.json',
+        'natures.json',
+        'types.json',
+        'areas.json',
+        'sprites.json',
+        'actors.json',
+        'bgm.json',
+        'item-tiers.json',
+        'battle.json',
+      ].map(read),
+    );
 
   note(Object.keys(species).length === MAX_SPECIES, `species: ${Object.keys(species).length} of ${MAX_SPECIES}`);
   note(Object.keys(types).length === 18, `types: ${Object.keys(types).length} of 18`);
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
-  note(Object.keys(items).length > 1000, `items: only ${Object.keys(items).length}`);
+  // The build drops what belongs to a system this game will not have, and
+  // keeps everything that acts on something it does — whether or not the
+  // engine reads it yet.
+  note(Object.keys(items).length > 600, `items: only ${Object.keys(items).length}`);
+  const retired = Object.entries(items).filter(([, item]) =>
+    ['mega-stones', 'z-crystals', 'dynamax-crystals', 'tera-shard', 'curry-ingredients', 'tm-materials'].includes(
+      item.category,
+    ),
+  );
+  note(retired.length === 0, `items from a retired system kept: ${summarize(retired.map(([slug]) => slug))}`);
+  note(items['exp-share'] === undefined, 'the Exp. Share has nothing to share with');
+  // Anything the engine does read must say what it does.
+  const silent = Object.entries(items).filter(
+    ([slug, item]) => item.works && !item.use && !item.held && item.pocket !== 'pokeballs' && item.pocket !== 'machines'
+      && !evolutionItem(species, slug),
+  );
+  note(silent.length === 0, `items marked as working with no effect: ${summarize(silent.map(([slug]) => slug))}`);
   note(Object.keys(machines).length > 100, `machines: only ${Object.keys(machines).length}`);
   note(Object.keys(natures).length === 25, `natures: ${Object.keys(natures).length} of 25`);
   note(areas.length > 0, 'areas: none built');
@@ -96,6 +114,32 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   }
   if (unknownEncounters.size) log(`note: ${unknownEncounters.size} encounter species not matched by slug (${summarize([...unknownEncounters])})`);
 
+  // Every backdrop the manifest names, every backdrop an area's tags can ask
+  // for, and every badge must be on disk.
+  for (const id of Object.keys(battle.backdrops)) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'battle', `${id}.png`)), `battle backdrop ${id}: not built`);
+  }
+  for (const [tag, backdrop] of Object.entries(battle.tags)) {
+    note(Boolean(battle.backdrops[backdrop]), `tag ${tag}: names unbuilt backdrop ${backdrop}`);
+  }
+  for (const id of Object.keys(battle.rooms)) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'rooms', `${id}.png`)), `league room ${id}: not built`);
+    note(Boolean(battle.backdrops[id]), `league room ${id}: no backdrop of the same name`);
+  }
+  for (const type of battle.badges) {
+    // eslint-disable-next-line no-await-in-loop
+    note(await fileExists(join(assetDir, 'badges', `${type}.png`)), `badge ${type}: not built`);
+    note(Boolean(types[type]), `badge ${type}: not a type`);
+  }
+  for (const area of areas) {
+    note(
+      area.tags.some((tag) => battle.tags[tag]),
+      `area ${area.id}: no tag maps to a battle backdrop`,
+    );
+  }
+
   for (const [role, track] of Object.entries(bgm.cues)) {
     note(track && bgm.tracks[track], `cue ${role}: no track`);
   }
@@ -112,6 +156,9 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(actors.portraits).length > 50, `trainer portraits: only ${Object.keys(actors.portraits).length}`);
   note(Object.keys(actors.overworld).length > 50, `trainer field sprites: only ${Object.keys(actors.overworld).length}`);
   note(Object.keys(actors.props.berryTrees).length > 10, `berry trees: only ${Object.keys(actors.props.berryTrees).length}`);
+  note(Boolean(actors.props.center?.door), 'the Pokémon Center was not cut out of its town');
+  note(await fileExists(join(assetDir, 'props', 'poke-center.png')), 'Pokémon Center: no building');
+  note(await fileExists(join(assetDir, 'props', 'poke-center-door.png')), 'Pokémon Center: no door animation');
 
   if (problems.length === 0) {
     log(`ok — ${Object.keys(species).length} species, ${areas.length} areas, ${Object.keys(bgm.tracks).length} tracks`);
@@ -210,4 +257,17 @@ function untranslated(bundle, language) {
   const text = bundle?.[language.code];
   if (!text) return true;
   return Boolean(language.fallback) && text === bundle[/** @type {string} */ (language.fallback)];
+}
+
+/**
+ * Whether some species evolves by this item, held or used — the one thing an
+ * item with no effect of its own can still be kept for.
+ *
+ * @param {Record<string, any>} species
+ * @param {string} slug
+ */
+function evolutionItem(species, slug) {
+  return Object.values(species).some((entry) =>
+    (entry.evolutions ?? []).some((evolution) => evolution.item === slug || evolution.heldItem === slug),
+  );
 }

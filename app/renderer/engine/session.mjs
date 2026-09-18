@@ -5,7 +5,7 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, BOX_LIMIT, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
@@ -23,8 +23,14 @@ export class Session {
     this.active = save.party.active;
     /** @type {Array<import('./pokemon.mjs').Pokemon|null>} */
     this.box = save.party.box ?? [];
-    /** @type {Record<string, number>} */
-    this.bag = { ...(save.bag ?? {}) };
+    /**
+     * The bag, less anything the game no longer carries: a save written before
+     * an item was found to have no effect here would otherwise keep it for
+     * good, listed in a pocket that can do nothing with it.
+     */
+    this.bag = Object.fromEntries(
+      Object.entries(save.bag ?? {}).filter(([slug, count]) => Number(count) > 0 && gameData().items[slug]),
+    );
 
     this.badges = [...(save.progress?.badges ?? [])];
     this.champion = Boolean(save.progress?.champion);
@@ -38,7 +44,9 @@ export class Session {
     this.champions = new Set(save.dex?.champions ?? []);
 
     /** @type {any} */
-    this.autoBattle = save.autoBattle ?? defaultAutoBattle();
+    this.autoBattle = normalizeAutoBattle(save.autoBattle);
+    /** @type {any} */
+    this.itemPolicy = normalizeItemPolicy(save.items);
     /** @type {string|null} */
     this.leagueRegion = save.progress?.leagueRegion ?? null;
 
@@ -160,12 +168,20 @@ export class Session {
   /**
    * Put a Pokémon in the first free box space.
    * @param {import('./pokemon.mjs').Pokemon} pokemon
+   * @returns {boolean} whether the box had room
    */
   storeInBox(pokemon) {
     const index = this.box.findIndex((entry) => !entry);
     if (index >= 0) this.box[index] = pokemon;
-    else this.box.push(pokemon);
+    else if (this.box.length < BOX_LIMIT) this.box.push(pokemon);
+    else return false;
     this.markCaught(pokemon.speciesId);
+    return true;
+  }
+
+  /** Whether every space in the box is taken. */
+  get boxFull() {
+    return this.box.filter(Boolean).length >= BOX_LIMIT;
   }
 
   /**
@@ -183,6 +199,19 @@ export class Session {
   /** Heal the travelling Pokémon completely. */
   heal() {
     fullyHeal(this.active);
+  }
+
+  /**
+   * What losing a battle leaves behind: one hit point, and a rest stop next.
+   *
+   * Nothing is healed. A companion that has just been knocked out walks on
+   * with a single point and whatever it was suffering from, which is what
+   * makes the forced rest stop worth reaching — and what makes the potions it
+   * hands out worth carrying.
+   */
+  blackOut() {
+    this.active.hp = 1;
+    this.events.force('heal');
   }
 
   /** @returns {any} the JSON written to the save slot */
@@ -207,6 +236,7 @@ export class Session {
         champions: [...this.champions],
       },
       autoBattle: this.autoBattle,
+      items: this.itemPolicy,
     };
   }
 
@@ -225,7 +255,72 @@ export function defaultAutoBattle() {
     mode: 'repeatAll',
     /** @type {Array<string|null>} four slots, fired left to right */
     order: [null, null, null, null],
-    weights: { damage: 10, status: 4, stat: 3, field: 2, heal: 5 },
-    conditions: { status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'lowHp', damage: 'always' },
+    /**
+     * When each kind of move may be used, `never` included. With no move order
+     * set this is the whole policy: attacks are always allowed, and the engine
+     * reaches for the hardest-hitting one it holds.
+     */
+    conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
+  };
+}
+
+/**
+ * How the bag is used without being opened.
+ *
+ * `berries` are the restock choices in order of preference, any of which may
+ * be left unset; `healing` names an item to throw, or null for whatever fits
+ * the damage taken, and the health it is thrown at — `never` for a player who
+ * would rather do it by hand.
+ */
+export function defaultItemPolicy() {
+  return {
+    /** @type {Array<string|null>} */
+    berries: [null, null, null],
+    healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
+  };
+}
+
+/** @param {any} policy */
+export function normalizeItemPolicy(policy) {
+  const fresh = defaultItemPolicy();
+  if (!policy) return fresh;
+
+  const berries = Array.isArray(policy.berries) ? policy.berries.slice(0, 3) : [];
+  while (berries.length < 3) berries.push(null);
+
+  return {
+    berries: berries.map((slug) => slug || null),
+    healing: {
+      item: policy.healing?.item ?? null,
+      condition: policy.healing?.condition ?? fresh.healing.condition,
+    },
+  };
+}
+
+/**
+ * Bring a stored policy up to the shape the engine reads.
+ *
+ * Two older shapes are read for what they plainly meant. A policy carrying a
+ * weight per category — numbers the player could not see the effect of — used
+ * zero to mean "never", and one carrying a tick per category said the same
+ * thing with a box. Either way the answer is a condition, so both fold into
+ * the one field the engine now reads.
+ *
+ * @param {any} policy
+ */
+export function normalizeAutoBattle(policy) {
+  const fresh = defaultAutoBattle();
+  if (!policy) return fresh;
+
+  const conditions = { ...fresh.conditions, ...(policy.conditions ?? {}) };
+  for (const category of Object.keys(fresh.conditions)) {
+    const off = policy.use ? policy.use[category] === false : (policy.weights?.[category] ?? 1) <= 0;
+    if (off) conditions[category] = 'never';
+  }
+
+  return {
+    mode: policy.mode ?? fresh.mode,
+    order: policy.order ?? fresh.order,
+    conditions,
   };
 }

@@ -12,7 +12,7 @@ import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
-import { Battler } from '../render/battler.mjs';
+import { Battler, fitScale } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
 
@@ -45,11 +45,15 @@ export function captureScene({ session, target, onFinish }) {
       if (meta) {
         loadSprite(`pokemon/${target.speciesId}/front.png`, meta).then((sprite) => {
           // Field coordinates, so the target is the size it was on the path.
+          const y = Math.round(FIELD_HEIGHT * 0.52);
           battler = new Battler({
             sprite,
             x: Math.round(FIELD_WIDTH / 2),
-            y: Math.round(FIELD_HEIGHT * 0.52),
+            y,
             facing: -1,
+            // Clear of the name above it and the balls below, whatever size the
+            // species is drawn at.
+            scale: fitScale(sprite, { width: FIELD_WIDTH - 24, height: y - 14 }, 1),
           });
         });
       }
@@ -80,9 +84,9 @@ export function captureScene({ session, target, onFinish }) {
     },
   };
 
+  /** The throws left, counted in balls — three of them say it without a word. */
   function renderCounter() {
     setChildren(counter, [
-      el('span', { text: t('capture.attempts') }),
       ...Array.from({ length: CAPTURE_ATTEMPTS }, (_, index) =>
         el('img', {
           src: url('assets', 'items/poke-ball.png'),
@@ -148,9 +152,11 @@ export function captureScene({ session, target, onFinish }) {
       });
       target.nickname = nickname;
       target.ball = ball;
-      session.storeInBox(target);
+      const stored = session.storeInBox(target);
 
-      app.toast(t('capture.sentToBox', { name: target.nickname || label() }));
+      app.toast(stored
+        ? t('capture.sentToBox', { name: target.nickname || label() })
+        : t('capture.boxFull'));
       finish(app, true);
       return;
     }

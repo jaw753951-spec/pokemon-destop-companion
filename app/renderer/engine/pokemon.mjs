@@ -153,7 +153,7 @@ export function experienceProgress(pokemon) {
  *
  * @param {Pokemon} pokemon
  * @param {{baseStats: Record<string, number>, baseExp: number, level: number}} defeated
- * @param {{trainerBattle?: boolean}} [options]
+ * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number}} [options]
  * @returns {{experience: number, levelsGained: number, newLevel: number, learnable: string[]}}
  */
 export function gainFromDefeat(pokemon, defeated, options = {}) {
@@ -164,8 +164,19 @@ export function gainFromDefeat(pokemon, defeated, options = {}) {
     options.trainerBattle ? 1.5 : 1,
   );
 
-  pokemon.experience += amount;
-  pokemon.evs = addEffort(pokemon.evs, effortYield(defeated.baseStats));
+  // A Lucky Egg pays more experience and a Macho Brace more effort; both are
+  // held items, and both are applied to what the defeat was worth.
+  const gained = Math.round(amount * (options.experienceMultiplier ?? 1));
+  pokemon.experience += gained;
+
+  const effort = effortYield(defeated.baseStats);
+  const effortMultiplier = options.effortMultiplier ?? 1;
+  pokemon.evs = addEffort(
+    pokemon.evs,
+    effortMultiplier === 1
+      ? effort
+      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier])),
+  );
 
   const after = levelOf(pokemon);
   // A level-up tops up the extra hit points immediately, as the games do.

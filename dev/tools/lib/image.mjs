@@ -240,6 +240,55 @@ export function pickWalkableBand(blockdata, widthInBlocks, heightInBlocks, bandB
 }
 
 /**
+ * Choose the block row inside a band that the companion should walk along.
+ *
+ * Picking a walkable band is not enough on its own: a band is nine rows deep
+ * and the sprite only stands on one of them, so a fixed ground line put the
+ * companion in a tree line as often as on the path. This picks the row whose
+ * own blocks and the two above it are passable — the ones the sprite's body
+ * occupies — which is exactly the lane a player would walk a character down.
+ *
+ * @param {Buffer} blockdata `map.bin`, uint16 per block with collision in bits 10-11
+ * @param {number} widthInBlocks
+ * @param {number} bandRow the band's first block row
+ * @param {number} bandBlocks how many block rows the band spans
+ * @returns {number} the block row the companion's feet belong on
+ */
+export function pickWalkLane(blockdata, widthInBlocks, bandRow, bandBlocks) {
+  /** Block rows the sprite's body reaches above its feet. */
+  const clearance = Math.min(2, bandBlocks - 1);
+  /** Where in the band a walking sprite reads best, as a fraction of it. */
+  const preferred = (bandBlocks - 1) * 0.62;
+
+  const passable = (row) => {
+    let count = 0;
+    for (let x = 0; x < widthInBlocks; x++) {
+      const offset = ((bandRow + row) * widthInBlocks + x) * 2;
+      if (offset + 1 >= blockdata.length) continue;
+      if (((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0) count++;
+    }
+    return count / Math.max(1, widthInBlocks);
+  };
+
+  let bestRow = Math.round(preferred);
+  let bestScore = -Infinity;
+  for (let row = clearance; row < bandBlocks; row++) {
+    // The row under the feet counts full; the ones the body passes through
+    // count for less, since clipping a shoulder matters less than standing in
+    // a wall.
+    let score = passable(row);
+    for (let above = 1; above <= clearance; above++) score += passable(row - above) * 0.6;
+    score -= Math.abs(row - preferred) * 0.08;
+
+    if (score > bestScore) {
+      bestScore = score;
+      bestRow = row;
+    }
+  }
+  return bandRow + bestRow;
+}
+
+/**
  * How hard to push the band away from cluttered rows.
  *
  * Open ground and a tree line can be equally walkable, so counting passable

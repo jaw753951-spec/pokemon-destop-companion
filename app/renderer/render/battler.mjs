@@ -11,6 +11,24 @@
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
 
+/**
+ * Shrink a battler that would not fit where it stands.
+ *
+ * The sprite sets run from a Diglett to an Eternatus drawn 447 pixels tall —
+ * four times the height of this window — so at full size the big ones are a
+ * cropped shin. Anything that would overrun the room it has is scaled to fill
+ * that room instead, in both directions, so the largest Pokémon is the largest
+ * thing on screen rather than the least visible.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {{width: number, height: number}} room field pixels available
+ * @param {number} preferred the scale it is drawn at when it fits
+ */
+export function fitScale(sprite, room, preferred) {
+  const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
+  return Math.min(preferred, fits);
+}
+
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 
@@ -22,14 +40,26 @@ export class Battler {
    *   y: number,
    *   facing: 1|-1,
    *   scale?: number,
+   *   flip?: boolean,
    * }} options
    */
-  constructor({ sprite, x, y, facing, scale = 1 }) {
+  constructor({ sprite, x, y, facing, scale = 1, flip = false }) {
     this.sprite = sprite;
     this.x = x;
     this.y = y;
     this.facing = facing;
     this.scale = scale;
+    /**
+     * Whether the art has to be mirrored to look the way this side faces.
+     *
+     * The two sprite sets already point at each other across the field: a
+     * front sprite is drawn three-quarters towards the viewer's left, where
+     * the player's Pokémon stands, and a back sprite shows the companion from
+     * behind facing right, where the foe stands. So neither is mirrored — only
+     * the stand-in front sprite used for a species with no back art, which
+     * would otherwise have the companion looking over its shoulder.
+     */
+    this.flip = flip;
 
     /** @type {Pose} */
     this.pose = 'idle';
@@ -79,8 +109,7 @@ export class Battler {
 
     this.sprite.draw(context, this.x, this.y, {
       frame: this.sprite.frameAt(this.elapsed),
-      // Sprites face the viewer, so the player's side is mirrored to face right.
-      flip: this.facing === 1,
+      flip: this.flip,
       scale: this.scale * transform.scale,
     });
     context.restore();
@@ -106,7 +135,7 @@ export class Battler {
     context.translate(-this.x, -this.y);
     this.sprite.draw(context, this.x, this.y, {
       frame: this.sprite.frameAt(this.elapsed),
-      flip: this.facing === 1,
+      flip: this.flip,
       scale: this.scale * transform.scale,
     });
     context.fillStyle = '#ff4040';

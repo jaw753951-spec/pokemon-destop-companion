@@ -12,6 +12,26 @@ export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/maste
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';
 export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries';
 export const EMERALD = 'https://raw.githubusercontent.com/pret/pokeemerald/master';
+export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/master';
+export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
+
+/**
+ * Portraits of named characters the league needs and Emerald never drew.
+ *
+ * Fire Red is the same generation and the same hand, so its Elite Four sit
+ * beside Hoenn's without a seam. Will and Karen were never drawn on a Game Boy
+ * Advance at all, so Crystal's four-colour sprites stand in — the person, in
+ * the art the game that introduced them used.
+ *
+ * @type {Record<string, {source: 'firered'|'crystal', path: string}>}
+ */
+export const NAMED_PORTRAITS = {
+  bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
+  lance: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_lance_front_pic.png' },
+  koga: { source: 'firered', path: 'graphics/trainers/front_pics/leader_koga_front_pic.png' },
+  will: { source: 'crystal', path: 'gfx/trainers/will.png' },
+  karen: { source: 'crystal', path: 'gfx/trainers/karen.png' },
+};
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */
 export const MAX_SPECIES = 1025;
@@ -103,6 +123,30 @@ export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
  * A map shorter than this contributes every row it has.
  */
 export const BACKGROUND_HEIGHT = FIELD_HEIGHT;
+
+/**
+ * The battle backdrop is composed at exactly the field's own size, so the
+ * battle scene draws it one-to-one over the same doubled space the map uses.
+ * The handheld shows the leftmost 240 columns of its 256-wide tilemap, which
+ * is what cropping to the field width reproduces.
+ */
+export const BATTLE_WIDTH = FIELD_WIDTH;
+export const BATTLE_HEIGHT = FIELD_HEIGHT;
+
+/**
+ * The eight badges on the Hoenn trainer card, in sheet order, named for the
+ * type of the gym that awards each one.
+ */
+export const HOENN_BADGE_TYPES = [
+  'rock',
+  'fighting',
+  'electric',
+  'fire',
+  'normal',
+  'flying',
+  'psychic',
+  'water',
+];
 
 /** Cap on stored animation frames per sprite state. */
 export const MAX_SPRITE_FRAMES = 10;
