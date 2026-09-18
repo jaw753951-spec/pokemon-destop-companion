@@ -106,7 +106,8 @@ test('rows without a code, and repeats of one, are dropped', () => {
 test('a missing or malformed sheet lists no languages rather than throwing', () => {
   assert.deepEqual(normalizeLanguages(null), []);
   assert.deepEqual(normalizeLanguages({}), []);
-  assert.deepEqual(normalizeLanguages({ languages: 'ko,en' }), []);
+  // A hand-edited sheet whose list is not a list at all.
+  assert.deepEqual(normalizeLanguages(/** @type {any} */ ({ languages: 'ko,en' })), []);
 });
 
 test('the default language is the one that claims it, else the first listed', () => {
@@ -206,12 +207,13 @@ test('a language with a grammar helper names one the renderer has', () => {
  */
 async function withSheet(files, body) {
   const original = { fetch: globalThis.fetch, document: globalThis.document };
-  globalThis.fetch = async (url) => {
+  // Only the two members `loadJson` reads, which is all the stub owes a caller.
+  globalThis.fetch = /** @type {any} */ (async (url) => {
     const path = String(url).replace('pdc://authored/', '');
     return path in files
       ? { ok: true, status: 200, json: async () => files[path] }
       : { ok: false, status: 404, json: async () => ({}) };
-  };
+  });
   globalThis.document = /** @type {any} */ ({ documentElement: { lang: '' } });
 
   try {

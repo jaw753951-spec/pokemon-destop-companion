@@ -204,24 +204,28 @@ function applyMedicine(pokemon, item, slug) {
 }
 
 /**
- * Where the amount sits relative to the word "HP" is a matter of grammar —
- * "by 20 points" in English, "HP를 20" in Korean — so the description is only
- * required to mention HP at all, and the first two- or three-digit number in it
- * is taken as the amount. A description with no such number, as a Max Potion's
- * has none, promises a full restore instead.
+ * Which side of "HP" the amount sits on is a matter of grammar — "restore 20
+ * HP" in English, "HP를 20만큼" in Korean — so both are accepted, and "HP",
+ * which survives translation, is what anchors them.
+ *
+ * The number has to be close to that "HP" rather than merely somewhere in the
+ * description: a Berry Juice is "a 100 percent pure juice" that restores 20,
+ * and a Health Candy raises HP at "Lv. 30" without healing anything.
  */
-const MENTIONS_HP = /HP/i;
-const AMOUNT = /(?<!\d)(\d{2,3})(?!\d)/;
+const HEALING_AMOUNT = /(?<!\d)(\d{2,3})(?!\d)[^\d]{0,6}HP|HP[^\d]{0,6}(?<!\d)(\d{2,3})(?!\d)/i;
 
-/** The number of hit points an item's description promises, when it names one. */
-function healingAmount(item) {
+/**
+ * The number of hit points an item's description promises, when it names one.
+ * A description that names none, as a Max Potion's does not, is a full restore.
+ *
+ * Exported for the tests; the screens reach it through `useItem`.
+ */
+export function healingAmount(item) {
   // Every localization is searched, not just the chosen one: the description
   // the player is reading may be the one that leaves the number out.
   for (const text of Object.values(item.text ?? {})) {
-    const description = String(text);
-    if (!MENTIONS_HP.test(description)) continue;
-    const match = AMOUNT.exec(description);
-    if (match) return Number(match[1]);
+    const match = HEALING_AMOUNT.exec(String(text));
+    if (match) return Number(match[1] ?? match[2]);
   }
   return null;
 }
