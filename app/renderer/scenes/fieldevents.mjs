@@ -55,6 +55,11 @@ export function createEventRunner({ session, onBattle }) {
       return active === null || active.phase === 'approach';
     },
 
+    /** Whether the companion is out of sight — inside the Pokémon Center. */
+    get hidesActor() {
+      return Boolean(active?.hidesActor);
+    },
+
     /**
      * @param {import('../engine/events.mjs').EventKind} kind
      * @param {number} offset the field's current world scroll
@@ -72,7 +77,7 @@ export function createEventRunner({ session, onBattle }) {
           active = startBall(session, spawnAt);
           break;
         case 'heal':
-          active = startHeal(session, app);
+          active = startHeal(session, spawnAt);
           break;
         case 'wild':
           active = startWild(session, spawnAt);
@@ -94,7 +99,7 @@ export function createEventRunner({ session, onBattle }) {
       if (!active) return;
 
       if (active.phase === 'approach') {
-        if (offset >= active.worldX - MEET_GAP) {
+        if (offset >= active.worldX - (active.meetGap ?? MEET_GAP)) {
           active.phase = active.onArrive ? active.onArrive(app) : 'done';
           active.timer = active.phaseDuration ?? 0;
         }
@@ -104,6 +109,19 @@ export function createEventRunner({ session, onBattle }) {
       active.timer -= deltaMs;
       active.elapsed = (active.elapsed ?? 0) + deltaMs;
       if (active.timer > 0) return;
+
+      // An event with a script of its own drives it one beat at a time; the
+      // rest of them have only the three phases below.
+      if (active.onTimer) {
+        const next = active.onTimer(app);
+        if (!next) {
+          active = null;
+          return;
+        }
+        active.phase = next.phase ?? active.phase;
+        active.timer = next.duration;
+        return;
+      }
 
       if (active.phase === 'gather') {
         active.phase = 'show';
@@ -252,8 +270,88 @@ const SUPPLIES = [
   { level: Infinity, item: 'max-potion' },
 ];
 
-/** A rest stop: everything restored, and the bag stocked for the road. */
-function startHeal(session, app) {
+/** How long the companion stays inside, out of sight, being seen to. */
+const CENTER_STAY_MS = 5000;
+
+/**
+ * The visit, beat by beat: which door frame to show, how long to hold it, and
+ * whether the companion is inside for it.
+ *
+ * Frame 0 is the door the building itself draws — shut. The three frames after
+ * it are the games' own door animation, played forwards to open and backwards
+ * to close, which is exactly how the cartridge does it.
+ */
+const CENTER_STEPS = [
+  { frame: 1, ms: 90 },
+  { frame: 2, ms: 90 },
+  { frame: 3, ms: 240 },
+  { frame: 3, ms: 140, inside: true },
+  { frame: 2, ms: 90, inside: true },
+  { frame: 1, ms: 90, inside: true },
+  { frame: 0, ms: CENTER_STAY_MS, inside: true, heal: true },
+  { frame: 1, ms: 90, inside: true },
+  { frame: 2, ms: 90, inside: true },
+  { frame: 3, ms: 240, inside: true },
+  { frame: 3, ms: 200 },
+  { frame: 2, ms: 90 },
+  { frame: 1, ms: 90 },
+  { frame: 0, ms: 300 },
+];
+
+/**
+ * A Pokémon Center on the road ahead.
+ *
+ * The companion walks up to the door, waits for it to slide open, goes in, and
+ * comes back out five seconds later patched up and carrying something for the
+ * road — which is the whole of a visit to one, and reads better than a flash
+ * of white where it stood.
+ */
+function startHeal(session, spawnAt) {
+  let step = -1;
+
+  const state = {
+    kind: 'heal',
+    worldX: spawnAt,
+    phase: 'approach',
+    timer: 0,
+    flash: 0,
+    // Right up to the doorstep, rather than the tile short of it that a berry
+    // tree or a trainer is met at.
+    meetGap: 4,
+    hidesActor: false,
+    prop: { kind: 'center', sprite: null, door: null, frame: 0 },
+    carried: null,
+
+    onArrive: () => 'visit',
+
+    /** One beat of the visit; null once there are none left. */
+    onTimer: (app) => {
+      step += 1;
+      const beat = CENTER_STEPS[step];
+      if (!beat) {
+        state.hidesActor = false;
+        return null;
+      }
+
+      state.prop.frame = beat.frame;
+      state.hidesActor = Boolean(beat.inside);
+      if (beat.heal) restAndResupply(session, app);
+      return { phase: 'visit', duration: beat.ms };
+    },
+  };
+
+  loadImage('props/poke-center.png').then((image) => {
+    state.prop.sprite = { image, meta: gameData().actors?.props?.center };
+  });
+  loadImage('props/poke-center-door.png').then((image) => {
+    state.prop.door = image;
+  });
+
+  return state;
+}
+
+/** What the visit is for: everything restored, and the bag stocked. */
+function restAndResupply(session, app) {
   session.heal();
 
   const level = levelOf(session.active);
@@ -261,12 +359,13 @@ function startHeal(session, app) {
   session.addItem(supply.item, SUPPLY_COUNT);
 
   app.audio.playMusic(gameData().bgm.cues.heal ?? null);
-  app.toast(`${t('event.healed')}\n${t('event.supplied', {
-    name: localized(itemOf(supply.item)?.name, supply.item),
-    count: SUPPLY_COUNT,
-  })}`, 3200);
-
-  return { kind: 'heal', worldX: -Infinity, phase: 'show', timer: 1400, flash: 0.55, prop: null, carried: null };
+  app.toast(
+    `${t('event.healed')}\n${t('event.supplied', {
+      name: localized(itemOf(supply.item)?.name, supply.item),
+      count: SUPPLY_COUNT,
+    })}`,
+    3200,
+  );
 }
 
 /** A wild Pokémon steps out ahead. */
@@ -422,6 +521,10 @@ function drawProp(context, state, screenX) {
     drawBall(context, prop, screenX);
     return;
   }
+  if (prop.kind === 'center') {
+    drawCenter(context, prop, screenX);
+    return;
+  }
 
   // A Pokémon or trainer waiting on the path, at the size the companion walks
   // at so the two meet as equals rather than as a giant and a doll.
@@ -460,6 +563,38 @@ function drawBerryTree(context, prop, screenX) {
     Math.round(groundY() - frameHeight * scale),
     frameWidth * scale,
     frameHeight * scale,
+  );
+}
+
+/**
+ * The Pokémon Center, standing on the road with its door on the ground line.
+ *
+ * The building is drawn at the map's own scale — it is a piece of map — and
+ * the door frames are laid over the doorway it already has, so opening it is
+ * one blit rather than a second copy of the building.
+ */
+function drawCenter(context, prop, screenX) {
+  const { image, meta } = prop.sprite;
+  const door = meta?.door;
+
+  // Lined up so the doorway is where the companion stopped, not the middle of
+  // the wall: a Pokémon Center is wider on one side than the other.
+  const left = Math.round(screenX - (door ? door.x + door.width / 2 : image.naturalWidth / 2));
+  const top = Math.round(groundY() - image.naturalHeight);
+  context.drawImage(image, left, top);
+
+  if (!door || !prop.door || prop.frame <= 0) return;
+  const frame = Math.min(prop.frame, door.frames) - 1;
+  context.drawImage(
+    prop.door,
+    frame * door.width,
+    0,
+    door.width,
+    door.height,
+    left + door.x,
+    top + door.y,
+    door.width,
+    door.height,
   );
 }
 

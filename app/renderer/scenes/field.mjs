@@ -316,7 +316,7 @@ export function fieldScene(session) {
         // clears the head of a Wailord as surely as that of a Wurmple.
         events?.render(field, offset, Math.round((companion?.height ?? 24) * ACTOR_SCALE));
 
-        if (companion && showActor) {
+        if (companion && showActor && !events?.hidesActor) {
           const moving = !paused && (events?.walking ?? true);
           const walk = { x: COMPANION_X, y: groundY(), distance: offset, moving };
           drawStepDust(field, walk);

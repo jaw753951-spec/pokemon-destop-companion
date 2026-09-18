@@ -140,6 +140,9 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(actors.portraits).length > 50, `trainer portraits: only ${Object.keys(actors.portraits).length}`);
   note(Object.keys(actors.overworld).length > 50, `trainer field sprites: only ${Object.keys(actors.overworld).length}`);
   note(Object.keys(actors.props.berryTrees).length > 10, `berry trees: only ${Object.keys(actors.props.berryTrees).length}`);
+  note(Boolean(actors.props.center?.door), 'the Pokémon Center was not cut out of its town');
+  note(await fileExists(join(assetDir, 'props', 'poke-center.png')), 'Pokémon Center: no building');
+  note(await fileExists(join(assetDir, 'props', 'poke-center-door.png')), 'Pokémon Center: no door animation');
 
   if (problems.length === 0) {
     log(`ok — ${Object.keys(species).length} species, ${areas.length} areas, ${Object.keys(bgm.tracks).length} tracks`);

@@ -33,9 +33,16 @@ const option = (flag, fallback) => {
 const OUT_DIR = option('--out', join(process.cwd(), 'shots'));
 const SETTLE_MS = Number(option('--wait', '2500'));
 
+/** How long a screen is left to settle before it is photographed. */
+const SETTLE_AFTER_MS = 1200;
+
 /**
  * Each step names a shot and the renderer-side script that sets it up.
  * Selectors are matched on visible text so the script survives restyling.
+ *
+ * A shot is taken a moment after its script returns, so a screen that is still
+ * settling is photographed settled. `settle` shortens that wait for the steps
+ * that are chasing a particular frame of an animation rather than a screen.
  */
 const STEPS = [
   { name: '01-title', script: 'null' },
@@ -76,41 +83,44 @@ const STEPS = [
   { name: '19-event-berry-held', script: 'await waitFor(() => bagGrew(), 16000)' },
   { name: '20-event-ball', script: 'closeAll() && await forceEvent("ball") && await waitFor(() => walkStopped(), 25000)' },
   { name: '21-event-ball-held', script: 'await waitFor(() => bagGrew(), 16000)' },
-  // A rest stop plays where the companion stands, so there is nothing to walk
-  // into and nothing to wait for beyond the flash itself.
-  { name: '22-event-heal', script: 'closeAll() && await forceEvent("heal")' },
+  // A rest stop is a Pokémon Center to walk up to, so it is waited for like
+  // the berry tree — and then held on long enough for the door to open and the
+  // companion to step inside.
+  { name: '22-event-center', script: 'closeAll() && await forceEvent("heal") && await waitFor(() => walkStopped(1), 25000, 100)', settle: 0 },
+  { name: '23-event-center-inside', script: 'await wait(900)', settle: 0 },
+  { name: '24-event-center-out', script: 'await wait(4700)', settle: 0 },
   // A level-5 starter loses every wild battle it is thrown into, which left
   // the tray and capture shots empty. Levelling it first makes the whole tail
   // of the run — win, tray, capture screen — actually reachable.
-  { name: '23-battle-wild', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
-  { name: '24-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
+  { name: '25-battle-wild', script: 'equipForCapture(40) && await forceEvent("wild") && await waitFor(() => inBattle(), 25000) && await wait(1500)' },
+  { name: '26-battle-end', script: 'await waitFor(() => !inBattle(), 60000) && await wait(1500)' },
   // Seeded rather than won: a wild Pokémon rolls up to fifteen levels above
   // the companion, so no amount of levelling makes the battle a sure thing,
   // and these two shots are about the screens, not the fight.
-  { name: '25-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
-  { name: '26-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
+  { name: '27-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
+  { name: '28-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
   // Last of the events, because it deliberately leaves one mid-approach:
   // `forceEvent` cannot preempt an event that is already running, so anything
   // after it would get this trainer's battle instead of what it asked for.
-  { name: '27-trainer-approach', script: 'closeAll() && summonLeader() && await forceEvent("trainer") && await wait(2200)' },
+  { name: '29-trainer-approach', script: 'closeAll() && summonLeader() && await forceEvent("trainer") && await wait(2200)' },
   // A gym leader battle, which the wild one does not show: a portrait, a name
   // plate and a party of more than one.
-  { name: '28-battle-leader', script: 'await waitFor(() => inBattle(), 25000) && await wait(1800)' },
+  { name: '30-battle-leader', script: 'await waitFor(() => inBattle(), 25000) && await wait(1800)' },
   // The league opens on the eighth badge, so the case is filled the rest of
   // the way rather than played through.
-  { name: '29-league', script: 'closeAll() && seedBadges(8) && useLeague("hoenn") && await wait(900) && clickText("button", ["포켓몬 리그로 간다", "To the League"]) && await wait(1200)' },
+  { name: '31-league', script: 'closeAll() && seedBadges(8) && useLeague("hoenn") && await wait(900) && clickText("button", ["포켓몬 리그로 간다", "To the League"]) && await wait(1200)' },
   // The league's own rooms. Fighting four rounds to reach the champion would
   // take longer than the whole run and could be lost on any of them, so each
   // round's battle is opened directly — the same scene the league opens, with
   // the same party and the same chamber behind it.
-  { name: '30-battle-elite', script: 'await leagueBattle(0) && await wait(2000)' },
-  { name: '31-battle-champion', script: 'await leagueBattle(-1) && await wait(2000)' },
+  { name: '32-battle-elite', script: 'await leagueBattle(0) && await wait(2000)' },
+  { name: '33-battle-champion', script: 'await leagueBattle(-1) && await wait(2000)' },
   // Saving turns Continue on, and the slot list then shows a run in progress
   // rather than three empty rows. The settings screen's own Save and quit
   // closes the window, which would end the run before these two were taken,
   // so the save is written and the title rebuilt in its place.
-  { name: '32-title-saved', script: 'await saveAndShowTitle()' },
-  { name: '33-slots-filled', script: 'clickText("button", ["계속하기", "Continue"])' },
+  { name: '34-title-saved', script: 'await saveAndShowTitle()' },
+  { name: '35-slots-filled', script: 'clickText("button", ["계속하기", "Continue"])' },
 ];
 
 app.commandLine.appendSwitch('disable-gpu');
@@ -134,7 +144,7 @@ app.whenReady().then(async () => {
     } catch (error) {
       console.error(`step ${step.name} failed: ${error}`);
     }
-    await delay(1200);
+    await delay(step.settle ?? SETTLE_AFTER_MS);
     const image = await window.webContents.capturePage();
     await writeFile(join(OUT_DIR, `${step.name}.png`), image.toPNG());
     console.log(`captured ${step.name}`);
@@ -323,12 +333,17 @@ const clickDexEntry = (id) => {
   console.log('no dex entry numbered ' + number);
   return false;
 };
-/** Poll until a predicate holds, or give up so a shot is still taken. */
-const waitFor = async (predicate, timeoutMs) => {
+/**
+ * Poll until a predicate holds, or give up so a shot is still taken.
+ *
+ * The interval is how closely a shot can chase a moment: a step waiting for a
+ * door to start opening has to look more often than one waiting for a battle.
+ */
+const waitFor = async (predicate, timeoutMs, intervalMs = 200) => {
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     if (predicate()) return true;
-    await wait(200);
+    await wait(intervalMs);
   }
   console.log('waitFor timed out');
   return true;
@@ -336,11 +351,11 @@ const waitFor = async (predicate, timeoutMs) => {
 const inBattle = () => app().stack.length > 1;
 let lastOffset = -1;
 let stillFrames = 0;
-const walkStopped = () => {
+const walkStopped = (frames = 3) => {
   const offset = Math.round(app().scene.offset ?? 0);
   stillFrames = offset === lastOffset ? stillFrames + 1 : 0;
   lastOffset = offset;
-  return stillFrames > 3;
+  return stillFrames > frames;
 };
 let bagAtStart = -1;
 const bagGrew = () => {
