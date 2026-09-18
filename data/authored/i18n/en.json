@@ -93,6 +93,7 @@
 
   "items.use": "Use",
   "items.inspect": "Inspect",
+  "items.noEffectYet": "No effect in this game yet.",
   "items.toss": "Toss",
   "items.tossConfirm": "Throw it away?",
   "items.tossed": "Threw away the {name}.",

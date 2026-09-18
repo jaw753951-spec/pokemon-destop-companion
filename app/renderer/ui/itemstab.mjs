@@ -245,6 +245,10 @@ function showInspector(inspector, slug) {
     el('img.inspect-icon', { src: url('assets', `items/${slug}.png`), alt: '' }),
     el('span.inspect-name', { text: localized(item.name, slug) }),
     el('p.inspect-text', { text: localized(item.text, '') }),
+    // The bag carries everything this game could one day act on, which is more
+    // than it acts on today; an item says so itself rather than leaving the
+    // player to find out by using it.
+    item.works ? null : el('span.meta.inspect-inert', { text: t('items.noEffectYet') }),
     item.pocket === 'machines' && item.move
       ? el('span.meta', { text: localized(moveOf(item.move)?.name, item.move) })
       : null,

@@ -93,6 +93,7 @@
 
   "items.use": "사용",
   "items.inspect": "조사",
+  "items.noEffectYet": "이 게임에서는 아직 효과가 없습니다.",
   "items.toss": "버리기",
   "items.tossConfirm": "버리시겠습니까?",
   "items.tossed": "{name}을(를) 버렸다.",

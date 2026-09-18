@@ -101,13 +101,26 @@ test('TMs are ranked by the move they teach', () => {
 
 // --------------------------------------------------------- stated effects
 
-test('every medicine the build keeps states what it does', withData, () => {
+test('an item the engine reads states what it does', withData, () => {
   const items = gameData().items;
-  const medicine = Object.entries(items).filter(([, item]) => item.pocket === 'medicine');
 
-  assert.ok(medicine.length > 20, `only ${medicine.length} medicines kept`);
-  for (const [slug, item] of medicine) {
-    assert.ok(item.use, `${slug} is in the bag with nothing to do`);
+  // An evolution can name an item to hold as well as one to use, and a King's
+  // Rock is filed under held items rather than under evolution.
+  const evolutionItems = new Set();
+  for (const entry of Object.values(gameData().species)) {
+    for (const evolution of entry.evolutions ?? []) {
+      if (evolution.item) evolutionItems.add(evolution.item);
+      if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+    }
+  }
+
+  // Everything marked as working has a rule the engine can follow — a use
+  // effect, a held one, an evolution, or a pocket that is its own effect.
+  for (const [slug, item] of Object.entries(items)) {
+    if (!item.works) continue;
+    const explained =
+      item.use || item.held || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
+    assert.ok(explained, `${slug} claims to work with nothing behind it`);
   }
 
   // The four the game leans on, read off their own effect text rather than
@@ -118,18 +131,24 @@ test('every medicine the build keeps states what it does', withData, () => {
   assert.deepEqual(items['revive'].use, { revive: 0.5 });
 });
 
-test('an item the game cannot act on never reaches the bag', withData, () => {
+test('only what this game will never have is dropped', withData, () => {
   const items = gameData().items;
-  // The Exp. Share splits experience between party members and the party here
-  // is one Pokémon; the rest have nothing in this game to act on at all.
-  for (const slug of ['exp-share', 'venusaurite', 'normal-gem', 'pp-up', 'adamant-mint', 'occa-berry']) {
+
+  // Form changes, crafting, cooking, a story, a town — and the Exp. Share,
+  // which splits experience between party members this game does not have.
+  for (const slug of ['exp-share', 'venusaurite', 'red-apricorn', 'escape-rope', 'amulet-coin']) {
     assert.equal(items[slug], undefined, `${slug} should have been dropped`);
   }
 
-  // And everything with an effect is still here, held items included.
+  // Everything that acts on something the save carries stays, whether or not
+  // the engine reads it yet.
   for (const slug of ['poke-ball', 'tm01', 'fire-stone', 'metal-coat', 'oran-berry', 'rare-candy',
     'leftovers', 'choice-band', 'charcoal', 'focus-sash', 'lucky-egg']) {
+    assert.ok(items[slug]?.works, `${slug} should be working`);
+  }
+  for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball']) {
     assert.ok(items[slug], `${slug} should have been kept`);
+    assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
   }
 });
 

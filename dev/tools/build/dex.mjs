@@ -32,10 +32,8 @@ export async function buildDex({ dataDir, sample, log, pool }) {
   const natures = await buildNatures(pool, log);
   const species = await buildSpecies(pool, log, limit);
 
-  // The bag only carries what the game can act on, which is decided here
-  // rather than in the screens: an item nobody can do anything with is an item
-  // the player should never have been handed.
-  const items = usefulItems(everyItem, { machines, moves, species, log });
+  // Which items the game ships is decided here rather than in the screens.
+  const items = shippedItems(everyItem, { machines, moves, species, log });
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
   await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
@@ -48,26 +46,33 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 }
 
 /**
- * The items the game is able to do something with.
+ * The items the game ships, which is everything but the ones it can never have
+ * a use for.
  *
- * Everything PokeAPI knows about is fetched, because what an item does is
- * decided by its own effect text rather than by a list kept here — and then
- * everything the game cannot act on is dropped. That is most of them: an Exp.
- * Share splits experience between party members and this game walks one
- * Pokémon; a Mega Stone, a Z-Crystal, a sandwich ingredient and a TM material
- * have nothing to act on at all. Keeping them would fill the bag, the item
- * balls on the path and the rarity tiers with things whose only effect is to
- * be carried.
+ * The line is not "does this work yet". A Mint changes a nature, an Ability
+ * Capsule swaps an ability, a PP Up raises a move's PP, a vitamin raises
+ * effort, a type-protection Berry softens a hit of one type — the save already
+ * carries a nature, an ability, PP, effort and types, so each of those acts on
+ * something this game has, whether or not the engine reads it today. Keeping
+ * them means the bag is the bag of a Pokémon game, and implementing one later
+ * is a change to the engine rather than to the data.
  *
- * What stays: every ball, every machine that teaches a move the game shipped,
- * anything with a parsed use or held effect, and anything an evolution asks
- * for — a Fire Stone, or the Metal Coat something evolves while holding.
+ * What goes is what belongs to a system this game will not have: Mega Stones,
+ * Z-Crystals, Dynamax Crystals and Tera Shards change forms; apricorns and TM
+ * materials are crafting; curry, sandwiches and Pokéblock berries are cooking;
+ * a bicycle and a Rod belong to a world with towns in it. And a handful named
+ * one by one, of which the Exp. Share is the clearest: it splits experience
+ * between party members, and this game walks a single Pokémon.
+ *
+ * Each kept item is marked with whether the engine reads it yet, so a screen
+ * can say "no effect in this game yet" rather than leaving a player to find
+ * out by using one.
  *
  * @param {Record<string, any>} items
  * @param {{machines: Record<string, string>, moves: Record<string, any>, species: Record<string, any>, log: (message: string) => void}} context
  */
-function usefulItems(items, { machines, moves, species, log }) {
-  /** Items some species' evolution names, held or used. */
+function shippedItems(items, { machines, moves, species, log }) {
+  /** Items some species evolves by, held or used. */
   const evolutionItems = new Set();
   for (const entry of Object.values(species)) {
     for (const evolution of entry.evolutions ?? []) {
@@ -78,31 +83,99 @@ function usefulItems(items, { machines, moves, species, log }) {
 
   /** @type {Record<string, any>} */
   const out = {};
-  const dropped = { pockets: /** @type {Record<string, number>} */ ({}), total: 0 };
+  /** @type {Record<string, number>} */
+  const dropped = {};
 
   for (const [slug, item] of Object.entries(items)) {
-    const keep =
-      item.pocket === 'pokeballs' ||
-      (item.pocket === 'machines' && moves[machines[slug]]) ||
-      Boolean(item.use) ||
-      Boolean(item.held) ||
-      evolutionItems.has(slug);
-
-    if (keep) {
-      out[slug] = item;
+    // A machine is only worth carrying if the move it teaches was shipped.
+    if (item.pocket === 'machines' && !moves[machines[slug]]) {
+      dropped['unknown move'] = (dropped['unknown move'] ?? 0) + 1;
       continue;
     }
-    dropped.total += 1;
-    dropped.pockets[item.pocket] = (dropped.pockets[item.pocket] ?? 0) + 1;
+
+    const reason = KEPT_ITEMS[slug] ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+    if (reason) {
+      dropped[reason] = (dropped[reason] ?? 0) + 1;
+      continue;
+    }
+
+    out[slug] = {
+      ...item,
+      works:
+        Boolean(item.use) ||
+        Boolean(item.held) ||
+        item.pocket === 'pokeballs' ||
+        item.pocket === 'machines' ||
+        evolutionItems.has(slug),
+    };
   }
 
-  const summary = Object.entries(dropped.pockets)
+  const inert = Object.values(out).filter((item) => !item.works).length;
+  log(`items ${Object.keys(out).length - inert} of them read by the engine, ${inert} waiting on one`);
+
+  const summary = Object.entries(dropped)
     .sort((a, b) => b[1] - a[1])
-    .map(([pocket, count]) => `${pocket} ${count}`)
+    .map(([reason, count]) => `${reason} ${count}`)
     .join(', ');
-  log(`items ${Object.keys(out).length} kept, ${dropped.total} with no effect dropped (${summary})`);
+  log(`items ${Object.keys(out).length} kept, ${Object.values(dropped).reduce((a, b) => a + b, 0)} dropped (${summary})`);
   return out;
 }
+
+/**
+ * Item categories that belong to systems this game does not have, and the
+ * reason each one goes — which is also what would have to change for it to
+ * come back.
+ *
+ * @type {Record<string, string>}
+ */
+const RETIRED_CATEGORIES = {
+  'mega-stones': 'form changes',
+  'dynamax-crystals': 'form changes',
+  'z-crystals': 'form changes',
+  'tera-shard': 'form changes',
+  'species-candies': 'form changes',
+  'tm-materials': 'crafting',
+  'apricorn-box': 'crafting',
+  'curry-ingredients': 'cooking',
+  'sandwich-ingredients': 'cooking',
+  picnic: 'cooking',
+  'baking-only': 'cooking',
+  mulch: 'berry growing',
+  scarves: 'contests',
+  spelunking: 'a world with towns in it',
+  gameplay: 'a world with towns in it',
+  'plot-advancement': 'a story',
+  'event-items': 'a story',
+  'data-cards': 'a story',
+  'dex-completion': 'a story',
+  collectibles: 'selling',
+  loot: 'selling',
+  unused: 'unused in the games too',
+};
+
+/**
+ * The few that stay on their own account, because the category they were
+ * filed under says nothing about what they are for. A Bottle Cap is listed as
+ * loot and is really how a Pokémon's genes are maxed out.
+ *
+ * @type {Record<string, true>}
+ */
+const KEPT_ITEMS = {
+  'bottle-cap': true,
+  'gold-bottle-cap': true,
+};
+
+/**
+ * The few that go on their own account rather than by category.
+ *
+ * @type {Record<string, string>}
+ */
+const RETIRED_ITEMS = {
+  'exp-share': 'nothing to share with',
+  'exp-share-gen6': 'nothing to share with',
+  'amulet-coin': 'selling',
+  'luck-incense': 'selling',
+};
 
 /** The 18 battle types with their Korean names and full damage relations. */
 async function buildTypes(pool, log) {

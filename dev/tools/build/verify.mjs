@@ -47,14 +47,23 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(species).length === MAX_SPECIES, `species: ${Object.keys(species).length} of ${MAX_SPECIES}`);
   note(Object.keys(types).length === 18, `types: ${Object.keys(types).length} of 18`);
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
-  // Most of what PokeAPI knows about is dropped during the build, because the
-  // game can do nothing with it; what is left is what it can act on.
-  note(Object.keys(items).length > 400, `items: only ${Object.keys(items).length}`);
-  const inert = Object.entries(items).filter(
-    ([slug, item]) =>
-      !item.use && !item.held && item.pocket !== 'pokeballs' && item.pocket !== 'machines' && !evolutionItem(species, slug),
+  // The build drops what belongs to a system this game will not have, and
+  // keeps everything that acts on something it does — whether or not the
+  // engine reads it yet.
+  note(Object.keys(items).length > 600, `items: only ${Object.keys(items).length}`);
+  const retired = Object.entries(items).filter(([, item]) =>
+    ['mega-stones', 'z-crystals', 'dynamax-crystals', 'tera-shard', 'curry-ingredients', 'tm-materials'].includes(
+      item.category,
+    ),
   );
-  note(inert.length === 0, `items with no effect kept: ${summarize(inert.map(([slug]) => slug))}`);
+  note(retired.length === 0, `items from a retired system kept: ${summarize(retired.map(([slug]) => slug))}`);
+  note(items['exp-share'] === undefined, 'the Exp. Share has nothing to share with');
+  // Anything the engine does read must say what it does.
+  const silent = Object.entries(items).filter(
+    ([slug, item]) => item.works && !item.use && !item.held && item.pocket !== 'pokeballs' && item.pocket !== 'machines'
+      && !evolutionItem(species, slug),
+  );
+  note(silent.length === 0, `items marked as working with no effect: ${summarize(silent.map(([slug]) => slug))}`);
   note(Object.keys(machines).length > 100, `machines: only ${Object.keys(machines).length}`);
   note(Object.keys(natures).length === 25, `natures: ${Object.keys(natures).length} of 25`);
   note(areas.length > 0, 'areas: none built');

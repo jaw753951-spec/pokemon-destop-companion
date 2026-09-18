@@ -1095,6 +1095,10 @@ canvas {
   font-weight: 700;
 }
 
+.inspect-inert {
+  color: var(--accent-dark);
+}
+
 .inspect-text {
   font-size: 9px;
   line-height: 1.35;
