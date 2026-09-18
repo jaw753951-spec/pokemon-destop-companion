@@ -160,6 +160,7 @@ async function buildItems(pool, log) {
           flingPower: item.fling_power,
           attributes: (item.attributes ?? []).map((attribute) => attribute.name),
           text: flavorBundle(item.flavor_text_entries, 'text'),
+          held: heldEffect(item),
           sprite: Boolean(item.sprites?.default),
         };
       }),
@@ -169,6 +170,72 @@ async function buildItems(pool, log) {
   log(`items ${Object.keys(out).length} across ${[...POCKETS].join('/')}`);
   return out;
 }
+
+/**
+ * What an item does while a Pokémon is holding it, read from the one place
+ * that states it exactly.
+ *
+ * The flavour text a player sees is deliberately vague — a Sitrus Berry
+ * "restores a little HP" — but PokeAPI's short effect for the same item spells
+ * the rule out: "Held: Consumed at 1/2 max HP to recover 1/4 max HP." Parsing
+ * that leaves the berries behaving as they do in the games without a table of
+ * numbers typed out here, which would be one more thing to keep in step with
+ * the data.
+ *
+ * Anything whose effect is not one of these shapes — the type-resisting
+ * berries, the ones that only matter when cooking — comes back null and is
+ * simply carried.
+ *
+ * @param {any} item
+ * @returns {any}
+ */
+function heldEffect(item) {
+  const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
+  const text = effect?.short_effect ?? '';
+  if (!text.startsWith('Held:')) return null;
+
+  const at = (match) => (match ? 1 / Number(match) : null);
+
+  // "Consumed at 1/2 max HP to recover 1/4 max HP."
+  const fraction = /Consumed at 1\/(\d) max HP to (?:recover|restore) 1\/(\d) (?:of its )?max HP/i.exec(text);
+  if (fraction) return { on: 'hp', at: at(fraction[1]), heal: { fraction: 1 / Number(fraction[2]) } };
+
+  // "Consumed at 1/2 max HP to recover 10 HP."
+  const fixed = /Consumed at 1\/(\d) max HP to (?:recover|restore) (\d+) HP/i.exec(text);
+  if (fixed) return { on: 'hp', at: at(fixed[1]), heal: { amount: Number(fixed[2]) } };
+
+  // "Consumed at 1/4 max HP to boost Attack." — and one that rolls a stat.
+  const boost = /Consumed at 1\/(\d) max HP to (?:sharply )?boost (?:its )?([A-Za-z ]+?)(?: by two stages)?\./i.exec(text);
+  if (boost) {
+    const stat = STAT_NAMES[boost[2].trim().toLowerCase()];
+    const stages = /two stages/i.test(text) ? 2 : 1;
+    if (stat) return { on: 'hp', at: at(boost[1]), stat, stages };
+  }
+
+  // "Consumed when paralyzed to cure paralysis." and its siblings.
+  const cure = /Consumed when (paralyzed|asleep|poisoned|burned|frozen) to cure/i.exec(text);
+  if (cure) return { on: 'status', status: STATUS_NAMES[cure[1].toLowerCase()] };
+  if (/Consumed to cure any status condition/i.test(text)) return { on: 'status', status: 'any' };
+
+  // "Consumed when a move runs out of PP to restore its PP by 10."
+  const pp = /Consumed when a move runs out of PP to restore its PP by (\d+)/i.exec(text);
+  if (pp) return { on: 'pp', amount: Number(pp[1]) };
+
+  return null;
+}
+
+/** The stats a berry can raise, as the effect text names them. */
+const STAT_NAMES = {
+  attack: 'atk',
+  defense: 'def',
+  'special attack': 'spa',
+  'special defense': 'spd',
+  speed: 'spe',
+  'a random stat': 'random',
+};
+
+/** The conditions a berry can cure, as the effect text names them. */
+const STATUS_NAMES = { paralyzed: 'par', asleep: 'slp', poisoned: 'psn', burned: 'brn', frozen: 'frz' };
 
 /**
  * Which move each TM/HM teaches. An item is reused across generations with

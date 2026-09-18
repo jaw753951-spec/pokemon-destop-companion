@@ -349,7 +349,6 @@ test('an item is thrown before either side moves, and takes the turn', options, 
         pokemon.hp += 60;
         return true;
       },
-      berry: () => null,
     },
   });
 
@@ -367,38 +366,74 @@ test('an item is thrown before either side moves, and takes the turn', options, 
   assert.equal(battle.pendingItem, null);
 });
 
-test('a held berry is eaten at half health, once', options, () => {
+test('a Sitrus Berry is eaten at half health, for a quarter of the bar', options, () => {
   // Two Tackles rather than anything decisive: the berry is the point, and a
   // battle that ends on turn one has no turn two to eat it in.
   const player = makeFixed(CHARIZARD, 50, ['tackle']);
   player.heldItem = 'sitrus-berry';
 
-  let eaten = 0;
   const battle = new Battle({
     rng: new Rng(12),
     player,
     foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
     policy: defaultAutoBattle(),
-    items: {
-      choose: () => null,
-      throw: (slug, pokemon) => {
-        eaten++;
-        pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + 30);
-        return true;
-      },
-      berry: (pokemon) => pokemon.heldItem,
-    },
   });
 
   // Above half, nothing happens.
+  player.hp = maxHp(player);
   battle.takeTurn();
-  assert.equal(eaten, 0);
+  assert.equal(player.heldItem, 'sitrus-berry');
 
-  player.hp = Math.floor(maxHp(player) / 2) - 1;
+  const half = Math.floor(maxHp(player) / 2) - 1;
+  player.hp = half;
   const log = battle.takeTurn();
-  assert.equal(eaten, 1);
+
   assert.ok(log.some((entry) => entry.kind === 'berry'));
   assert.equal(player.heldItem, null, 'the berry is gone once eaten');
+  // A quarter of the bar, on top of whatever the turn did to it.
+  assert.ok(player.hp >= half - 40 + Math.floor(maxHp(player) / 4));
+});
+
+test('a Cheri Berry waits for the paralysis it cures', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'cheri-berry';
+
+  const battle = new Battle({
+    rng: new Rng(13),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  battle.takeTurn();
+  assert.equal(player.heldItem, 'cheri-berry', 'nothing to cure yet');
+
+  player.status = STATUS.PARALYSIS;
+  battle.takeTurn();
+  assert.equal(player.status, null);
+  assert.equal(player.heldItem, null);
+});
+
+test('a Liechi Berry waits for a quarter, and raises a stage', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['tackle']);
+  player.heldItem = 'liechi-berry';
+
+  const battle = new Battle({
+    rng: new Rng(14),
+    player,
+    foes: [makeFixed(BLASTOISE, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  // Half health is not a pinch as far as this berry is concerned.
+  player.hp = Math.floor(maxHp(player) / 2);
+  battle.takeTurn();
+  assert.equal(player.heldItem, 'liechi-berry');
+
+  player.hp = Math.floor(maxHp(player) / 4);
+  battle.takeTurn();
+  assert.equal(player.heldItem, null);
+  assert.equal(battle.player.stages.atk, 1);
 });
 
 test('expected damage ranks a super-effective move above a resisted one', options, () => {

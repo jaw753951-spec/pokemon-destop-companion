@@ -12,7 +12,7 @@ import { button, el } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { edibleBerry, healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { Battler, fitScale } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
@@ -76,7 +76,6 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     items: {
       choose: (pokemon) => autoHeal(session, pokemon),
       throw: (slug, pokemon) => throwItem(session, slug, pokemon),
-      berry: (pokemon) => edibleBerry(pokemon),
     },
     trainerBattle: Boolean(trainer),
   });

@@ -237,14 +237,78 @@ export function restockBerry(session, pokemon) {
 }
 
 /**
- * A held berry a Pokémon would eat in a pinch: one with a healing amount on
- * it, which is what a Sitrus or an Oran is.
+ * Whether the held item's moment has come.
+ *
+ * Every berry that does something while held carries the rule it does it by —
+ * the pipeline reads it off the item's own effect text — so this is only a
+ * matter of asking whether the rule is satisfied now. An Oran waits for half
+ * health, a Liechi for a quarter, a Cheri for the paralysis it cures, a Leppa
+ * for a move that has run dry.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {{slug: string, held: any}|null}
+ */
+export function heldTrigger(pokemon) {
+  const slug = pokemon.heldItem;
+  const held = slug ? itemOf(slug)?.held : null;
+  if (!slug || !held || pokemon.hp <= 0) return null;
+
+  switch (held.on) {
+    case 'hp':
+      return pokemon.hp <= maxHp(pokemon) * held.at ? { slug, held } : null;
+    case 'status':
+      return pokemon.status && (held.status === 'any' || held.status === pokemon.status) ? { slug, held } : null;
+    case 'pp':
+      return emptyMove(pokemon) ? { slug, held } : null;
+    default:
+      return null;
+  }
+}
+
+/**
+ * Do what the held item promises, as far as the Pokémon itself is concerned.
+ *
+ * A berry that raises a stat is the battle's business rather than the
+ * Pokémon's — stages live on the combatant, not on the save — so that one is
+ * left to the caller and reported as unhandled here.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {any} held
+ * @returns {boolean} whether anything changed
+ */
+export function applyHeldEffect(pokemon, held) {
+  if (held.on === 'hp' && held.heal) {
+    const max = maxHp(pokemon);
+    const amount = held.heal.amount ?? Math.max(1, Math.floor(max * held.heal.fraction));
+    if (pokemon.hp >= max) return false;
+    pokemon.hp = Math.min(max, pokemon.hp + amount);
+    return true;
+  }
+
+  if (held.on === 'status') {
+    if (!pokemon.status) return false;
+    pokemon.status = null;
+    pokemon.statusTurns = 0;
+    return true;
+  }
+
+  if (held.on === 'pp') {
+    const slot = emptyMove(pokemon);
+    if (!slot) return false;
+    const full = moveOf(slot.move)?.pp ?? held.amount;
+    slot.pp = Math.min(full, slot.pp + held.amount);
+    return true;
+  }
+
+  return false;
+}
+
+/**
+ * The first move that has run out of PP, which is what a Leppa Berry is
+ * waiting for.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  */
-export function edibleBerry(pokemon) {
-  if (!pokemon.heldItem) return null;
-  const item = itemOf(pokemon.heldItem);
-  if (!item || item.pocket !== 'berries') return null;
-  return healingAmount(item) ? pokemon.heldItem : null;
+function emptyMove(pokemon) {
+  return pokemon.moves.find((slot) => slot.pp <= 0 && moveOf(slot.move)) ?? null;
 }

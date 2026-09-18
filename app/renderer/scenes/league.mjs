@@ -83,9 +83,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     heading.textContent = `${localized(league.name, league.region)} ${t(last ? 'league.champion' : 'league.eliteFour')}`;
     caption.textContent = localized(round.name, round.id);
 
-    const art = round.portrait ? `trainers/portraits/${round.portrait}.png` : null;
+    const art = portraitFor(round);
     portrait.hidden = !art;
-    if (art) portrait.src = url('assets', art);
+    if (art) portrait.src = url('assets', `trainers/portraits/${art}.png`);
 
     setChildren(actions, [
       button(t('league.next'), () => startRound(app), { className: 'primary', disabled: busy }),
@@ -127,8 +127,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
           if (result.outcome === 'lost') {
             // A loss ends the challenge rather than the run: the companion is
-            // patched up and sent back to the field to try again.
-            session.heal();
+            // sent back to the field on its last hit point, and to the rest
+            // stop the field will now put in its way.
+            session.blackOut();
             app.toast(t('battle.lost'));
             onLeave();
             return;
@@ -162,6 +163,39 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     app.toast(`${t('league.crowned', { name })}\n${t('league.wentHome')}`, 5000);
     onCrowned();
   }
+}
+
+/**
+ * The picture to put a name to.
+ *
+ * Hoenn's league was drawn by the game this art all comes from, and Kanto's
+ * and Johto's people were drawn by two others the pipeline also reads. Nobody
+ * from Sinnoh onwards was ever drawn on a Game Boy Advance, and there is no
+ * honest way to invent a likeness — so they are shown as a trainer of their
+ * speciality instead, which is what the games themselves do with everyone who
+ * is not a name. The choice is fixed by the person's own id, so the same
+ * champion is met by the same stand-in every time.
+ *
+ * @param {any} trainer
+ * @returns {string|null}
+ */
+function portraitFor(trainer) {
+  const portraits = gameData().actors?.portraits ?? {};
+  if (trainer.portrait && portraits[trainer.portrait]) return trainer.portrait;
+
+  const classes = (gameData().trainerClasses ?? []).filter(
+    (entry) => entry.portrait && portraits[entry.portrait] && entry.types?.includes(trainer.type),
+  );
+  if (classes.length === 0) return null;
+
+  return classes[fingerprint(trainer.id ?? '') % classes.length].portrait;
+}
+
+/** A small stable number from a string, so a choice made from it never moves. */
+function fingerprint(text) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index++) hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  return hash;
 }
 
 /**

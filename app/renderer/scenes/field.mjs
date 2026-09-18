@@ -185,9 +185,9 @@ export function fieldScene(session) {
       // Blacking out costs the catch and nothing else. A wild Pokémon that was
       // never beaten cannot be thrown a ball — it is the one that walked away
       // — while a trainer takes no more from you than the walk to the next
-      // rest stop, which is where the companion heads either way.
-      session.heal();
-      session.events.force('heal');
+      // rest stop, which is where the companion heads either way, on the one
+      // hit point the loss leaves it.
+      session.blackOut();
       app.toast(t(setup.trainer ? 'battle.lost' : 'battle.lostWild'));
       restock(app);
       refreshArt(app);

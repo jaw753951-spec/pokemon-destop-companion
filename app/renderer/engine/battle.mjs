@@ -8,6 +8,7 @@
  * of log entries per turn which the battle scene plays back as animation.
  */
 import { moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
+import { applyHeldEffect, heldTrigger } from './items.mjs';
 import { gainFromDefeat, levelOf, maxHp, statsOf } from './pokemon.mjs';
 import { stageMultiplier } from './stats.mjs';
 
@@ -28,8 +29,8 @@ import { stageMultiplier } from './stats.mjs';
  * @property {Record<string, any>} [data]
  */
 
-/** The health a held berry is eaten at, as the games' pinch berries work. */
-const BERRY_THRESHOLD = 0.5;
+/** The stats a Starf Berry can land on. */
+const STAT_KEYS = ['atk', 'def', 'spa', 'spd', 'spe'];
 
 /** Status conditions the engine models. */
 export const STATUS = { BURN: 'brn', POISON: 'psn', PARALYSIS: 'par', SLEEP: 'slp', FREEZE: 'frz' };
@@ -47,7 +48,6 @@ export class Battle {
    *   items?: {
    *     choose: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
    *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon) => boolean,
-   *     berry: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
    *   }|null,
    *   trainerBattle?: boolean,
    * }} options
@@ -120,6 +120,10 @@ export class Battle {
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
       this.checkFaint(log);
+      // Checked between the two sides' moves as well as at the end of the
+      // turn: a berry that waits until the turn is over is a berry that lets
+      // its holder faint first.
+      this.eatHeldBerry(log);
     }
 
     if (this.running) {
@@ -245,21 +249,35 @@ export class Battle {
   }
 
   /**
-   * A held berry is eaten the moment the companion is in trouble, which is
-   * what makes one worth holding — and what the restock setting then replaces.
+   * Eat the held berry if its moment has come, which is what makes one worth
+   * holding — and what the bag's restock setting then replaces.
+   *
+   * Only the companion's is checked: nothing the game sends against it is
+   * given anything to hold.
    *
    * @param {LogEntry[]} log
    */
   eatHeldBerry(log) {
-    const pokemon = this.player.pokemon;
-    if (pokemon.hp <= 0 || pokemon.hp > maxHp(pokemon) * BERRY_THRESHOLD) return;
+    const combatant = this.player;
+    const trigger = heldTrigger(combatant.pokemon);
+    if (!trigger) return;
 
-    const berry = this.items?.berry(pokemon) ?? null;
-    if (!berry) return;
-    if (!this.items?.throw(berry, pokemon)) return;
+    const { slug, held } = trigger;
+    if (held.stat) {
+      // A stat berry raises a stage, which lives on the combatant rather than
+      // on the Pokémon, so the battle applies that one itself.
+      const stat = held.stat === 'random' ? this.rng.pick(STAT_KEYS) : held.stat;
+      const before = combatant.stages[stat] ?? 0;
+      const after = Math.max(-6, Math.min(6, before + (held.stages ?? 1)));
+      if (after === before) return;
+      combatant.stages[stat] = after;
+      log.push({ kind: 'stat', side: combatant.side, data: { stat, change: after - before } });
+    } else if (!applyHeldEffect(combatant.pokemon, held)) {
+      return;
+    }
 
-    pokemon.heldItem = null;
-    log.push({ kind: 'berry', side: 'player', data: { item: berry } });
+    combatant.pokemon.heldItem = null;
+    log.push({ kind: 'berry', side: combatant.side, data: { item: slug } });
   }
 
   /**

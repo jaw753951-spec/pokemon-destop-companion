@@ -15,7 +15,7 @@
             "en": "Will"
           },
           "type": "psychic",
-          "portrait": null,
+          "portrait": "will",
           "party": [
             178,
             124,
@@ -31,7 +31,7 @@
             "en": "Koga"
           },
           "type": "poison",
-          "portrait": null,
+          "portrait": "koga",
           "party": [
             168,
             49,
@@ -47,7 +47,7 @@
             "en": "Bruno"
           },
           "type": "fighting",
-          "portrait": null,
+          "portrait": "bruno",
           "party": [
             237,
             106,
@@ -63,7 +63,7 @@
             "en": "Karen"
           },
           "type": "dark",
-          "portrait": null,
+          "portrait": "karen",
           "party": [
             197,
             45,
@@ -80,7 +80,7 @@
           "en": "Lance"
         },
         "type": "dragon",
-        "portrait": null,
+        "portrait": "lance",
         "party": [
           130,
           142,

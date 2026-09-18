@@ -12,6 +12,26 @@ export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/maste
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';
 export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries';
 export const EMERALD = 'https://raw.githubusercontent.com/pret/pokeemerald/master';
+export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/master';
+export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
+
+/**
+ * Portraits of named characters the league needs and Emerald never drew.
+ *
+ * Fire Red is the same generation and the same hand, so its Elite Four sit
+ * beside Hoenn's without a seam. Will and Karen were never drawn on a Game Boy
+ * Advance at all, so Crystal's four-colour sprites stand in — the person, in
+ * the art the game that introduced them used.
+ *
+ * @type {Record<string, {source: 'firered'|'crystal', path: string}>}
+ */
+export const NAMED_PORTRAITS = {
+  bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
+  lance: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_lance_front_pic.png' },
+  koga: { source: 'firered', path: 'graphics/trainers/front_pics/leader_koga_front_pic.png' },
+  will: { source: 'crystal', path: 'gfx/trainers/will.png' },
+  karen: { source: 'crystal', path: 'gfx/trainers/karen.png' },
+};
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */
 export const MAX_SPECIES = 1025;

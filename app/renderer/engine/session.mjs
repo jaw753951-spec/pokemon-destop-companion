@@ -195,6 +195,19 @@ export class Session {
     fullyHeal(this.active);
   }
 
+  /**
+   * What losing a battle leaves behind: one hit point, and a rest stop next.
+   *
+   * Nothing is healed. A companion that has just been knocked out walks on
+   * with a single point and whatever it was suffering from, which is what
+   * makes the forced rest stop worth reaching — and what makes the potions it
+   * hands out worth carrying.
+   */
+  blackOut() {
+    this.active.hp = 1;
+    this.events.force('heal');
+  }
+
   /** @returns {any} the JSON written to the save slot */
   toSave() {
     return {
