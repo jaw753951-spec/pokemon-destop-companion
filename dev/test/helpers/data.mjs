@@ -5,10 +5,11 @@
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { setGameData } from '../../../app/renderer/core/data.mjs';
 
-const GENERATED = new URL('../../../data/generated/', import.meta.url).pathname;
+const GENERATED = fileURLToPath(new URL('../../../data/generated/', import.meta.url));
 
 let loaded = false;
 

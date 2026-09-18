@@ -10,11 +10,12 @@
  */
 import { writeFile, mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { encodePng } from './lib/png.mjs';
 
 const SIZE = 512;
-const OUT = new URL('../build/', import.meta.url).pathname;
+const OUT = fileURLToPath(new URL('../build/', import.meta.url));
 
 const BACKGROUND = [24, 30, 46];
 const TOP = [216, 68, 60];

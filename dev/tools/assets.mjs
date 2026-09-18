@@ -11,6 +11,7 @@
  */
 import { argv, env, exit } from 'node:process';
 import { join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { createPool } from './lib/http.mjs';
 import { buildAreas } from './build/areas.mjs';
@@ -21,7 +22,7 @@ import { buildActors } from './build/actors.mjs';
 import { buildAudio } from './build/audio.mjs';
 import { verifyAssets } from './build/verify.mjs';
 
-const ROOT = new URL('../..', import.meta.url).pathname;
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 
 /** @type {Record<string, (context: any) => Promise<unknown>>} */
 const STEPS = {
