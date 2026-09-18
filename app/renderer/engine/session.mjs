@@ -23,8 +23,14 @@ export class Session {
     this.active = save.party.active;
     /** @type {Array<import('./pokemon.mjs').Pokemon|null>} */
     this.box = save.party.box ?? [];
-    /** @type {Record<string, number>} */
-    this.bag = { ...(save.bag ?? {}) };
+    /**
+     * The bag, less anything the game no longer carries: a save written before
+     * an item was found to have no effect here would otherwise keep it for
+     * good, listed in a pocket that can do nothing with it.
+     */
+    this.bag = Object.fromEntries(
+      Object.entries(save.bag ?? {}).filter(([slug, count]) => Number(count) > 0 && gameData().items[slug]),
+    );
 
     this.badges = [...(save.progress?.badges ?? [])];
     this.champion = Boolean(save.progress?.champion);

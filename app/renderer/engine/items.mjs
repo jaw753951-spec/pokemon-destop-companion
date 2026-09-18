@@ -7,7 +7,8 @@
  */
 import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { evolveInto, fullyHeal, maxHp, pendingEvolution } from './pokemon.mjs';
+import { evolveInto, levelOf, maxHp, pendingEvolution } from './pokemon.mjs';
+import { addEffort, experienceForLevel } from './stats.mjs';
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -37,9 +38,10 @@ export function useItem(session, slug) {
     return { used: true, ok: true, message: t('items.taught', { move: localized(moveOf(move)?.name, move) }) };
   }
 
-  if (item.pocket === 'medicine') {
-    const healed = applyMedicine(pokemon, item, slug);
-    if (!healed) return { used: false, ok: false, message: t('items.cannotUse') };
+  // Anything with an effect of its own — a potion, an Ether, a vitamin, a
+  // Rare Candy — does it here, whichever pocket it sits in.
+  if (item.use) {
+    if (!applyUse(pokemon, item)) return { used: false, ok: false, message: t('items.cannotUse') };
     session.removeItem(slug);
     return { used: true, ok: true, message: t('items.used', { name: label }) };
   }
@@ -73,68 +75,101 @@ export function useItem(session, slug) {
 }
 
 /**
- * Healing items, read from the item's own flavour text where it names an
- * amount, and otherwise treated as a full restore.
+ * Apply an item's use effect: what its own effect text says it does.
  *
- * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ * The amounts are read off the item during the build — "Restores 20 HP",
+ * "Restores 10 PP for one move", "Raises Attack effort" — so nothing here has
+ * to guess at a number or match on a name. An item the build could make no
+ * sense of never reaches the bag, so anything arriving here has an effect;
+ * what it can still fail at is being pointless right now, which is what a
+ * false return means.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {any} item
- * @param {string} slug the item's own id, which is the same in every language
  * @returns {boolean} whether anything changed
  */
-function applyMedicine(pokemon, item, slug) {
+function applyUse(pokemon, item) {
+  const use = item.use;
+  if (!use) return false;
+
   const max = maxHp(pokemon);
 
-  if (item.category === 'status-cures' || slug === 'full-heal') {
-    if (!pokemon.status) return false;
+  // A revival is the one effect that wants its target fainted.
+  if (use.revive !== undefined) {
+    if (pokemon.hp > 0) return false;
+    pokemon.hp = Math.max(1, Math.round(max * use.revive));
     pokemon.status = null;
     pokemon.statusTurns = 0;
     return true;
   }
 
-  if (item.category === 'revival') {
-    if (pokemon.hp > 0) return false;
-    pokemon.hp = Math.ceil(max / 2);
-    return true;
+  // Everything else is for a Pokémon still standing.
+  if (pokemon.hp <= 0) return false;
+  let changed = false;
+
+  if (use.hp !== undefined && pokemon.hp < max) {
+    pokemon.hp = Math.min(max, pokemon.hp + (use.hp === 'full' ? max : use.hp));
+    changed = true;
   }
 
-  if (slug === 'full-restore' || item.category === 'pp-recovery') {
-    const before = { hp: pokemon.hp, status: pokemon.status };
-    fullyHeal(pokemon);
-    return before.hp !== pokemon.hp || before.status !== pokemon.status;
+  if (use.status && pokemon.status && (use.status === 'any' || use.status === pokemon.status)) {
+    pokemon.status = null;
+    pokemon.statusTurns = 0;
+    changed = true;
   }
 
-  const amount = healingAmount(item);
-  if (pokemon.hp >= max) return false;
-  pokemon.hp = Math.min(max, pokemon.hp + (amount ?? max));
+  if (use.pp) changed = restorePp(pokemon, use.pp) || changed;
+  if (use.effort) changed = changeEffort(pokemon, use.effort) || changed;
+
+  if (use.level) {
+    const level = levelOf(pokemon);
+    if (level < MAX_LEVEL) {
+      pokemon.experience = experienceForLevel(speciesOf(pokemon.speciesId).growthRate, level + use.level);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
+/**
+ * Put PP back: into the first move that has lost any, or into all of them.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {{amount: number|'full', scope: 'one'|'all'}} pp
+ */
+function restorePp(pokemon, pp) {
+  const spent = pokemon.moves.filter((slot) => slot.pp < (moveOf(slot.move)?.pp ?? 0));
+  const targets = pp.scope === 'all' ? spent : spent.slice(0, 1);
+  if (targets.length === 0) return false;
+
+  for (const slot of targets) {
+    const full = moveOf(slot.move)?.pp ?? slot.pp;
+    slot.pp = pp.amount === 'full' ? full : Math.min(full, slot.pp + pp.amount);
+  }
   return true;
 }
 
 /**
- * Which side of "HP" the amount sits on is a matter of grammar — "restore 20
- * HP" in English, "HP를 20만큼" in Korean — so both are accepted, and "HP",
- * which survives translation, is what anchors them.
+ * Move a stat's effort, up for a vitamin and down for the berries that undo
+ * one. Raising goes through the shared cap so the per-stat and total limits
+ * hold however the effort was earned.
  *
- * The number has to be close to that "HP" rather than merely somewhere in the
- * description: a Berry Juice is "a 100 percent pure juice" that restores 20,
- * and a Health Candy raises HP at "Lv. 30" without healing anything.
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {{stat: string, amount: number}} effort
  */
-const HEALING_AMOUNT = /(?<!\d)(\d{2,3})(?!\d)[^\d]{0,6}HP|HP[^\d]{0,6}(?<!\d)(\d{2,3})(?!\d)/i;
-
-/**
- * The number of hit points an item's description promises, when it names one.
- * A description that names none, as a Max Potion's does not, is a full restore.
- *
- * Exported for the tests; the screens reach it through `useItem`.
- */
-export function healingAmount(item) {
-  // Every localization is searched, not just the chosen one: the description
-  // the player is reading may be the one that leaves the number out.
-  for (const text of Object.values(item.text ?? {})) {
-    const match = HEALING_AMOUNT.exec(String(text));
-    if (match) return Number(match[1] ?? match[2]);
+function changeEffort(pokemon, effort) {
+  const before = pokemon.evs[effort.stat] ?? 0;
+  if (effort.amount >= 0) {
+    pokemon.evs = addEffort(pokemon.evs, { [effort.stat]: effort.amount });
+  } else {
+    pokemon.evs = { ...pokemon.evs, [effort.stat]: Math.max(0, before + effort.amount) };
   }
-  return null;
+  return (pokemon.evs[effort.stat] ?? 0) !== before;
 }
+
+/** The level nothing grows past. */
+const MAX_LEVEL = 100;
 
 /**
  * The medicine in the bag that would do this Pokémon some good right now,
@@ -155,10 +190,11 @@ export function healingItems(session, pokemon) {
 
   return session
     .pocket('medicine')
-    .filter(({ item }) => item.category !== 'revival' && item.category !== 'status-cures')
+    // What a battle can throw: the ones that put hit points back. A status
+    // cure and a revival both have their moment, and neither is this one.
+    .filter(({ item }) => item.use?.hp !== undefined)
     .map(({ slug, count, item }) => {
-      // A description that names no amount is a full restore.
-      const power = healingAmount(item) ?? max;
+      const power = item.use.hp === 'full' ? max : item.use.hp;
       return { slug, count, item, power, restores: Math.min(missing, power) };
     })
     .filter((entry) => entry.restores > 0)
@@ -200,7 +236,7 @@ export function healingItemFor(session, pokemon, preferred) {
 export function throwItem(session, slug, pokemon) {
   const item = itemOf(slug);
   if (!item || session.countOf(slug) <= 0) return false;
-  if (!applyMedicine(pokemon, item, slug)) return false;
+  if (!applyUse(pokemon, item)) return false;
   session.removeItem(slug);
   return true;
 }

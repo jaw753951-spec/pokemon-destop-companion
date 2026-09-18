@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { itemOf } from '../../app/renderer/core/data.mjs';
-import { berryToHold, healingAmount, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
+import { berryToHold, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
@@ -99,70 +99,37 @@ test('TMs are ranked by the move they teach', () => {
   assert.ok(tierOf('tm-swords-dance') >= 0, 'status TMs are still droppable');
 });
 
-// ------------------------------------------------------- healing amounts
+// --------------------------------------------------------- stated effects
 
-/** @param {Record<string, string>} text */
-const withText = (text) => ({ text });
+test('every medicine the build keeps states what it does', withData, () => {
+  const items = gameData().items;
+  const medicine = Object.entries(items).filter(([, item]) => item.pocket === 'medicine');
 
-test('the amount is read from either side of HP', () => {
-  // Both descriptions are the official ones PokeAPI carries for a Potion.
-  assert.equal(
-    healingAmount(withText({ en: 'A spray-type medicine for treating wounds. It can be used to restore 20 HP to a single Pokémon.' })),
-    20,
-  );
-  assert.equal(
-    healingAmount(withText({ ko: '스프레이식의 상처약. 포켓몬 1마리의 HP를 20만큼 회복한다.' })),
-    20,
-  );
+  assert.ok(medicine.length > 20, `only ${medicine.length} medicines kept`);
+  for (const [slug, item] of medicine) {
+    assert.ok(item.use, `${slug} is in the bag with nothing to do`);
+  }
+
+  // The four the game leans on, read off their own effect text rather than
+  // guessed at from a description.
+  assert.deepEqual(items['potion'].use, { hp: 20 });
+  assert.deepEqual(items['max-potion'].use, { hp: 'full' });
+  assert.deepEqual(items['ether'].use, { pp: { amount: 10, scope: 'one' } });
+  assert.deepEqual(items['revive'].use, { revive: 0.5 });
 });
 
-test('three-digit amounts are read whole', () => {
-  assert.equal(healingAmount(withText({ en: 'It can be used to restore 120 HP to a single Pokémon.' })), 120);
-  assert.equal(healingAmount(withText({ ko: '포켓몬 1마리의 HP를 120만큼 회복한다.' })), 120);
-});
+test('an item the game cannot act on never reaches the bag', withData, () => {
+  const items = gameData().items;
+  // The Exp. Share splits experience between party members, and the party is
+  // one Pokémon; the rest have nothing here to act on at all.
+  for (const slug of ['exp-share', 'leftovers', 'choice-band', 'venusaurite', 'normal-gem', 'pp-up']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
+  }
 
-test('a number the description mentions for another reason is not the amount', () => {
-  // A Berry Juice is "100 percent pure" and restores 20 — the older reading
-  // took whichever number came first and healed five times too much.
-  const berryJuice = withText({
-    en: 'A 100 percent pure juice made of Berries. It can be used to restore 20 HP to a single Pokémon.',
-    ko: '나무열매 100% 쥬스. 포켓몬 1마리의 HP를 20만큼 회복한다.',
-  });
-  assert.equal(healingAmount(berryJuice), 20);
-
-  // A Health Candy names a level, not an amount, and heals nothing.
-  const healthCandy = withText({
-    en: "A big candy. When given to a Pokémon at Lv. 30 or higher, it will increase that Pokémon's base HP.",
-    ko: '에너지가 가득한 큰 사탕. 레벨 30 이상인 포켓몬의 HP를 올린다.',
-  });
-  assert.equal(healthCandy && healingAmount(healthCandy), null);
-});
-
-test('a description that names no amount promises a full restore', () => {
-  assert.equal(
-    healingAmount(withText({ en: 'It can be used to completely restore the max HP of a single Pokémon.' })),
-    null,
-  );
-  assert.equal(healingAmount(withText({ ko: '포켓몬 1마리의 HP를 모두 회복한다.' })), null);
-  assert.equal(healingAmount({}), null);
-});
-
-test('PP is not HP', () => {
-  // An Ether restores 10 PP; reading that as 10 HP is the mistake anchoring on
-  // "HP" rather than on any number at all avoids.
-  assert.equal(
-    healingAmount(withText({
-      en: 'This medicine can be used to restore 10 PP to a single selected move that has been learned by a Pokémon.',
-      ko: '포켓몬이 기억하고 있는 기술 중 1개의 PP를 10만큼 회복한다.',
-    })),
-    null,
-  );
-});
-
-test('a language the game has never shipped reads the same way', () => {
-  // Nothing about the reading is Korean or English: "HP" is what it looks for.
-  assert.equal(healingAmount(withText({ ja: 'ポケモン1匹のHPを20かいふくする。' })), 20);
-  assert.equal(healingAmount(withText({ de: 'Stellt 20 HP eines Pokémon wieder her.' })), 20);
+  // And the ones that do something are still here.
+  for (const slug of ['poke-ball', 'tm01', 'fire-stone', 'metal-coat', 'oran-berry', 'rare-candy']) {
+    assert.ok(items[slug], `${slug} should have been kept`);
+  }
 });
 
 /**

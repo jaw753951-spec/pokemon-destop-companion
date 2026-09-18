@@ -47,7 +47,14 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(species).length === MAX_SPECIES, `species: ${Object.keys(species).length} of ${MAX_SPECIES}`);
   note(Object.keys(types).length === 18, `types: ${Object.keys(types).length} of 18`);
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
-  note(Object.keys(items).length > 1000, `items: only ${Object.keys(items).length}`);
+  // Most of what PokeAPI knows about is dropped during the build, because the
+  // game can do nothing with it; what is left is what it can act on.
+  note(Object.keys(items).length > 400, `items: only ${Object.keys(items).length}`);
+  const inert = Object.entries(items).filter(
+    ([slug, item]) =>
+      !item.use && !item.held && item.pocket !== 'pokeballs' && item.pocket !== 'machines' && !evolutionItem(species, slug),
+  );
+  note(inert.length === 0, `items with no effect kept: ${summarize(inert.map(([slug]) => slug))}`);
   note(Object.keys(machines).length > 100, `machines: only ${Object.keys(machines).length}`);
   note(Object.keys(natures).length === 25, `natures: ${Object.keys(natures).length} of 25`);
   note(areas.length > 0, 'areas: none built');
@@ -241,4 +248,17 @@ function untranslated(bundle, language) {
   const text = bundle?.[language.code];
   if (!text) return true;
   return Boolean(language.fallback) && text === bundle[/** @type {string} */ (language.fallback)];
+}
+
+/**
+ * Whether some species evolves by this item, held or used — the one thing an
+ * item with no effect of its own can still be kept for.
+ *
+ * @param {Record<string, any>} species
+ * @param {string} slug
+ */
+function evolutionItem(species, slug) {
+  return Object.values(species).some((entry) =>
+    (entry.evolutions ?? []).some((evolution) => evolution.item === slug || evolution.heldItem === slug),
+  );
 }

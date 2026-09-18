@@ -27,10 +27,15 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 
   const types = await buildTypes(pool, log);
   const moves = await buildMoves(pool, log);
-  const items = await buildItems(pool, log);
+  const everyItem = await buildItems(pool, log);
   const machines = await buildMachines(pool, log);
   const natures = await buildNatures(pool, log);
   const species = await buildSpecies(pool, log, limit);
+
+  // The bag only carries what the game can act on, which is decided here
+  // rather than in the screens: an item nobody can do anything with is an item
+  // the player should never have been handed.
+  const items = usefulItems(everyItem, { machines, moves, species, log });
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
   await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
@@ -40,6 +45,63 @@ export async function buildDex({ dataDir, sample, log, pool }) {
   await writeOut(join(dataDir, 'species.json'), JSON.stringify(species));
 
   return { types, moves, items, machines, natures, species };
+}
+
+/**
+ * The items the game is able to do something with.
+ *
+ * Everything PokeAPI knows about is fetched, because what an item does is
+ * decided by its own effect text rather than by a list kept here — and then
+ * everything the game cannot act on is dropped. That is most of them: an Exp.
+ * Share splits experience between party members and this game walks one
+ * Pokémon; a Mega Stone, a Z-Crystal, a sandwich ingredient and a TM material
+ * have nothing to act on at all. Keeping them would fill the bag, the item
+ * balls on the path and the rarity tiers with things whose only effect is to
+ * be carried.
+ *
+ * What stays: every ball, every machine that teaches a move the game shipped,
+ * anything with a parsed use or held effect, and anything an evolution asks
+ * for — a Fire Stone, or the Metal Coat something evolves while holding.
+ *
+ * @param {Record<string, any>} items
+ * @param {{machines: Record<string, string>, moves: Record<string, any>, species: Record<string, any>, log: (message: string) => void}} context
+ */
+function usefulItems(items, { machines, moves, species, log }) {
+  /** Items some species' evolution names, held or used. */
+  const evolutionItems = new Set();
+  for (const entry of Object.values(species)) {
+    for (const evolution of entry.evolutions ?? []) {
+      if (evolution.item) evolutionItems.add(evolution.item);
+      if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+    }
+  }
+
+  /** @type {Record<string, any>} */
+  const out = {};
+  const dropped = { pockets: /** @type {Record<string, number>} */ ({}), total: 0 };
+
+  for (const [slug, item] of Object.entries(items)) {
+    const keep =
+      item.pocket === 'pokeballs' ||
+      (item.pocket === 'machines' && moves[machines[slug]]) ||
+      Boolean(item.use) ||
+      Boolean(item.held) ||
+      evolutionItems.has(slug);
+
+    if (keep) {
+      out[slug] = item;
+      continue;
+    }
+    dropped.total += 1;
+    dropped.pockets[item.pocket] = (dropped.pockets[item.pocket] ?? 0) + 1;
+  }
+
+  const summary = Object.entries(dropped.pockets)
+    .sort((a, b) => b[1] - a[1])
+    .map(([pocket, count]) => `${pocket} ${count}`)
+    .join(', ');
+  log(`items ${Object.keys(out).length} kept, ${dropped.total} with no effect dropped (${summary})`);
+  return out;
 }
 
 /** The 18 battle types with their Korean names and full damage relations. */
@@ -161,6 +223,7 @@ async function buildItems(pool, log) {
           attributes: (item.attributes ?? []).map((attribute) => attribute.name),
           text: flavorBundle(item.flavor_text_entries, 'text'),
           held: heldEffect(item),
+          use: useEffect(item),
           sprite: Boolean(item.sprites?.default),
         };
       }),
@@ -224,8 +287,72 @@ function heldEffect(item) {
   return null;
 }
 
+/**
+ * What an item does when it is used on a Pokémon, from the same sentence the
+ * held effects are read from.
+ *
+ * "Restores 20 HP." is a Potion; "Restores 10 PP for one move." is an Ether;
+ * "Raises Attack effort and happiness." is a Protein. An item whose effect is
+ * not one of these — a Mega Stone, a sandwich ingredient, an Exp. Share — comes
+ * back null, and the build then leaves it out of the game altogether.
+ *
+ * @param {any} item
+ * @returns {any}
+ */
+function useEffect(item) {
+  const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
+  const text = effect?.short_effect ?? '';
+  if (!text || text.startsWith('Held:')) return null;
+
+  /** @type {any} */
+  const use = {};
+
+  // "Revives with half HP." — checked first, since a revival also restores HP
+  // and would otherwise read as an ordinary potion.
+  const revive = /Revives(?: [^.]+?)? with (half|full) HP/i.exec(text);
+  if (revive) return { revive: revive[1].toLowerCase() === 'full' ? 1 : 0.5 };
+
+  if (/Restores HP to full/i.test(text)) use.hp = 'full';
+  const hp = /Restores (\d+) HP/i.exec(text);
+  if (hp) use.hp = Number(hp[1]);
+
+  // "Restores 10 PP for one move." and "Restores PP to full for each move."
+  const pp = /Restores (?:(\d+) PP|PP to full) (?:for|of) (one|each|a single|all) move/i.exec(text);
+  if (pp) use.pp = { amount: pp[1] ? Number(pp[1]) : 'full', scope: /each|all/i.test(pp[2]) ? 'all' : 'one' };
+
+  if (/[Cc]ures any status ailment/.test(text)) use.status = 'any';
+  const cure = /Cures (poison|paralysis|sleep|burns?|freezing|infatuation|confusion)\b/i.exec(text);
+  if (cure && !use.status) {
+    const status = CURE_NAMES[cure[1].toLowerCase().replace(/s$/, '')];
+    if (status) use.status = status;
+  }
+
+  // "Raises Attack effort and happiness." and the berries that undo it.
+  const raise = /Raises ([A-Za-z ]+?)(?: effort)? and happiness/i.exec(text);
+  if (raise) {
+    const stat = STAT_NAMES[raise[1].trim().toLowerCase()];
+    if (stat && stat !== 'random') use.effort = { stat, amount: EFFORT_STEP };
+  }
+  const drop = /Drops ([A-Za-z ]+?) Effort Values by (\d+)/i.exec(text);
+  if (drop) {
+    const stat = STAT_NAMES[drop[1].trim().toLowerCase()];
+    if (stat && stat !== 'random') use.effort = { stat, amount: -Number(drop[2]) };
+  }
+
+  if (/Causes a level-up/i.test(text)) use.level = 1;
+
+  return Object.keys(use).length > 0 ? use : null;
+}
+
+/** How much effort a vitamin adds, as the games have always given. */
+const EFFORT_STEP = 10;
+
+/** The conditions a medicine can cure, as its effect text names them. */
+const CURE_NAMES = { poison: 'psn', paralysis: 'par', sleep: 'slp', burn: 'brn', freezing: 'frz' };
+
 /** The stats a berry can raise, as the effect text names them. */
 const STAT_NAMES = {
+  hp: 'hp',
   attack: 'atk',
   defense: 'def',
   'special attack': 'spa',
