@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { STRIDE, walkFrame } from '../src/renderer/render/field.mjs';
+import { STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the

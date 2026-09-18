@@ -25,7 +25,7 @@ function resolve(name) {
 export const ASSET_DIR = resolve('assets');
 export const DATA_DIR = join(resolve('data'), 'generated');
 export const AUTHORED_DIR = join(resolve('data'), 'authored');
-export const RENDERER_DIR = join(REPO_ROOT, 'src', 'renderer');
+export const RENDERER_DIR = join(REPO_ROOT, 'app', 'renderer');
 
 /** Per-user state: settings and save slots. Never inside the app bundle. */
 export const USER_DIR = app.getPath('userData');

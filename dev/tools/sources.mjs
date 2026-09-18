@@ -5,8 +5,8 @@
  * plain HTTPS client with no API keys and no tarballs.
  */
 
-export { TAG_TYPES } from '../src/shared/area-tags.mjs';
-export { BALL_TIERS } from '../src/shared/ball-tiers.mjs';
+export { TAG_TYPES } from '../../app/shared/area-tags.mjs';
+export { BALL_TIERS } from '../../app/shared/ball-tiers.mjs';
 
 export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/master/data/api/v2';
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';

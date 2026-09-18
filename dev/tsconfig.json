@@ -13,5 +13,5 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "types": ["node"]
   },
-  "include": ["tools/**/*.mjs", "src/**/*.mjs", "test/**/*.mjs"]
+  "include": ["../app/**/*.mjs", "tools/**/*.mjs", "test/**/*.mjs"]
 }

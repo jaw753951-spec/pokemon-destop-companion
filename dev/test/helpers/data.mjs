@@ -6,9 +6,9 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { setGameData } from '../../src/renderer/core/data.mjs';
+import { setGameData } from '../../../app/renderer/core/data.mjs';
 
-const GENERATED = new URL('../../data/generated/', import.meta.url).pathname;
+const GENERATED = new URL('../../../data/generated/', import.meta.url).pathname;
 
 let loaded = false;
 

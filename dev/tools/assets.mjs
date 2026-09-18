@@ -21,7 +21,7 @@ import { buildActors } from './build/actors.mjs';
 import { buildAudio } from './build/audio.mjs';
 import { verifyAssets } from './build/verify.mjs';
 
-const ROOT = new URL('..', import.meta.url).pathname;
+const ROOT = new URL('../..', import.meta.url).pathname;
 
 /** @type {Record<string, (context: any) => Promise<unknown>>} */
 const STEPS = {
@@ -50,7 +50,7 @@ async function main() {
   const context = {
     assetDir: join(ROOT, 'assets'),
     dataDir: join(ROOT, 'data', 'generated'),
-    docsDir: join(ROOT, 'docs'),
+    docsDir: join(ROOT, 'dev', 'docs'),
     sample,
     pool: createPool(Number(env.PDC_CONCURRENCY ?? 16)),
     log: (message) => console.log(`  ${message}`),

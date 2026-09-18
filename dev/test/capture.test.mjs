@@ -2,9 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
-import { Rng } from '../src/renderer/core/rng.mjs';
-import { attemptCapture, captureChance, catchValue } from '../src/renderer/engine/capture.mjs';
-import { createPokemon, maxHp } from '../src/renderer/engine/pokemon.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { attemptCapture, captureChance, catchValue } from '../../app/renderer/engine/capture.mjs';
+import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
 const options = { skip: ready ? false : NEEDS_ASSETS };

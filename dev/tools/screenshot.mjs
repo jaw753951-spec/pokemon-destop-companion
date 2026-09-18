@@ -12,9 +12,9 @@ import { app } from 'electron';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
-import { registerHandlers, registerProtocolHandler, registerProtocolScheme } from '../src/main/ipc.mjs';
-import { loadSettings } from '../src/main/settings.mjs';
-import { createWindow } from '../src/main/window.mjs';
+import { registerHandlers, registerProtocolHandler, registerProtocolScheme } from '../../app/main/ipc.mjs';
+import { loadSettings } from '../../app/main/settings.mjs';
+import { createWindow } from '../../app/main/window.mjs';
 
 const args = process.argv.slice(2);
 const option = (flag, fallback) => {

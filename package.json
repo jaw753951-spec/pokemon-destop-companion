@@ -4,16 +4,16 @@
   "private": true,
   "description": "Pokémon Desktop Companion — a non-commercial fan-made desktop tamagotchi",
   "type": "module",
-  "main": "src/main/main.mjs",
+  "main": "app/main/main.mjs",
   "desktopName": "pokemon-desktop-companion.desktop",
   "scripts": {
     "start": "electron .",
-    "assets": "node tools/assets.mjs",
-    "assets:verify": "node tools/assets.mjs --only verify",
-    "typecheck": "tsc -p tsconfig.json",
-    "test": "node --test \"test/**/*.test.mjs\"",
-    "shot": "xvfb-run -a electron --no-sandbox tools/screenshot.mjs",
-    "icon": "node tools/make-icon.mjs",
+    "assets": "node dev/tools/assets.mjs",
+    "assets:verify": "node dev/tools/assets.mjs --only verify",
+    "typecheck": "tsc -p dev/tsconfig.json",
+    "test": "node --test \"dev/test/**/*.test.mjs\"",
+    "shot": "xvfb-run -a electron --no-sandbox dev/tools/screenshot.mjs",
+    "icon": "node dev/tools/make-icon.mjs",
     "dist": "electron-builder --publish never",
     "dist:linux": "electron-builder --linux AppImage --publish never"
   },
@@ -31,10 +31,10 @@
     "artifactName": "${name}-${version}-${os}-${arch}.${ext}",
     "directories": {
       "output": "dist",
-      "buildResources": "build"
+      "buildResources": "dev/build"
     },
     "files": [
-      "src/**/*",
+      "app/**/*",
       "package.json"
     ],
     "extraResources": [
@@ -62,7 +62,7 @@
           ]
         }
       ],
-      "icon": "build/icon.png"
+      "icon": "dev/build/icon.png"
     },
     "nsis": {
       "oneClick": false,
@@ -80,7 +80,7 @@
         }
       ],
       "category": "public.app-category.games",
-      "icon": "build/icon.png"
+      "icon": "dev/build/icon.png"
     },
     "linux": {
       "target": [
@@ -92,7 +92,7 @@
         }
       ],
       "category": "Game",
-      "icon": "build/icon.png",
+      "icon": "dev/build/icon.png",
       "executableName": "pokemon-desktop-companion",
       "synopsis": "Pokemon Desktop Companion",
       "syncDesktopName": true

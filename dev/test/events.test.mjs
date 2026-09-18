@@ -1,8 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Rng } from '../src/renderer/core/rng.mjs';
-import { BASE_WEIGHT, EVENT_KINDS, EventScheduler } from '../src/renderer/engine/events.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { BASE_WEIGHT, EVENT_KINDS, EventScheduler } from '../../app/renderer/engine/events.mjs';
 
 /** Weights are compared loosely: they are shares of 100, not exact integers. */
 const close = (actual, expected, tolerance = 1e-9) =>

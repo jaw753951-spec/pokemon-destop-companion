@@ -2,11 +2,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
-import { Rng } from '../src/renderer/core/rng.mjs';
-import { typeEffectiveness } from '../src/renderer/core/data.mjs';
-import { Battle, categoryOf, choosePolicyMove, expectedDamage, STATUS } from '../src/renderer/engine/battle.mjs';
-import { createPokemon, maxHp, setMove } from '../src/renderer/engine/pokemon.mjs';
-import { computeStat, experienceForLevel, levelForExperience, stageMultiplier } from '../src/renderer/engine/stats.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { typeEffectiveness } from '../../app/renderer/core/data.mjs';
+import { Battle, categoryOf, choosePolicyMove, expectedDamage, STATUS } from '../../app/renderer/engine/battle.mjs';
+import { createPokemon, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
+import { computeStat, experienceForLevel, levelForExperience, stageMultiplier } from '../../app/renderer/engine/stats.mjs';
 
 const ready = await useRealGameData();
 const options = { skip: ready ? false : NEEDS_ASSETS };
@@ -126,7 +126,7 @@ test('a fainted Pokémon ends the battle and is reported once', options, () => {
     policy: null,
   });
 
-  /** @type {import('../src/renderer/engine/battle.mjs').LogEntry[]} */
+  /** @type {import('../../app/renderer/engine/battle.mjs').LogEntry[]} */
   const log = [];
   while (battle.running) log.push(...battle.takeTurn());
 

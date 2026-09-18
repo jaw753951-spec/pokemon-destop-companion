@@ -29,7 +29,7 @@ jobs:
             assets
             data/generated
             .cache
-          key: assets-${{ hashFiles('tools/**/*.mjs', 'package-lock.json') }}
+          key: assets-${{ hashFiles('dev/tools/**/*.mjs', 'package-lock.json') }}
 
       - name: Build assets
         run: npm run assets

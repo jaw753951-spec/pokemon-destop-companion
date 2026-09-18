@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { resolveParticles } from '../src/renderer/core/korean.mjs';
+import { resolveParticles } from '../../app/renderer/core/korean.mjs';
 
 test('object particles follow the final consonant', () => {
   // 리, 기 and 씨 end without a final consonant and take 를; 몽 ends in ㅇ
