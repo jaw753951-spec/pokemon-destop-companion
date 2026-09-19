@@ -8,13 +8,21 @@
  * it the same way — a strip of equal-sized frames with one shared delay — and
  * derives the attack/hit/win/lose poses by transforming it at runtime, since
  * no official asset set contains those.
+ *
+ * Every one of them is built twice, because a shiny Pokémon is a different
+ * picture rather than a recolour that could be computed: the palettes were
+ * chosen by hand per species, and a Gyarados is red where nothing about the
+ * blue one predicts it. So the shiny art is fetched from the same sources and
+ * laid out the same way, and the manifest carries its own measurements — the
+ * trimming is done per image, and two palettes do not always leave the same
+ * number of transparent columns at the edge.
  */
 import { join } from 'node:path';
 
 import { fetchBuffer, writeOut } from '../lib/http.mjs';
 import { decodeGif } from '../lib/gif.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { concatX, crop, opaqueBounds, resampleFrames } from '../lib/image.mjs';
+import { concatX, crop, opaqueBounds, paletteShift, recolour, resampleFrames } from '../lib/image.mjs';
 import { CRIES, MAX_SPECIES, MAX_SPRITE_FRAMES, SPRITES } from '../sources.mjs';
 
 /**
@@ -30,28 +38,47 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
   await Promise.all(
     Array.from({ length: limit }, (_, index) => index + 1).map((id) =>
       pool(async () => {
-        const entry = {};
+        // The ordinary art hangs off the entry itself and the shiny art off a
+        // `shiny` of its own, so a screen that has never heard of shininess
+        // reads exactly what it always read.
+        const entry = { shiny: {} };
 
-        const front = await buildStrip(FRONT_SOURCES.map((path) => path(id)));
-        if (front) {
-          await writeOut(join(assetDir, 'pokemon', String(id), 'front.png'), front.png);
-          entry.front = front.meta;
-        } else {
-          missing.front.push(id);
-        }
+        /** @type {Record<string, any>} */
+        const fronts = {};
+        for (const variant of VARIANTS) {
+          const into = variant.shiny ? entry.shiny : entry;
 
-        const back = await buildStrip(BACK_SOURCES.map((path) => path(id)));
-        if (back) {
-          await writeOut(join(assetDir, 'pokemon', String(id), 'back.png'), back.png);
-          entry.back = back.meta;
-        } else {
-          missing.back.push(id);
+          const front = await buildStrip(FRONT_SOURCES.map((path) => path(id, variant.shiny)));
+          fronts[variant.suffix] = front;
+          if (front) {
+            await writeOut(join(assetDir, 'pokemon', String(id), `front${variant.suffix}.png`), front.png);
+            into.front = front.meta;
+          } else if (!variant.shiny) {
+            missing.front.push(id);
+          }
+
+          const back = await buildStrip(BACK_SOURCES.map((path) => path(id, variant.shiny)));
+          if (back) {
+            await writeOut(join(assetDir, 'pokemon', String(id), `back${variant.suffix}.png`), back.png);
+            into.back = back.meta;
+          } else if (!variant.shiny) {
+            missing.back.push(id);
+          }
         }
 
         const icon = await buildIcon(ICON_SOURCES.map((path) => path(id)));
         if (icon) {
           await writeOut(join(assetDir, 'pokemon', String(id), 'icon.png'), icon.png);
           entry.icon = icon.meta;
+
+          // No published icon set is drawn in the alternate palettes, so the
+          // shiny icon is the ordinary one put through the recolouring the two
+          // battle sprites spell out between them.
+          const shiny = shinyIcon(icon, fronts[''], fronts['-shiny']);
+          if (shiny) {
+            await writeOut(join(assetDir, 'pokemon', String(id), 'icon-shiny.png'), shiny.png);
+            entry.shiny.icon = shiny.meta;
+          }
         } else {
           missing.icon.push(id);
         }
@@ -74,31 +101,75 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
   await writeOut(join(dataDir, 'sprites.json'), JSON.stringify(manifest));
 
   const animated = Object.values(manifest).filter((entry) => entry.front?.frames > 1).length;
-  log(`sprites ${Object.keys(manifest).length} (${animated} animated)`);
+  const shiny = Object.values(manifest).filter((entry) => entry.shiny?.front).length;
+  log(`sprites ${Object.keys(manifest).length} (${animated} animated, ${shiny} with shiny art)`);
   for (const [kind, ids] of Object.entries(missing)) {
     if (ids.length) log(`  missing ${kind}: ${ids.length} (${ids.slice(0, 8).join(', ')}${ids.length > 8 ? ', …' : ''})`);
   }
   return manifest;
 }
 
+/**
+ * The two palettes every Pokémon is drawn in, and where each one lands: the
+ * ordinary art at `front.png` and the shiny at `front-shiny.png`, beside it.
+ */
+const VARIANTS = [
+  { suffix: '', shiny: false },
+  { suffix: '-shiny', shiny: true },
+];
+
+/** The shiny sets sit in a `shiny/` directory of their own at every source. */
+const shinyPath = (base, shiny) => (shiny ? base.replace(/\/([^/]+)$/, '/shiny/$1') : base);
+
 const FRONT_SOURCES = [
-  (id) => `${SPRITES}/pokemon/other/showdown/${id}.gif`,
-  (id) => `${SPRITES}/pokemon/versions/generation-v/black-white/animated/${id}.gif`,
-  (id) => `${SPRITES}/pokemon/other/home/${id}.png`,
-  (id) => `${SPRITES}/pokemon/${id}.png`,
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/other/showdown/${id}.gif`, shiny),
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/versions/generation-v/black-white/animated/${id}.gif`, shiny),
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/other/home/${id}.png`, shiny),
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/${id}.png`, shiny),
 ];
 
 const BACK_SOURCES = [
-  (id) => `${SPRITES}/pokemon/other/showdown/back/${id}.gif`,
-  (id) => `${SPRITES}/pokemon/versions/generation-v/black-white/animated/back/${id}.gif`,
-  (id) => `${SPRITES}/pokemon/back/${id}.png`,
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/other/showdown/back/${id}.gif`, shiny),
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/versions/generation-v/black-white/animated/back/${id}.gif`, shiny),
+  (id, shiny) => shinyPath(`${SPRITES}/pokemon/back/${id}.png`, shiny),
 ];
 
+/**
+ * The icon sets are published in one palette only, so these take no variant:
+ * the shiny icon is derived rather than downloaded.
+ */
 const ICON_SOURCES = [
   (id) => `${SPRITES}/pokemon/versions/generation-viii/icons/${id}.png`,
   (id) => `${SPRITES}/pokemon/versions/generation-vii/icons/${id}.png`,
   (id) => `${SPRITES}/pokemon/${id}.png`,
 ];
+
+/**
+ * The box icon in the alternate palette.
+ *
+ * The two front sprites have to have come from the same source to be the same
+ * drawing twice — a species animated in one set and still in another gives a
+ * pair that do not line up, and no colour could be read off them — so a
+ * mismatch simply yields no shiny icon, and that Pokémon walks the field in
+ * its ordinary colours.
+ *
+ * @param {{png: Buffer, meta: any}} icon
+ * @param {any} plain the ordinary front strip
+ * @param {any} shiny the alternate front strip
+ */
+function shinyIcon(icon, plain, shiny) {
+  if (!plain?.first || !shiny?.first) return null;
+  if (shiny.source !== shinyPath(plain.source, true)) return null;
+
+  const shift = paletteShift(plain.first, shiny.first);
+  if (shift.size === 0) return null;
+
+  const recoloured = recolour(decodePng(icon.png), shift);
+  return {
+    png: encodePng(recoloured.width, recoloured.height, recoloured.data),
+    meta: icon.meta,
+  };
+}
 
 /**
  * The box icon, trimmed to its opaque area.
@@ -135,7 +206,12 @@ async function buildIcon(urls) {
  * shared bounding box, and lay the frames out side by side.
  *
  * @param {string[]} urls
- * @returns {Promise<{png: Buffer, meta: {width: number, height: number, frames: number, delay: number}}|null>}
+ * @returns {Promise<{
+ *   png: Buffer,
+ *   source: string,
+ *   first: {width: number, height: number, data: Uint8Array|Buffer},
+ *   meta: {width: number, height: number, frames: number, delay: number},
+ * }|null>}
  */
 async function buildStrip(urls) {
   for (const url of urls) {
@@ -155,6 +231,11 @@ async function buildStrip(urls) {
 
     return {
       png: encodePng(strip.width, strip.height, strip.data),
+      // Which source answered, and its first frame before any trimming: the
+      // pair a shiny icon is read from has to be untrimmed to line up, since
+      // two palettes need not leave the same transparent margin.
+      source: url,
+      first: { width: decoded.width, height: decoded.height, data: frames[0].data },
       meta: {
         width: bounds.width,
         height: bounds.height,

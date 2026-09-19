@@ -2,7 +2,7 @@
  * Save-slot selection, used both to start a new run and to continue one.
  */
 import { saves, url } from '../core/bridge.mjs';
-import { speciesOf } from '../core/data.mjs';
+import { artPath, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable } from '../core/dom.mjs';
 import { formatPlaytime, name as localized, t } from '../core/i18n.mjs';
 import { levelForExperience } from '../engine/stats.mjs';
@@ -53,6 +53,7 @@ export function slotScene({ mode, slots }) {
 function slotRow(app, slot, mode, rebuild) {
   const usable = mode === 'new' ? true : !slot.empty;
   const species = slot.summary?.speciesId ? speciesOf(slot.summary.speciesId) : null;
+  const active = species ? { speciesId: species.id, shiny: Boolean(slot.summary.shiny) } : null;
 
   const level = species ? levelForExperience(species.growthRate, slot.summary.experience ?? 0) : 1;
   const headline = slot.empty
@@ -78,7 +79,9 @@ function slotRow(app, slot, mode, rebuild) {
     },
     [
       el('img', {
-        src: species ? url('assets', `pokemon/${species.id}/icon.png`) : url('assets', 'props/item-ball.png'),
+        src: active
+          ? url('assets', artPath(active, 'icon') ?? '')
+          : url('assets', 'props/item-ball.png'),
         alt: '',
       }),
       el('span.lines', {}, [

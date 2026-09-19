@@ -13,6 +13,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Record<string, any>} items keyed by item slug
  * @property {Record<string, string>} machines TM slug to move slug
  * @property {Record<string, any>} natures keyed by nature slug
+ * @property {Record<string, any>} abilities keyed by ability slug
  * @property {Record<string, any>} types keyed by type slug
  * @property {Array<any>} areas
  * @property {Record<string, any>} sprites keyed by Pokédex number
@@ -32,12 +33,13 @@ let data = null;
 export async function loadGameData() {
   if (data) return data;
 
-  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers, battle] = await Promise.all([
+  const [species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle] = await Promise.all([
     loadJson('data', 'species.json'),
     loadJson('data', 'moves.json'),
     loadJson('data', 'items.json'),
     loadJson('data', 'machines.json'),
     loadJson('data', 'natures.json'),
+    loadJson('data', 'abilities.json'),
     loadJson('data', 'types.json'),
     loadJson('data', 'areas.json'),
     loadJson('data', 'sprites.json'),
@@ -56,7 +58,7 @@ export async function loadGameData() {
   ]);
 
   data = {
-    species, moves, items, machines, natures, types, areas, sprites, actors, bgm, itemTiers, battle,
+    species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,
     trainerClasses, leaders, leagues,
   };
   return data;
@@ -90,6 +92,69 @@ export const moveOf = (slug) => gameData().moves[slug] ?? null;
 
 /** @param {string} slug */
 export const itemOf = (slug) => gameData().items[slug] ?? null;
+
+/** @param {string|null|undefined} slug */
+export const abilityOf = (slug) => (slug ? gameData().abilities?.[slug] ?? null : null);
+
+/**
+ * Whether a move belongs to one of the classes the game acts on.
+ *
+ * Reading it through here rather than off `move.flags` keeps every caller
+ * working against a save and a data file written before the classes existed,
+ * where the field is simply absent.
+ *
+ * @param {any} move
+ * @param {string} flag
+ */
+export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
+
+/**
+ * Where a Pokémon's art lives, and how big it is.
+ *
+ * A shiny Pokémon has art of its own rather than a filter over the ordinary
+ * art, so the path and the measurements both move — the two palettes are
+ * trimmed separately and need not leave the same margin. A species whose
+ * alternate palette never built falls back to the ordinary one, which is worth
+ * doing silently: a missing picture is worse than a missing sparkle.
+ *
+ * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {'front'|'back'|'icon'} kind
+ * @returns {{path: string, meta: any}|null}
+ */
+export function artOf(pokemon, kind) {
+  if (!pokemon) return null;
+  const entry = gameData().sprites[pokemon.speciesId];
+  if (!entry) return null;
+
+  const shiny = pokemon.shiny ? entry.shiny?.[kind] : null;
+  const meta = shiny ?? entry[kind];
+  if (!meta) return null;
+
+  const suffix = shiny ? '-shiny' : '';
+  return { path: `pokemon/${pokemon.speciesId}/${kind}${suffix}.png`, meta };
+}
+
+/**
+ * A key that changes whenever the picture would: the species, and which of
+ * its two palettes.
+ *
+ * Screens that cache a decoded sprite keyed on the species alone would keep
+ * showing the ordinary art after a swap to a shiny of the same species, which
+ * is exactly the moment a player is looking for the difference.
+ *
+ * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ */
+export const spriteKey = (pokemon) =>
+  pokemon ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}` : '';
+
+/**
+ * The `pdc://` URL of a Pokémon's art, for the screens that set an `img` or a
+ * CSS background rather than decoding a sprite strip.
+ *
+ * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {'front'|'back'|'icon'} kind
+ */
+export const artPath = (pokemon, kind) => artOf(pokemon, kind)?.path ?? null;
 
 /**
  * Damage multiplier of one attacking type against a defender's types.

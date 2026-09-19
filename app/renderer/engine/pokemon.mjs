@@ -24,15 +24,27 @@ import {
  * @property {string} nature
  * @property {Record<string, number>} ivs
  * @property {Record<string, number>} evs
- * @property {Array<{move: string, pp: number}>} moves
+ * @property {Array<{move: string, pp: number, ppUp?: number}>} moves
  * @property {number} hp remaining hit points
  * @property {string|null} status `brn`, `psn`, `par`, `slp`, `frz` or null
  * @property {number} statusTurns
  * @property {string|null} heldItem
  * @property {string} ability
+ * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
  */
+
+/**
+ * How often a Pokémon is shiny.
+ *
+ * The cartridges roll a sixteen-bit number and compare it against the
+ * trainer's own; the odds that comes to have been 1/8192 from Gold and Silver
+ * through Black and White, and 1/4096 from X and Y onward. This game follows
+ * the newest generation's rules everywhere else — its stats, its learnsets,
+ * its type chart — so it follows them here too.
+ */
+export const SHINY_ODDS = 1 / 4096;
 
 /**
  * Roll a new Pokémon at a level.
@@ -40,7 +52,13 @@ import {
  * @param {import('../core/rng.mjs').Rng} rng
  * @param {number} speciesId
  * @param {number} level
- * @param {{ivFloor?: number, nickname?: string|null, ball?: string|null}} [options]
+ * @param {{
+ *   ivFloor?: number,
+ *   nickname?: string|null,
+ *   ball?: string|null,
+ *   hiddenAbility?: boolean,
+ *   shiny?: boolean,
+ * }} [options]
  * @returns {Pokemon}
  */
 export function createPokemon(rng, speciesId, level, options = {}) {
@@ -65,7 +83,8 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     status: null,
     statusTurns: 0,
     heldItem: null,
-    ability: pickAbility(rng, species),
+    ability: pickAbility(rng, species, options.hiddenAbility ?? false),
+    shiny: options.shiny ?? rng.chance(SHINY_ODDS),
     caughtAt: Date.now(),
     ball: options.ball ?? null,
   });
@@ -76,16 +95,41 @@ export function createPokemon(rng, speciesId, level, options = {}) {
 }
 
 /**
- * Hidden abilities are rare in the wild, so they are only rolled occasionally.
+ * Which of a species' abilities this one turns out to have.
+ *
+ * A Pokémon a trainer sends out draws from the ordinary abilities, as the
+ * games' trainers do. Something met in the wild draws from the whole pool with
+ * the hidden ability among them and no better or worse odds than the rest:
+ * the cartridges gate hidden abilities behind raids and Ability Patches, and
+ * this game has neither, so a Pokémon walking around out there is the only
+ * place one can come from.
+ *
  * @param {import('../core/rng.mjs').Rng} rng
  * @param {any} species
+ * @param {boolean} hiddenAbility whether the hidden ability is in the draw
  */
-function pickAbility(rng, species) {
-  const regular = species.abilities.filter((entry) => !entry.hidden);
-  const hidden = species.abilities.filter((entry) => entry.hidden);
-  if (hidden.length && rng.chance(0.05)) return rng.pick(hidden).name;
-  if (regular.length) return rng.pick(regular).name;
+function pickAbility(rng, species, hiddenAbility) {
+  const pool = hiddenAbility
+    ? species.abilities
+    : species.abilities.filter((entry) => !entry.hidden);
+  if (pool.length) return rng.pick(pool).name;
   return species.abilities[0]?.name ?? 'none';
+}
+
+/**
+ * Which slot of its species' ability list a Pokémon is filling.
+ *
+ * The games keep this rather than the ability itself, which is why a Pokémon
+ * that evolves keeps the ability in the same place rather than the one it had
+ * by name — an Eevee with Run Away becomes a Vaporeon with Water Absorb, not a
+ * Vaporeon that has somehow kept running away.
+ *
+ * @param {Pokemon} pokemon
+ * @returns {number} -1 when the ability is not one of the species' own
+ */
+export function abilitySlot(pokemon) {
+  const species = speciesOf(pokemon.speciesId);
+  return (species?.abilities ?? []).findIndex((entry) => entry.name === pokemon.ability);
 }
 
 /**
@@ -232,7 +276,9 @@ export function availableMoves(pokemon, unlockedMachines = []) {
  */
 export function setMove(pokemon, slot, move) {
   const pp = moveOf(move)?.pp ?? 5;
-  const entry = { move, pp };
+  // A new move in the slot starts at its own ceiling: what a PP Up bought
+  // belonged to the move that was there, not to the slot.
+  const entry = { move, pp, ppUp: 0 };
   if (slot < pokemon.moves.length) pokemon.moves[slot] = entry;
   else pokemon.moves.push(entry);
   pokemon.moves = pokemon.moves.slice(0, 4);
@@ -246,7 +292,21 @@ export function fullyHeal(pokemon) {
   pokemon.hp = maxHp(pokemon);
   pokemon.status = null;
   pokemon.statusTurns = 0;
-  for (const slot of pokemon.moves) slot.pp = moveOf(slot.move)?.pp ?? slot.pp;
+  for (const slot of pokemon.moves) slot.pp = maxPp(slot);
+}
+
+/**
+ * A move slot's full PP, with whatever a PP Up has bought for it.
+ *
+ * The raise is kept on the slot rather than on the move, because two Pokémon
+ * knowing the same move need not have had the same spent on it — and because
+ * the move data is reference data the save must never write into.
+ *
+ * @param {{move: string, pp: number, ppUp?: number}} slot
+ */
+export function maxPp(slot) {
+  const base = moveOf(slot.move)?.pp ?? slot.pp;
+  return base + Math.floor(base * (slot.ppUp ?? 0));
 }
 
 /**
@@ -264,10 +324,15 @@ export function pendingEvolution(pokemon, context = {}) {
   const species = speciesOf(pokemon.speciesId);
   const level = levelOf(pokemon);
 
+  // An Everstone stops the levelling kind and nothing else, which is exactly
+  // what it is for: a Pokémon can still be handed a stone while holding one.
+  const everstone = gameData().items[pokemon.heldItem ?? '']?.held?.on === 'noEvolve';
+
   for (const evolution of species.evolutions ?? []) {
     if (!speciesOf(evolution.to)) continue;
 
     if (evolution.trigger === 'level-up') {
+      if (everstone) continue;
       if (evolution.minLevel && level < evolution.minLevel) continue;
       if (!evolution.minLevel && !evolution.happiness) continue;
       if (evolution.happiness && level < 20) continue;
@@ -301,10 +366,15 @@ function matchesTime(required, current) {
  */
 export function evolveInto(pokemon, speciesId) {
   const ratio = pokemon.hp / maxHp(pokemon);
+  const slot = abilitySlot(pokemon);
   pokemon.speciesId = speciesId;
   const species = speciesOf(speciesId);
   if (!species.abilities.some((entry) => entry.name === pokemon.ability)) {
-    pokemon.ability = species.abilities[0]?.name ?? pokemon.ability;
+    // The same slot in the new species' list, which is what the games carry
+    // across; a species with fewer abilities than the last falls back to its
+    // first, and a hidden ability stays hidden where there is one to stay in.
+    const kept = species.abilities[slot] ?? species.abilities[0];
+    pokemon.ability = kept?.name ?? pokemon.ability;
   }
   pokemon.hp = Math.max(1, Math.round(maxHp(pokemon) * ratio));
   return pokemon;

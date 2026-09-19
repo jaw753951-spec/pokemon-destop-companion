@@ -18,12 +18,13 @@ export async function useRealGameData() {
   if (loaded) return true;
   try {
     const read = async (name) => JSON.parse(await readFile(join(GENERATED, name), 'utf8'));
-    const [species, moves, items, machines, natures, types, areas, sprites] = await Promise.all([
+    const [species, moves, items, machines, natures, abilities, types, areas, sprites] = await Promise.all([
       read('species.json'),
       read('moves.json'),
       read('items.json'),
       read('machines.json'),
       read('natures.json'),
+      read('abilities.json'),
       read('types.json'),
       read('areas.json'),
       read('sprites.json'),
@@ -35,6 +36,7 @@ export async function useRealGameData() {
         items,
         machines,
         natures,
+        abilities,
         types,
         areas,
         sprites,

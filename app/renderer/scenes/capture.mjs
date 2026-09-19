@@ -8,7 +8,7 @@
 import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { artOf, gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
@@ -34,16 +34,18 @@ export function captureScene({ session, target, onFinish }) {
 
   const label = () => localized(speciesOf(target.speciesId)?.name, '');
   const counter = el('div.capture-attempts');
-  const message = el('div.battle-message', { text: t('capture.title') });
+  const message = el('div.battle-message', {
+    text: target.shiny ? `${t('capture.title')}  ${t('battle.shiny')}` : t('capture.title'),
+  });
   const balls = el('div.capture-balls');
 
   return {
     keepBelow: true,
 
     mount(app) {
-      const meta = gameData().sprites[target.speciesId]?.front;
-      if (meta) {
-        loadSprite(`pokemon/${target.speciesId}/front.png`, meta).then((sprite) => {
+      const art = artOf(target, 'front');
+      if (art) {
+        loadSprite(art.path, art.meta).then((sprite) => {
           // Field coordinates, so the target is the size it was on the path.
           const y = Math.round(FIELD_HEIGHT * 0.52);
           battler = new Battler({

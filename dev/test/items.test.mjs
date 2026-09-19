@@ -146,7 +146,18 @@ test('only what this game will never have is dropped', withData, () => {
     'leftovers', 'choice-band', 'charcoal', 'focus-sash', 'lucky-egg']) {
     assert.ok(items[slug]?.works, `${slug} should be working`);
   }
-  for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball']) {
+
+  // The ones that were kept against the day the engine could read them, and
+  // now can be: a Mint's nature, a Capsule's ability, a PP Up's ceiling, a
+  // Bottle Cap's genes, a type-resisting Berry, a Light Ball's one species.
+  for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball',
+    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone']) {
+    assert.ok(items[slug]?.works, `${slug} should be working`);
+  }
+
+  // And the ones still waiting, which belong to systems this game does not
+  // have yet: switching out, infatuation, happiness.
+  for (const slug of ['shed-shell', 'eject-button', 'red-card', 'destiny-knot', 'soothe-bell']) {
     assert.ok(items[slug], `${slug} should have been kept`);
     assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
   }

@@ -5,10 +5,10 @@
  * the same thing to the same Pokémon, so what an item does lives here rather
  * than in whichever screen happened to need it first.
  */
-import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { evolveInto, levelOf, maxHp, pendingEvolution } from './pokemon.mjs';
-import { addEffort, experienceForLevel } from './stats.mjs';
+import { abilitySlot, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
+import { addEffort, experienceForLevel, STATS } from './stats.mjs';
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -129,8 +129,106 @@ function applyUse(pokemon, item) {
     }
   }
 
+  // An Exp. Candy is experience handed over directly rather than a level.
+  if (use.experience) {
+    if (levelOf(pokemon) < MAX_LEVEL) {
+      pokemon.experience += use.experience;
+      changed = true;
+    }
+  }
+
+  // A Mint rewrites which stats the nature favours, keeping the name of the
+  // one it was born with — which is what the games do, and why a screen shows
+  // the mint's nature rather than the original.
+  if (use.nature && gameData().natures[use.nature] && pokemon.nature !== use.nature) {
+    pokemon.nature = use.nature;
+    changed = true;
+  }
+
+  // A Bottle Cap maxes the genes: one stat, or all of them.
+  if (use.genes) changed = maximizeGenes(pokemon, use.genes) || changed;
+
+  // An Ability Capsule swaps the two ordinary abilities; an Ability Patch
+  // hands over the hidden one, and hands it back if it is already out.
+  if (use.ability) changed = switchAbility(pokemon, use.ability) || changed;
+
+  // A PP Up raises a move's ceiling rather than filling it.
+  if (use.ppUp) changed = raiseMaxPp(pokemon, use.ppUp) || changed;
+
   return changed;
 }
+
+/**
+ * The stat a Bottle Cap should be spent on: the lowest one, which is where a
+ * player would spend it and what makes "one" a choice worth making at all.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {'one'|'all'} scope
+ */
+function maximizeGenes(pokemon, scope) {
+  const weakest = [...STATS].sort((a, b) => (pokemon.ivs[a] ?? 0) - (pokemon.ivs[b] ?? 0))[0];
+  const stats = scope === 'all' ? [...STATS] : [weakest];
+  let changed = false;
+  for (const stat of stats) {
+    if ((pokemon.ivs[stat] ?? 0) >= MAX_IV) continue;
+    pokemon.ivs = { ...pokemon.ivs, [stat]: MAX_IV };
+    changed = true;
+  }
+  return changed;
+}
+
+/**
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {'swap'|'hidden'} how
+ */
+function switchAbility(pokemon, how) {
+  const abilities = speciesOf(pokemon.speciesId)?.abilities ?? [];
+  if (abilities.length === 0) return false;
+
+  if (how === 'hidden') {
+    const hidden = abilities.find((entry) => entry.hidden);
+    if (!hidden) return false;
+    // A Patch used on a Pokémon that already has the hidden ability puts the
+    // ordinary one back, as it does in the games.
+    const next = pokemon.ability === hidden.name ? abilities.find((entry) => !entry.hidden) : hidden;
+    if (!next || next.name === pokemon.ability) return false;
+    pokemon.ability = next.name;
+    return true;
+  }
+
+  const ordinary = abilities.filter((entry) => !entry.hidden);
+  if (ordinary.length < 2) return false;
+  const slot = abilitySlot(pokemon);
+  // The Capsule has nothing to swap a hidden ability with.
+  if (slot < 0 || abilities[slot]?.hidden) return false;
+  const next = ordinary[(ordinary.findIndex((entry) => entry.name === pokemon.ability) + 1) % ordinary.length];
+  if (!next || next.name === pokemon.ability) return false;
+  pokemon.ability = next.name;
+  return true;
+}
+
+/**
+ * Raise a move's ceiling, and fill what was just added.
+ *
+ * The raise is kept per slot rather than on the move, because two Pokémon can
+ * know the same move with different amounts spent on it. A slot at the cap
+ * takes nothing, which is what makes a PP Max worth holding on to.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {{fraction: number, max: number}} ppUp
+ */
+function raiseMaxPp(pokemon, ppUp) {
+  const slot = pokemon.moves.find((entry) => (entry.ppUp ?? 0) < ppUp.max - 1e-9 && moveOf(entry.move));
+  if (!slot) return false;
+
+  const before = maxPp(slot);
+  slot.ppUp = Math.min(ppUp.max, (slot.ppUp ?? 0) + ppUp.fraction);
+  slot.pp += maxPp(slot) - before;
+  return true;
+}
+
+/** The highest a gene goes. */
+const MAX_IV = 31;
 
 /**
  * Put PP back: into the first move that has lost any, or into all of them.
@@ -139,12 +237,12 @@ function applyUse(pokemon, item) {
  * @param {{amount: number|'full', scope: 'one'|'all'}} pp
  */
 function restorePp(pokemon, pp) {
-  const spent = pokemon.moves.filter((slot) => slot.pp < (moveOf(slot.move)?.pp ?? 0));
+  const spent = pokemon.moves.filter((slot) => slot.pp < maxPp(slot));
   const targets = pp.scope === 'all' ? spent : spent.slice(0, 1);
   if (targets.length === 0) return false;
 
   for (const slot of targets) {
-    const full = moveOf(slot.move)?.pp ?? slot.pp;
+    const full = maxPp(slot);
     slot.pp = pp.amount === 'full' ? full : Math.min(full, slot.pp + pp.amount);
   }
   return true;
@@ -291,6 +389,42 @@ export function heldPassive(pokemon, kind) {
 }
 
 /**
+ * What a held item keeps off its holder.
+ *
+ * A pair of Safety Goggles refuses powder and the weather, Protective Pads
+ * refuse whatever touching would have cost, a Clear Amulet refuses a stat
+ * drop and a Covert Cloak refuses a move's side effects. All four are the same
+ * shape — a shield with a list of what it stops — so they are asked the same
+ * question.
+ *
+ * @param {import('./pokemon.mjs').Pokemon|null|undefined} pokemon
+ * @param {string} against the kind of harm
+ * @returns {any} the shield's value for it, or null
+ */
+export function heldShield(pokemon, against) {
+  const shield = heldPassive(pokemon, 'shield');
+  return shield?.[against] ?? null;
+}
+
+/**
+ * Whether a held item's effect applies to this Pokémon at all.
+ *
+ * Most do not care who is holding them. A Thick Club cares a great deal — it
+ * doubles the Attack of a Cubone and does nothing for anything else — so the
+ * ones that name a species are checked against the one holding them. Names are
+ * compared without their punctuation, because a Farfetch'd is filed as
+ * `farfetchd` and written with an apostrophe.
+ *
+ * @param {any} held the parsed held effect
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ */
+export function itemSuits(held, pokemon) {
+  if (!held?.species?.length) return true;
+  const slug = (speciesOf(pokemon.speciesId)?.slug ?? '').replace(/[^a-z0-9]/g, '');
+  return held.species.includes(slug);
+}
+
+/**
  * Whether the held item's moment has come.
  *
  * Every berry that does something while held carries the rule it does it by —
@@ -349,8 +483,7 @@ export function applyHeldEffect(pokemon, held) {
   if (held.on === 'pp') {
     const slot = emptyMove(pokemon);
     if (!slot) return false;
-    const full = moveOf(slot.move)?.pp ?? held.amount;
-    slot.pp = Math.min(full, slot.pp + held.amount);
+    slot.pp = Math.min(maxPp(slot), slot.pp + held.amount);
     return true;
   }
 

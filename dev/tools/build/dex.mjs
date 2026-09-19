@@ -8,7 +8,7 @@
  */
 import { join } from 'node:path';
 
-import { fetchJson, writeOut } from '../lib/http.mjs';
+import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
 import {
   flavorBundle,
   genusBundle,
@@ -17,7 +17,7 @@ import {
   newestVersionGroupFor,
   STAT_KEYS,
 } from '../lib/poke.mjs';
-import { MAX_SPECIES, POKEAPI, VERSION_GROUP_PRIORITY } from '../sources.mjs';
+import { MAX_SPECIES, MOVE_FLAG_SET, POKEAPI, SHOWDOWN, VERSION_GROUP_PRIORITY } from '../sources.mjs';
 
 /**
  * @param {{dataDir: string, sample: boolean, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
@@ -27,22 +27,26 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 
   const types = await buildTypes(pool, log);
   const moves = await buildMoves(pool, log);
-  const everyItem = await buildItems(pool, log);
-  const machines = await buildMachines(pool, log);
   const natures = await buildNatures(pool, log);
+  const everyItem = await buildItems(pool, log, natures);
+  const machines = await buildMachines(pool, log);
+  const abilities = await buildAbilities(pool, log);
   const species = await buildSpecies(pool, log, limit);
+
+  await attachMoveFlags(moves, log);
 
   // Which items the game ships is decided here rather than in the screens.
   const items = shippedItems(everyItem, { machines, moves, species, log });
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
   await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
+  await writeOut(join(dataDir, 'abilities.json'), JSON.stringify(abilities));
   await writeOut(join(dataDir, 'types.json'), JSON.stringify(types));
   await writeOut(join(dataDir, 'moves.json'), JSON.stringify(moves));
   await writeOut(join(dataDir, 'items.json'), JSON.stringify(items));
   await writeOut(join(dataDir, 'species.json'), JSON.stringify(species));
 
-  return { types, moves, items, machines, natures, species };
+  return { types, moves, items, machines, natures, abilities, species };
 }
 
 /**
@@ -256,10 +260,93 @@ async function buildMoves(pool, log) {
 }
 
 /**
+ * Hang each move's classification off it: contact, punch, sound, powder and
+ * the rest of the flags the abilities and held items are written against.
+ *
+ * Showdown's table is a TypeScript module rather than JSON, but the shape it
+ * needs to be read at is shallow — one block per move, each with a `num` that
+ * is the move's national number and a `flags` object — so a reader for exactly
+ * that shape is smaller and steadier than pulling in a parser. Anything whose
+ * number is missing or zero is a Showdown invention (the CAP moves, the Z-move
+ * variants) and has no move here to belong to.
+ *
+ * @param {Record<string, any>} moves
+ * @param {(message: string) => void} log
+ */
+async function attachMoveFlags(moves, log) {
+  const source = await fetchBuffer(`${SHOWDOWN}/moves.ts`, { allowMissing: true });
+
+  /** @type {Map<number, string[]>} */
+  const byNumber = new Map();
+  if (source) {
+    for (const block of source.toString('utf8').split(/\n\t(?:"[^"]+"|\w+): \{\n/).slice(1)) {
+      const number = /^\t\tnum: (\d+),$/m.exec(block);
+      const flags = /^\t\tflags: \{([^}]*)\},$/m.exec(block);
+      if (!number || !flags || Number(number[1]) === 0) continue;
+
+      const kept = [...flags[1].matchAll(/(\w+): 1/g)]
+        .map((match) => match[1])
+        .filter((flag) => MOVE_FLAG_SET.has(flag));
+      if (kept.length) byNumber.set(Number(number[1]), kept);
+    }
+  }
+
+  let flagged = 0;
+  for (const move of Object.values(moves)) {
+    move.flags = byNumber.get(move.id) ?? [];
+    if (move.flags.length) flagged++;
+  }
+
+  if (!source) log('moves flags unavailable — the classification source could not be read');
+  else log(`moves ${flagged} classified (contact, punch, sound, powder and the rest)`);
+}
+
+/**
+ * The abilities, with their official names and the sentence that states what
+ * each one does.
+ *
+ * Both texts are kept for the same reason the items keep theirs: the flavour
+ * line is what a player is shown, and the effect line is the exact rule, which
+ * is what lets the Pokémon screen say what an ability actually does rather
+ * than repeating the cartridge's hint at it. Which of them the engine has
+ * written is the engine's own business — `app/renderer/engine/abilities.mjs`
+ * holds that list — so nothing here marks one as working or not.
+ */
+async function buildAbilities(pool, log) {
+  const index = await fetchJson(`${POKEAPI}/ability/index.json`);
+  /** @type {Record<string, any>} */
+  const out = {};
+
+  await Promise.all(
+    index.results.map((entry) =>
+      pool(async () => {
+        const ability = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`, {
+          allowMissing: true,
+        });
+        // The main series is the only one this game draws from; the side-game
+        // abilities share the namespace and would never be rolled.
+        if (!ability || ability.is_main_series === false) return;
+
+        const effect = (ability.effect_entries ?? []).find((item) => item.language?.name === 'en');
+        out[ability.name] = {
+          id: ability.id,
+          name: nameBundle(ability.names, ability.name),
+          text: flavorBundle(ability.flavor_text_entries, 'flavor_text'),
+          effect: effect?.short_effect ?? '',
+        };
+      }),
+    ),
+  );
+
+  log(`abilities ${Object.keys(out).length}`);
+  return out;
+}
+
+/**
  * Items, restricted to the pockets the companion actually uses. Categories are
  * read first so we only fetch the items we keep.
  */
-async function buildItems(pool, log) {
+async function buildItems(pool, log, natures) {
   const categoryIndex = await fetchJson(`${POKEAPI}/item-category/index.json`);
   /** @type {Map<string, {url: string, pocket: string, category: string}>} */
   const wanted = new Map();
@@ -299,6 +386,7 @@ async function buildItems(pool, log) {
           use: useEffect(item),
           sprite: Boolean(item.sprites?.default),
         };
+        unwritten(out[name], name, natures);
       }),
     ),
   );
@@ -328,7 +416,10 @@ async function buildItems(pool, log) {
 function heldEffect(item) {
   const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
   const text = (effect?.short_effect ?? '').replace(/[’']/g, "'");
-  if (!text.startsWith('Held:') && !/^Raises the holder's/i.test(text)) return null;
+  // Most held effects announce themselves; the ones that boost a named
+  // species — a Thick Club, a Light Ball — simply say what they do, so the
+  // opening words they use are allowed through too.
+  if (!/^(?:Held:|Raises\b|Doubles\b|Increases\b|Boosts\b|When the holder\b)/i.test(text)) return null;
 
   const at = (match) => (match ? 1 / Number(match) : null);
 
@@ -348,6 +439,21 @@ function heldEffect(item) {
     const stat = STAT_NAMES[boost[2].trim().toLowerCase()];
     const stages = /two stages/i.test(text) ? 2 : 1;
     if (stat) return { on: 'hp', at: at(boost[1]), stat, stages };
+  }
+
+  // The three pinch berries that buy something other than a stat: a Lansat's
+  // critical hit ratio, a Micle's accuracy, a Custap's turn.
+  const pinchCrit = /Consumed at 1\/(\d) max HP to boost critical hit ratio by (one|two) stages?/i.exec(text);
+  if (pinchCrit) return { on: 'hp', at: at(pinchCrit[1]), crit: pinchCrit[2].toLowerCase() === 'two' ? 2 : 1 };
+
+  const pinchAccuracy = /Consumed at 1\/(\d) max HP to boost accuracy of next move by (\d+)%/i.exec(text);
+  if (pinchAccuracy) {
+    return { on: 'hp', at: at(pinchAccuracy[1]), accuracy: 1 + Number(pinchAccuracy[2]) / 100 };
+  }
+
+  if (/Consumed at 1\/(\d) max HP when using a move to go first/i.test(text)) {
+    const first = /Consumed at 1\/(\d) max HP/i.exec(text);
+    return { on: 'hp', at: at(first?.[1]), first: true };
   }
 
   // "Consumed when paralyzed to cure paralysis." and its siblings.
@@ -443,8 +549,238 @@ function heldEffect(item) {
     return { on: 'effort', multiplier: 2, stats: ['spe'], speed: 0.5 };
   }
 
+  // "Holder gains 4 Special Attack effort values, but has halved Speed in
+  // battle." — the six weights, which pay in one stat rather than all of them.
+  const weight = /Holder gains (\d+) ([A-Za-z ]+?) effort values, but has halved Speed/i.exec(text);
+  if (weight) {
+    const stat = STAT_NAMES[weight[2].trim().toLowerCase()];
+    if (stat && stat !== 'random') {
+      return { on: 'effort', bonus: { stat, amount: Number(weight[1]) }, stats: ['spe'], speed: 0.5 };
+    }
+  }
+
+  // ---- What a held item says about being hit.
+
+  // "Consumed when struck by a super-effective Fire-type attack to halve the
+  // damage." — and the Chilan Berry, which does not wait for it to be super
+  // effective because nothing is weak to Normal.
+  const resist = /Consumed when struck by a (super-effective )?([A-Za-z]+)-type attack to halve the damage/i.exec(text);
+  if (resist) {
+    return {
+      on: 'resist',
+      moveType: resist[2].toLowerCase(),
+      superEffectiveOnly: Boolean(resist[1]),
+      multiplier: 0.5,
+    };
+  }
+
+  // "Consumed when struck by a super-effective attack to restore 1/4 max HP."
+  const enigma = /Consumed when struck by a super-effective attack to restore 1\/(\d+) max HP/i.exec(text);
+  if (enigma) return { on: 'hurt', superEffective: true, heal: { fraction: 1 / Number(enigma[1]) }, consumed: true };
+
+  // "When the holder is hit by a super effective move, its Attack and Special
+  // Attack raise by two stages."
+  const policy = /When the holder is hit by a super effective move, its ([A-Za-z ]+?) raise by (one|two) stages?/i.exec(text);
+  if (policy) {
+    const stats = statList(policy[1]);
+    if (stats.length) {
+      return { on: 'hurt', superEffective: true, stats, stages: policy[2].toLowerCase() === 'two' ? 2 : 1, consumed: true };
+    }
+  }
+
+  // "Raises the holder's Special Attack by one stage when it takes Water-type
+  // damage." and "If the holder is hit by a damaging Ice move, raises its
+  // Attack by one stage." — the same rule, written two ways.
+  const absorbed =
+    /Raises the holder's ([A-Za-z ]+?) by (one|two) stages? when it takes ([A-Za-z]+)-type damage/i.exec(text) ??
+    /If the holder is hit by a damaging ([A-Za-z]+) move, raises its ([A-Za-z ]+?) by (one|two) stages?/i.exec(text);
+  if (absorbed) {
+    // Which of the two sentences matched decides which group is which.
+    const typed = /takes/i.test(absorbed[0]);
+    const stats = statList(typed ? absorbed[1] : absorbed[2]);
+    const stages = (typed ? absorbed[2] : absorbed[3]).toLowerCase() === 'two' ? 2 : 1;
+    const moveType = (typed ? absorbed[3] : absorbed[1]).toLowerCase();
+    if (stats.length) return { on: 'hurt', moveType, stats, stages, consumed: true };
+  }
+
+  // "When the holder is hit by a physical move, increases its Defense by one
+  // stage." — the Kee and Maranga Berries.
+  const guarded = /When the holder is hit by a (physical|special) move, increases its ([A-Za-z ]+?) by (one|two) stages?/i.exec(text);
+  if (guarded) {
+    const stats = statList(guarded[2]);
+    const stages = guarded[3].toLowerCase() === 'two' ? 2 : 1;
+    if (stats.length) return { on: 'hurt', damageClass: guarded[1].toLowerCase(), stats, stages, consumed: true };
+  }
+
+  // "Consumed to deal 1/8 attacker's max HP when holder is struck by a
+  // physical attack." — the Jaboca and Rowap Berries.
+  const thorn = /Consumed to deal 1\/(\d+) attacker's max HP when holder is struck by a (physical|special) attack/i.exec(text);
+  if (thorn) {
+    return { on: 'hurt', damageClass: thorn[2].toLowerCase(), recoil: { fraction: 1 / Number(thorn[1]) }, consumed: true };
+  }
+
+  // "When the holder is hit by a contact move, the attacking Pokémon takes 1/6
+  // its max HP in damage."
+  const helmet = /When the holder is hit by a contact move, the attacking Pok.mon takes 1\/(\d+) its max HP in damage/i.exec(text);
+  if (helmet) return { on: 'contact', recoil: { fraction: 1 / Number(helmet[1]) } };
+
+  // ---- What a held item keeps off its holder.
+
+  // "Prevents damage from powder moves and the damage from Hail and Sandstorm."
+  if (/Prevents damage from powder moves/i.test(text)) return { on: 'shield', flags: ['powder'], weather: true };
+
+  // "Prevents side effects of contact moves used on the holder."
+  if (/Prevents side effects of contact moves used on the holder/i.test(text)) {
+    return { on: 'shield', contactEffects: true };
+  }
+
+  // "Grants immunity to Ground-type moves, Spikes, and Toxic Spikes. Consumed
+  // when the holder takes damage from a move."
+  const balloon = /Grants immunity to ([A-Za-z]+)-type moves/i.exec(text);
+  if (balloon) return { on: 'immune', moveType: balloon[1].toLowerCase(), popped: true };
+
+  // ---- What a held item does between turns, or to a turn.
+
+  // "Resets all lowered stats to normal at end of turn. Consumed after use."
+  if (/Resets all lowered stats to normal/i.test(text)) return { on: 'restore', consumed: true };
+
+  // "Both turns of a two-turn charge move happen at once."
+  if (/Both turns of a two-turn charge move happen at once/i.test(text)) return { on: 'charge', consumed: true };
+
+  // "Inflicts Toxic on the holder at the end of the turn."
+  const orbStatus = /Inflicts (Toxic|Burn|Poison|Paralysis|Sleep) on the holder at the end of the turn/i.exec(text);
+  if (orbStatus) {
+    const status = SELF_STATUS_NAMES[orbStatus[1].toLowerCase()];
+    if (status) return { on: 'selfStatus', status };
+  }
+
+  // "Consumed on Electric Terrain and raises the holder's Defense by one stage."
+  const seed = /Consumed on ([A-Za-z]+) Terrain and raises the holder's ([A-Za-z ]+?) by (one|two) stages?/i.exec(text);
+  if (seed) {
+    const stats = statList(seed[2]);
+    if (stats.length) {
+      return { on: 'terrain', terrain: seed[1].toLowerCase(), stats, stages: seed[3].toLowerCase() === 'two' ? 2 : 1, consumed: true };
+    }
+  }
+
+  // "Damaging moves gain a 10% chance to make their target flinch."
+  const flinch = /Damaging moves gain a (\d+)% chance to make their target flinch/i.exec(text);
+  if (flinch) return { on: 'flinch', chance: Number(flinch[1]) / 100 };
+
+  // "Holder moves last in its priority bracket."
+  if (/Holder moves last in its priority bracket/i.test(text)) return { on: 'last' };
+
+  // "Prevents level-based evolution from occuring." — the typo is upstream's.
+  if (/Prevents level-based evolution/i.test(text)) return { on: 'noEvolve' };
+
+  // ---- Accuracy, both directions.
+
+  // "Provides a 1/5 (20%) boost in accuracy if the holder moves after the
+  // target." — a Wide Lens says the same without the condition.
+  const lens = /Provides a 1\/\d+ \((\d+)%\) boost in accuracy(?: if the holder moves after the target)?/i.exec(text);
+  if (lens) {
+    return { on: 'accuracy', multiplier: 1 + Number(lens[1]) / 100, movingLast: /moves after the target/i.test(text) };
+  }
+
+  // "Increases the holder's evasion by 1/9 (11 1/9%)." — evasion raised by a
+  // ninth is what an attacker sees as nine tenths the accuracy.
+  const evasion = /Increases the holder's evasion by 1\/(\d+)/i.exec(text);
+  if (evasion) return { on: 'evasion', multiplier: 1 / (1 + 1 / Number(evasion[1])) };
+  const evasionPercent = /Holder's evasion is increased by (\d+)%/i.exec(text);
+  if (evasionPercent) return { on: 'evasion', multiplier: 1 / (1 + Number(evasionPercent[1]) / 100) };
+
+  // ---- How long a field effect the holder set lasts.
+
+  // "Sunny Day by the holder lasts 8 rounds instead of 5.", "Light Screen and
+  // Reflect used by the holder last 8 rounds instead of 5.", and the Terrain
+  // Extender, which says it a third way.
+  const rock = /(Sunny Day|Rain Dance|Sandstorm|Hail|Snowscape|Light Screen and Reflect) (?:by|used by) the holder lasts? (\d+) rounds/i.exec(text);
+  if (rock) {
+    const what = /Screen/i.test(rock[1]) ? 'screen' : 'weather';
+    return { on: 'extend', what, turns: Number(rock[2]) };
+  }
+  const extender = /Extends the holder's Terrain effects to (\d+) turns/i.exec(text);
+  if (extender) return { on: 'extend', what: 'terrain', turns: Number(extender[1]) };
+
+  // ---- The ones that only work for one Pokémon.
+
+  // "Doubles Pikachu's Attack and Special Attack.", "Raises Ditto's Defense
+  // and Special Defense by 50%."
+  const speciesStat =
+    /^(?:Held: )?(Doubles|Raises) ([A-Za-z'. ]+?)'s ((?:Attack|Defense|Speed|Special Attack|Special Defense|HP)(?: and (?:Attack|Defense|Speed|Special Attack|Special Defense|HP))?)(?: by (\d+)%)?(?: when held)?[.,]/i.exec(text);
+  if (speciesStat) {
+    const stats = statList(speciesStat[3]);
+    const multiplier = speciesStat[4] ? 1 + Number(speciesStat[4]) / 100 : 2;
+    const species = speciesList(speciesStat[2]);
+    if (stats.length && species.length) return { on: 'stat', species, stats, multiplier };
+  }
+
+  // "Boosts the damage from Dialga's Dragon-type and Steel-type moves by 20%."
+  const legendaryOrb = /Boosts the damage from ([A-Za-z'. ]+?)'s ([A-Za-z]+)-type and ([A-Za-z]+)-type moves by (\d+)%/i.exec(text);
+  if (legendaryOrb) {
+    return {
+      on: 'damage',
+      species: speciesList(legendaryOrb[1]),
+      moveTypes: [legendaryOrb[2].toLowerCase(), legendaryOrb[3].toLowerCase()],
+      multiplier: 1 + Number(legendaryOrb[4]) / 100,
+    };
+  }
+
+  // "Raises Farfetch'd's critical hit ratio by two stages." — and the Scope
+  // Lens, which says "the holder" where this says a name.
+  const critRatio = /Raises ([A-Za-z'. ]+?)'s critical hit ratio by (one|two) stages?/i.exec(text);
+  if (critRatio) {
+    const stages = critRatio[2].toLowerCase() === 'two' ? 2 : 1;
+    const holder = /^the holder$/i.test(critRatio[1].trim());
+    return holder ? { on: 'crit', stages } : { on: 'crit', stages, species: speciesList(critRatio[1]) };
+  }
+
+  // "Holder's Speed is halved. Negates all Ground-type immunities" — an Iron
+  // Ball costs Speed and drags its holder down to the ground.
+  if (/Holder's Speed is halved\./i.test(text) && /Negates all Ground-type immunities/i.test(text)) {
+    return { on: 'stat', stats: ['spe'], multiplier: 0.5, grounds: true };
+  }
+
+  // "Consectutive uses of the same attack have a cumulative damage boost of
+  // 10%. Maximum 100% boost." — the typo is upstream's.
+  const metronome = /uses of the same attack have a cumulative damage boost of (\d+)%\.\s*Maximum (\d+)% boost/i.exec(text);
+  if (metronome) {
+    return { on: 'damage', consecutive: Number(metronome[1]) / 100, max: 1 + Number(metronome[2]) / 100 };
+  }
+
   return null;
 }
+
+/**
+ * The stats an effect sentence names, in the engine's own keys.
+ * @param {string} phrase for example "Attack and Special Attack"
+ * @returns {string[]}
+ */
+function statList(phrase) {
+  return phrase
+    .split(/\s+and\s+/i)
+    .map((part) => STAT_NAMES[part.trim().toLowerCase()])
+    .filter((stat) => stat && stat !== 'random');
+}
+
+/**
+ * The species an effect sentence names, as the slugs the dex files them under.
+ *
+ * "Cubone or Marowak" and "Latias and Latios" are both two Pokémon, and a
+ * Farfetch'd is filed without its apostrophe, so the punctuation goes.
+ *
+ * @param {string} phrase
+ * @returns {string[]}
+ */
+function speciesList(phrase) {
+  return phrase
+    .split(/\s+(?:or|and)\s+/i)
+    .map((part) => part.trim().toLowerCase().replace(/[^a-z0-9]/g, ''))
+    .filter(Boolean);
+}
+
+/** The conditions an orb gives its own holder, as its effect text names them. */
+const SELF_STATUS_NAMES = { toxic: 'psn', poison: 'psn', burn: 'brn', paralysis: 'par', sleep: 'slp' };
 
 /**
  * What an item does when it is used on a Pokémon, from the same sentence the
@@ -460,7 +796,7 @@ function heldEffect(item) {
  */
 function useEffect(item) {
   const effect = (item.effect_entries ?? []).find((entry) => entry.language?.name === 'en');
-  const text = effect?.short_effect ?? '';
+  const text = (effect?.short_effect ?? '').replace(/[’']/g, "'");
   if (!text || text.startsWith('Held:')) return null;
 
   /** @type {any} */
@@ -479,10 +815,12 @@ function useEffect(item) {
   const pp = /Restores (?:(\d+) PP|PP to full) (?:for|of) (one|each|a single|all) move/i.exec(text);
   if (pp) use.pp = { amount: pp[1] ? Number(pp[1]) : 'full', scope: /each|all/i.test(pp[2]) ? 'all' : 'one' };
 
-  if (/[Cc]ures any status ailment/.test(text)) use.status = 'any';
-  const cure = /Cures (poison|paralysis|sleep|burns?|freezing|infatuation|confusion)\b/i.exec(text);
+  // "Cures any status ailment.", "Cures all major status ailments and
+  // confusion." — a Full Heal and a Big Malasada are the same medicine.
+  if (/[Cc]ures (?:any|all)? ?(?:major )?status ailments?/.test(text)) use.status = 'any';
+  const cure = /Cures (?:a |an )?(poison|paralysis|sleep|burn|freezing|frozen|infatuation|confusion)\b/i.exec(text);
   if (cure && !use.status) {
-    const status = CURE_NAMES[cure[1].toLowerCase().replace(/s$/, '')];
+    const status = CURE_NAMES[cure[1].toLowerCase()];
     if (status) use.status = status;
   }
 
@@ -492,6 +830,27 @@ function useEffect(item) {
     const stat = STAT_NAMES[raise[1].trim().toLowerCase()];
     if (stat && stat !== 'random') use.effort = { stat, amount: EFFORT_STEP };
   }
+
+  // "Increases HP effort by 1." — the six wings, which are a vitamin paid out
+  // a point at a time.
+  const wing = /Increases ([A-Za-z ]+?) effort by (\d+)/i.exec(text);
+  if (wing && !use.effort) {
+    const stat = STAT_NAMES[wing[1].trim().toLowerCase()];
+    if (stat && stat !== 'random') use.effort = { stat, amount: Number(wing[2]) };
+  }
+
+  // "Raises a move's max PP by 20%." — a PP Up, and a PP Max, which says 60%
+  // because it is the three of them at once.
+  const ppUp = /Raises a move's max PP by (\d+)%/i.exec(text);
+  if (ppUp) use.ppUp = { fraction: Number(ppUp[1]) / 100, max: PP_UP_LIMIT };
+
+  // "Switches a Pokémon between its two possible (non-Hidden) Abilities."
+  if (/Switches a Pok.mon between its two possible \(non-Hidden\) Abilities/i.test(text)) use.ability = 'swap';
+
+  // "Trade to Mr. Hyper to maximize one of a Pokémon's genes." — there is no
+  // Mr. Hyper here, so the Bottle Cap simply does what he would have.
+  const caps = /maximize (one|all) of a Pok.mon's genes/i.exec(text);
+  if (caps) use.genes = caps[1].toLowerCase() === 'all' ? 'all' : 'one';
   const drop = /Drops ([A-Za-z ]+?) Effort Values by (\d+)/i.exec(text);
   if (drop) {
     const stat = STAT_NAMES[drop[1].trim().toLowerCase()];
@@ -503,11 +862,110 @@ function useEffect(item) {
   return Object.keys(use).length > 0 ? use : null;
 }
 
+/**
+ * The effects PokeAPI has no sentence for.
+ *
+ * Every other item in the bag states its own rule and is read from it, which
+ * is the point of doing it that way — the numbers stay in the data. These are
+ * the ones whose `short_effect` upstream is simply empty, so there is nothing
+ * to read and the rule has to be written. Each is a family rather than a name:
+ * a mint carries its nature in its slug, a candy its size, a mochi its stat,
+ * so one rule covers the twenty-one mints rather than twenty-one lines.
+ *
+ * Anything not covered here keeps its empty effect and the bag says so.
+ *
+ * @param {any} item the record being built, modified in place
+ * @param {string} slug
+ * @param {Record<string, any>} natures
+ */
+function unwritten(item, slug, natures) {
+  if (item.use || item.held) return;
+
+  // A Mint is named for the nature it hands over.
+  const mint = /^([a-z]+)-mint$/.exec(slug);
+  if (mint && natures[mint[1]]) {
+    item.use = { nature: mint[1] };
+    return;
+  }
+
+  // An Exp. Candy is named for its size, and each size is worth what the
+  // games pay for it.
+  const candy = /^exp-candy-(xs|s|m|l|xl)$/.exec(slug);
+  if (candy) {
+    item.use = { experience: EXP_CANDY[candy[1]] };
+    return;
+  }
+
+  // The Let's Go candies and the Scarlet/Violet mochi both raise one stat's
+  // training; the candy says how much in its suffix, and a mochi is a vitamin
+  // by another name.
+  const training = /^(health|mighty|tough|smart|courage|quick)-candy(?:-(l|xl))?$/.exec(slug);
+  if (training) {
+    item.use = { effort: { stat: CANDY_STATS[training[1]], amount: CANDY_STEP[training[2] ?? 's'] } };
+    return;
+  }
+  const mochi = /^(health|muscle|resist|genius|clever|swift)-mochi$/.exec(slug);
+  if (mochi) {
+    item.use = { effort: { stat: MOCHI_STATS[mochi[1]], amount: EFFORT_STEP } };
+    return;
+  }
+
+  const written = UNWRITTEN[slug];
+  if (written) Object.assign(item, written);
+}
+
+/** What each size of Exp. Candy is worth, as the games pay it. */
+const EXP_CANDY = { xs: 100, s: 800, m: 3000, l: 10000, xl: 30000 };
+
+/** Which stat each Let's Go candy trains, from the name it is sold under. */
+const CANDY_STATS = { health: 'hp', mighty: 'atk', tough: 'def', smart: 'spa', courage: 'spd', quick: 'spe' };
+
+/** And how much of it, by the size on the wrapper. */
+const CANDY_STEP = { s: 1, l: 3, xl: 10 };
+
+/** Which stat each mochi trains. */
+const MOCHI_STATS = { health: 'hp', muscle: 'atk', resist: 'def', genius: 'spa', clever: 'spd', swift: 'spe' };
+
+/**
+ * The handful that are neither a family nor documented — one line each, in the
+ * same shape the parsers produce.
+ *
+ * @type {Record<string, {use?: any, held?: any}>}
+ */
+const UNWRITTEN = {
+  // The Fairy type-protection berry, which the other seventeen describe and
+  // this one does not.
+  'roseli-berry': { held: { on: 'resist', moveType: 'fairy', superEffectiveOnly: true, multiplier: 0.5 } },
+  // Hisui's Leppa Berry.
+  'hopo-berry': { held: { on: 'pp', amount: 10 } },
+  'max-honey': { use: { revive: 1 } },
+  // "Raises Special Attack when the holder uses a sound move."
+  'throat-spray': { held: { on: 'used', flags: ['sound'], stats: ['spa'], stages: 1, consumed: true } },
+  // "Punching moves do 10% more damage and stop counting as contact."
+  'punching-glove': { held: { on: 'damage', flags: ['punch'], multiplier: 1.1, dropsContact: true } },
+  // "A multi-hit move always hits four or five times."
+  'loaded-dice': { held: { on: 'multiHit', min: 4 } },
+  'clear-amulet': { held: { on: 'shield', statDrops: true } },
+  // The Fairy type booster, which the other seventeen document and this
+  // newcomer does not.
+  'fairy-feather': { held: { on: 'damage', moveType: 'fairy', multiplier: 1.2 } },
+  // The Ability Capsule's opposite number: it hands over the hidden ability
+  // rather than swapping the two ordinary ones.
+  'ability-patch': { use: { ability: 'hidden' } },
+  'covert-cloak': { held: { on: 'shield', secondary: true } },
+  'utility-umbrella': { held: { on: 'shield', weatherEffects: true } },
+  // "Raises Speed by two stages when one of the holder's moves misses."
+  'blunder-policy': { held: { on: 'miss', stats: ['spe'], stages: 2, consumed: true } },
+};
+
 /** How much effort a vitamin adds, as the games have always given. */
 const EFFORT_STEP = 10;
 
+/** The most a move's PP can be raised above its base, as the games cap it. */
+const PP_UP_LIMIT = 0.6;
+
 /** The conditions a medicine can cure, as its effect text names them. */
-const CURE_NAMES = { poison: 'psn', paralysis: 'par', sleep: 'slp', burn: 'brn', freezing: 'frz' };
+const CURE_NAMES = { poison: 'psn', paralysis: 'par', sleep: 'slp', burn: 'brn', freezing: 'frz', frozen: 'frz' };
 
 /** The stats a berry can raise, as the effect text names them. */
 const STAT_NAMES = {

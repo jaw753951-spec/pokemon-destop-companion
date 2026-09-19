@@ -25,7 +25,10 @@ export const LEVEL_SPREAD = { min: -5, max: 15 };
 export function rollWildPokemon(rng, area, companion) {
   const level = rollLevel(rng, companion);
   const speciesId = pickSpecies(rng, area, level);
-  return createPokemon(rng, speciesId, level);
+  // Out here the hidden ability is in the draw with the rest. Nothing else in
+  // this game hands one out — there are no raids and the Ability Patch is a
+  // thing the player has to find first — so the wild is where they come from.
+  return createPokemon(rng, speciesId, level, { hiddenAbility: true });
 }
 
 /**

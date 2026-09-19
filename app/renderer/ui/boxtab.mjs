@@ -5,8 +5,8 @@
  * move it to another space, release it, or back out.
  */
 import { url } from '../core/bridge.mjs';
-import { speciesOf } from '../core/data.mjs';
-import { el, scrollable } from '../core/dom.mjs';
+import { artPath, speciesOf } from '../core/data.mjs';
+import { el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BOX_LIMIT } from '../../shared/constants.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
@@ -77,7 +77,8 @@ function space(app, session, index, refresh, state) {
       openMenu(app, session, index, refresh, state);
     },
   }, [
-    el('img', { src: url('assets', `pokemon/${pokemon.speciesId}/icon.png`), alt: '' }),
+    el('img', { src: url('assets', artPath(pokemon, 'icon') ?? ''), alt: '' }),
+    shinyMark(pokemon, t('pokemon.shiny')),
   ]);
 }
 

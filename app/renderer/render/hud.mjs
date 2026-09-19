@@ -3,7 +3,7 @@
  * where you are, and the buttons into the menus.
  */
 import { url } from '../core/bridge.mjs';
-import { speciesOf } from '../core/data.mjs';
+import { artPath, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
@@ -141,7 +141,7 @@ export function createHud(handlers) {
             onClick: () => onSelect(index),
           }, [
             el('img', {
-              src: url('assets', `pokemon/${pokemon.speciesId}/icon.png`),
+              src: url('assets', artPath(pokemon, 'icon') ?? ''),
               alt: '',
               style: { width: '28px', height: '28px', objectFit: 'contain' },
             }),

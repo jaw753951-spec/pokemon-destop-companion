@@ -123,3 +123,24 @@ export function scrollable(node) {
   );
   return node;
 }
+
+/**
+ * The mark a shiny Pokémon is shown with.
+ *
+ * The cartridges draw a small sparkle beside the name and play a chime; the
+ * sparkle is a sprite this project does not ship, and a star in the same place
+ * says the same thing at the size these screens work at.
+ */
+export const SHINY_MARK = '★';
+
+/**
+ * That mark as an element, for the screens that list Pokémon.
+ *
+ * @param {{shiny?: boolean}|null|undefined} pokemon
+ * @param {string} [title] the word for it in the player's language
+ * @returns {HTMLElement|null} nothing at all for an ordinary Pokémon
+ */
+export function shinyMark(pokemon, title = '') {
+  if (!pokemon?.shiny) return null;
+  return el('span.shiny-mark', { text: SHINY_MARK, title: title || undefined, 'aria-label': title || undefined });
+}
