@@ -37,6 +37,7 @@ export async function buildDex({ dataDir, sample, log, pool }) {
 
   // Which items the game ships is decided here rather than in the screens.
   const items = shippedItems(everyItem, { machines, moves, species, log });
+  pruneHeldItems(species, items, log);
 
   await writeOut(join(dataDir, 'machines.json'), JSON.stringify(machines));
   await writeOut(join(dataDir, 'natures.json'), JSON.stringify(natures));
@@ -457,7 +458,7 @@ function heldEffect(item) {
   }
 
   // "Consumed when paralyzed to cure paralysis." and its siblings.
-  const cure = /Consumed when (paralyzed|asleep|poisoned|burned|frozen) to cure/i.exec(text);
+  const cure = /Consumed when (paralyzed|asleep|poisoned|burned|frozen|confused) to cure/i.exec(text);
   if (cure) return { on: 'status', status: STATUS_NAMES[cure[1].toLowerCase()] };
   if (/Consumed to cure any status condition/i.test(text)) return { on: 'status', status: 'any' };
 
@@ -643,6 +644,11 @@ function heldEffect(item) {
 
   // "Resets all lowered stats to normal at end of turn. Consumed after use."
   if (/Resets all lowered stats to normal/i.test(text)) return { on: 'restore', consumed: true };
+
+  // "Consumed to cure infatuation. Gen V: Also removes Taunt, Encore, Torment,
+  // Disable, and Cursed Body." — everything a Mental Herb undoes is something
+  // that took a move away, so it is read as one effect rather than five.
+  if (/Consumed to cure infatuation/i.test(text)) return { on: 'free', consumed: true };
 
   // "Both turns of a two-turn charge move happen at once."
   if (/Both turns of a two-turn charge move happen at once/i.test(text)) return { on: 'charge', consumed: true };
@@ -946,6 +952,8 @@ const UNWRITTEN = {
   // "A multi-hit move always hits four or five times."
   'loaded-dice': { held: { on: 'multiHit', min: 4 } },
   'clear-amulet': { held: { on: 'shield', statDrops: true } },
+  // "Steps over everything laid on the ground."
+  'heavy-duty-boots': { held: { on: 'shield', hazards: true } },
   // The Fairy type booster, which the other seventeen document and this
   // newcomer does not.
   'fairy-feather': { held: { on: 'damage', moveType: 'fairy', multiplier: 1.2 } },
@@ -965,7 +973,15 @@ const EFFORT_STEP = 10;
 const PP_UP_LIMIT = 0.6;
 
 /** The conditions a medicine can cure, as its effect text names them. */
-const CURE_NAMES = { poison: 'psn', paralysis: 'par', sleep: 'slp', burn: 'brn', freezing: 'frz', frozen: 'frz' };
+const CURE_NAMES = {
+  poison: 'psn',
+  paralysis: 'par',
+  sleep: 'slp',
+  burn: 'brn',
+  freezing: 'frz',
+  frozen: 'frz',
+  confusion: 'cnf',
+};
 
 /** The stats a berry can raise, as the effect text names them. */
 const STAT_NAMES = {
@@ -979,7 +995,16 @@ const STAT_NAMES = {
 };
 
 /** The conditions a berry can cure, as the effect text names them. */
-const STATUS_NAMES = { paralyzed: 'par', asleep: 'slp', poisoned: 'psn', burned: 'brn', frozen: 'frz' };
+const STATUS_NAMES = {
+  paralyzed: 'par',
+  asleep: 'slp',
+  poisoned: 'psn',
+  burned: 'brn',
+  frozen: 'frz',
+  // Confusion ends with the battle rather than going into the save, so the
+  // berry that cures it is read by the battle rather than by the bag.
+  confused: 'cnf',
+};
 
 /**
  * Which move each TM/HM teaches. An item is reused across generations with
@@ -1082,6 +1107,7 @@ async function buildSpecies(pool, log, limit) {
           growthRate: species.growth_rate?.name ?? 'medium',
           captureRate: species.capture_rate ?? 45,
           genderRate: species.gender_rate,
+          heldItems: wildHeldItems(pokemon.held_items),
           eggGroups: species.egg_groups.map((group) => group.name),
           habitat: species.habitat?.name ?? null,
           isLegendary: species.is_legendary,
@@ -1105,6 +1131,111 @@ async function buildSpecies(pool, log, limit) {
   log(`species ${Object.keys(out).length}`);
   return out;
 }
+
+/**
+ * Forget any held-item slot naming something the game does not ship.
+ *
+ * A wild Nosepass carries a Star Piece in the cartridge, and a Star Piece is
+ * one of the things dropped here because selling is not a system this game
+ * has. A slot pointing at an item the bag could never hold would put a
+ * Pokémon on the field holding nothing under a name, so it is emptied.
+ *
+ * @param {Record<string, any>} species
+ * @param {Record<string, any>} items
+ * @param {(message: string) => void} log
+ */
+function pruneHeldItems(species, items, log) {
+  const dropped = new Set();
+  for (const entry of Object.values(species)) {
+    for (const slot of /** @type {const} */ (['common', 'rare'])) {
+      const slug = entry.heldItems?.[slot];
+      if (!slug || items[slug]) continue;
+      dropped.add(slug);
+      entry.heldItems[slot] = null;
+    }
+  }
+
+  const carrying = Object.values(species).filter(
+    (entry) => entry.heldItems?.common || entry.heldItems?.rare,
+  ).length;
+  log(`held items ${carrying} species carry one${dropped.size ? `, ${dropped.size} slots dropped with their item` : ''}`);
+}
+
+/**
+ * The two held-item slots a wild Pokémon rolls from.
+ *
+ * The cartridges give a species two of them — a common one and a rare one —
+ * and roll which, if either, the Pokémon out in the grass turns out to be
+ * carrying. PokeAPI publishes the same table as a rarity per version, 50 for
+ * the common slot and 5 for the rare one, so the two slots are read back out
+ * of it. The newest version that lists anything wins, as everything else here
+ * follows the newest generation.
+ *
+ * A rarity of 100 is a species that always carries the thing, which the
+ * cartridges express by putting the same item in both slots — so that is what
+ * it comes back as.
+ *
+ * @param {Array<any>} held
+ * @returns {{common: string|null, rare: string|null}}
+ */
+function wildHeldItems(held) {
+  /** @type {{common: string|null, rare: string|null}} */
+  const slots = { common: null, rare: null };
+  let bestRank = Number.MAX_SAFE_INTEGER;
+
+  for (const entry of held ?? []) {
+    for (const detail of entry.version_details ?? []) {
+      const rank = VERSION_PRIORITY.indexOf(detail.version.name);
+      if (rank < 0 || rank > bestRank) continue;
+      // A newer version than anything seen so far replaces the lot: the two
+      // slots belong to one generation's table, not to a mixture.
+      if (rank < bestRank) {
+        bestRank = rank;
+        slots.common = null;
+        slots.rare = null;
+      }
+      if (detail.rarity >= 100) {
+        slots.common = entry.item.name;
+        slots.rare = entry.item.name;
+      } else if (detail.rarity >= 50) {
+        slots.common = entry.item.name;
+      } else if (detail.rarity > 0) {
+        slots.rare = entry.item.name;
+      }
+    }
+  }
+  return slots;
+}
+
+/**
+ * The versions a held-item table may be read from, newest first.
+ *
+ * `VERSION_GROUP_PRIORITY` names version groups; a held-item entry names a
+ * version inside one, so the groups are spread back out into the versions
+ * they contain.
+ */
+const VERSION_PRIORITY = [
+  'scarlet', 'violet',
+  'sword', 'shield',
+  'brilliant-diamond', 'shining-pearl',
+  'lets-go-pikachu', 'lets-go-eevee',
+  'ultra-sun', 'ultra-moon',
+  'sun', 'moon',
+  'omega-ruby', 'alpha-sapphire',
+  'x', 'y',
+  'black-2', 'white-2',
+  'black', 'white',
+  'heartgold', 'soulsilver',
+  'platinum',
+  'diamond', 'pearl',
+  'emerald',
+  'firered', 'leafgreen',
+  'ruby', 'sapphire',
+  'crystal',
+  'gold', 'silver',
+  'yellow',
+  'red', 'blue',
+];
 
 /**
  * Level-up and TM learnsets from the newest generation the Pokémon appears in.

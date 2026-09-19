@@ -9,7 +9,7 @@ import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared
 import { weatherForArea } from '../../shared/area-tags.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { abilityOf, artOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
-import { button, el, setChildren } from '../core/dom.mjs';
+import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
@@ -334,6 +334,92 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         updateBars();
         break;
 
+      case 'volatile':
+        say(t(`volatile.${entry.data?.state}.start`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
+        }));
+        break;
+
+      case 'volatileActive':
+        say(t(`volatile.${entry.data?.state}.active`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'volatileBlocked':
+        say(t(`volatile.${entry.data?.state}.blocked`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'volatileEnded':
+        say(t(`volatile.${entry.data?.state}.end`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'confusionDamage':
+        say(t('battle.confusionDamage', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        battlerFor(entry.side)?.setPose('hit');
+        app.audio.blip('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
+      case 'perished':
+        say(t('battle.perished', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        updateBars();
+        break;
+
+      case 'protect':
+        say(t('battle.protecting', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'protected':
+        say(t('battle.protected', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'bounced':
+        say(t('battle.bounced', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'loafing':
+        say(t('battle.loafing', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'stole':
+      case 'regrew': {
+        const slug = entry.data?.item ?? '';
+        say(t(entry.kind === 'stole' ? 'battle.stole' : 'battle.regrew', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          item: localized(gameData().items[slug]?.name, slug),
+        }));
+        break;
+      }
+
+      case 'typeChanged':
+        say(t('battle.typeChanged', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          types: (entry.data?.types ?? [])
+            .map((type) => localized(gameData().types[type]?.name, type))
+            .join('·'),
+        }));
+        break;
+
+      case 'hazard':
+        say(t(`hazard.${entry.data?.hazard}`));
+        break;
+
+      case 'hazardCleared':
+        say(t('hazard.cleared'));
+        break;
+
+      case 'hazardDamage':
+        say(t('battle.hazardDamage', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        battlerFor(entry.side)?.setPose('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
       case 'noEffect':
         say(t('battle.noEffect'));
         break;
@@ -575,7 +661,10 @@ function nameplate(pokemon) {
   const node = el('span.battle-name');
   if (pokemon) {
     const species = speciesOf(pokemon.speciesId);
-    node.textContent = `${pokemon.nickname || localized(species?.name, '')}  ${t('slot.level', { level: levelOf(pokemon) })}`;
+    const gender = pokemon.gender ? t(`pokemon.gender.${pokemon.gender}`) : '';
+    const shiny = pokemon.shiny ? SHINY_MARK : '';
+    const name = pokemon.nickname || localized(species?.name, '');
+    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(pokemon) })}`;
   }
   return node;
 }

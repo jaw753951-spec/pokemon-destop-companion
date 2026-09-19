@@ -1011,6 +1011,20 @@ canvas {
   text-shadow: 0 0 2px rgba(255, 233, 150, 0.9);
 }
 
+/* ♂ and ♀ beside a name, which infatuation and Rivalry both read. */
+.gender-mark {
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.gender-mark.male {
+  color: #4a7fd0;
+}
+
+.gender-mark.female {
+  color: #d05a8a;
+}
+
 .box-space .shiny-mark {
   position: absolute;
   top: 0;

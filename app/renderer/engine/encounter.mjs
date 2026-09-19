@@ -9,7 +9,7 @@
  */
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { gameData, speciesIdBySlug, speciesOf } from '../core/data.mjs';
-import { createPokemon, levelOf } from './pokemon.mjs';
+import { createPokemon, levelOf, rollWildHeldItem } from './pokemon.mjs';
 
 /** How far a wild Pokémon's level may sit from the companion's. */
 export const LEVEL_SPREAD = { min: -5, max: 15 };
@@ -28,7 +28,12 @@ export function rollWildPokemon(rng, area, companion) {
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
-  return createPokemon(rng, speciesId, level, { hiddenAbility: true });
+  const wild = createPokemon(rng, speciesId, level, { hiddenAbility: true });
+
+  // And whatever it turned out to be carrying, which the cartridges roll off
+  // the lead party Pokémon's ability — the companion, here.
+  rollWildHeldItem(rng, wild, { compoundEyes: companion?.ability === 'compound-eyes' });
+  return wild;
 }
 
 /**
@@ -163,5 +168,46 @@ export function rollTrainer(rng, area, companion, classes) {
   // A trainer leads with their weakest and saves their strongest for last, the
   // way the games order a party.
   party.sort((a, b) => levelOf(a) - levelOf(b));
+  giveTrainerItems(rng, party, 'trainer');
   return { trainerClass, party };
 }
+
+/**
+ * What the Pokémon a person sends out is carrying.
+ *
+ * The cartridges do not roll this — a trainer's party is typed out by hand,
+ * item and all — so the rule here is read off the party data rather than
+ * invented. Counting Emerald's 770 ordinary trainer parties: 1487 Pokémon, of
+ * which 55 hold anything at all, and all but a handful of those hold an Oran
+ * Berry. Every gym leader's ace holds a berry — an Oran early, a Sitrus or a
+ * Chesto once the badges are in — and so does every Elite Four member's and
+ * the champion's, and nothing else on their teams does.
+ *
+ * So: an ordinary trainer's Pokémon almost never carries one, and someone
+ * worth a badge saves it for the Pokémon they lead with last.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {import('./pokemon.mjs').Pokemon[]} party sorted weakest first
+ * @param {'trainer'|'leader'|'champion'} rank
+ */
+export function giveTrainerItems(rng, party, rank) {
+  if (party.length === 0) return party;
+
+  if (rank === 'trainer') {
+    // 55 of 1487, which is one in twenty-seven.
+    for (const pokemon of party) {
+      if (!pokemon.heldItem && rng.chance(TRAINER_ITEM_CHANCE)) pokemon.heldItem = 'oran-berry';
+    }
+    return party;
+  }
+
+  const ace = party[party.length - 1];
+  if (!ace.heldItem) ace.heldItem = levelOf(ace) < SITRUS_LEVEL ? 'oran-berry' : 'sitrus-berry';
+  return party;
+}
+
+/** How often an ordinary trainer's Pokémon carries anything: 55 of 1487. */
+const TRAINER_ITEM_CHANCE = 55 / 1487;
+
+/** The level the leaders' berries stop being Orans, roughly where Emerald's do. */
+const SITRUS_LEVEL = 25;

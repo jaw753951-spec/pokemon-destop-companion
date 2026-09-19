@@ -1,0 +1,516 @@
+/**
+ * The second layer of systems: gender and the items a Pokémon is found
+ * carrying, the states that end with the battle, what can be laid on the
+ * ground or put up in front, and the abilities that needed all of it.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { gameData, itemOf, moveOf, speciesOf } from '../../app/renderer/core/data.mjs';
+import { ABILITIES } from '../../app/renderer/engine/abilities.mjs';
+import { Battle } from '../../app/renderer/engine/battle.mjs';
+import { hazardToll, TERRAIN } from '../../app/renderer/engine/field.mjs';
+import {
+  createPokemon,
+  maxHp,
+  rollGender,
+  rollWildHeldItem,
+  setMove,
+  WILD_ITEM_ODDS,
+  WILD_ITEM_ODDS_COMPOUND_EYES,
+} from '../../app/renderer/engine/pokemon.mjs';
+import { giveTrainerItems, rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
+import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import {
+  addVolatile,
+  hasVolatile,
+  oppositeGenders,
+  PROTECT_MOVES,
+  protectChance,
+  tickVolatile,
+  VOLATILE,
+} from '../../app/renderer/engine/volatile.mjs';
+
+const ready = await useRealGameData();
+const options = { skip: ready ? false : NEEDS_ASSETS };
+
+const PIKACHU = 25;
+const GEODUDE = 74;
+const DITTO = 132;
+const CHANSEY = 113;
+const MAGNEMITE = 81;
+
+/** A Pokémon with settled genes, so a number in a test means something. */
+function fixed(speciesId, level, moves = []) {
+  const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31, shiny: false });
+  pokemon.nature = 'hardy';
+  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+  if (moves.length) {
+    pokemon.moves = [];
+    moves.forEach((move, index) => setMove(pokemon, index, move));
+  }
+  pokemon.hp = maxHp(pokemon);
+  return pokemon;
+}
+
+/** A foe that can stand there all day and never hurt anything. */
+const punchbag = (level = 70) => fixed(GEODUDE, level, ['defense-curl']);
+
+function fight(player, foes, extra = {}) {
+  return new Battle({
+    rng: new Rng(11),
+    player,
+    foes: Array.isArray(foes) ? foes : [foes],
+    policy: defaultAutoBattle(),
+    ...extra,
+  });
+}
+
+// ----------------------------------------------------------------- gender
+
+test('gender comes out of the species, in eighths', options, () => {
+  const rng = new Rng(4);
+
+  // Magnemite has none at all, and never gets one.
+  assert.equal(rollGender(rng, speciesOf(MAGNEMITE)), null);
+  // Chansey is all female, Nidoran♂ all male.
+  assert.equal(rollGender(rng, speciesOf(CHANSEY)), 'female');
+  assert.equal(rollGender(rng, speciesOf(32)), 'male');
+
+  // And a species that is one in eight comes out mostly male.
+  let female = 0;
+  for (let roll = 0; roll < 800; roll++) if (rollGender(rng, speciesOf(1)) === 'female') female++;
+  assert.ok(female > 40 && female < 160, `expected about an eighth, got ${female} of 800`);
+
+  assert.equal(oppositeGenders({ gender: 'male' }, { gender: 'female' }), true);
+  assert.equal(oppositeGenders({ gender: 'male' }, { gender: 'male' }), false);
+  assert.equal(oppositeGenders({ gender: null }, { gender: 'female' }), false);
+});
+
+// -------------------------------------------------------------- held items
+
+test('a species carries the two slots the cartridge gives it', options, () => {
+  // Ditto: Quick Powder commonly, Metal Powder rarely — the pair the games
+  // have given it since Diamond and Pearl.
+  assert.deepEqual(speciesOf(DITTO).heldItems, { common: 'quick-powder', rare: 'metal-powder' });
+  assert.equal(speciesOf(PIKACHU).heldItems.rare, 'light-ball');
+
+  // And no slot names an item the bag could never hold.
+  for (const entry of Object.values(gameData().species)) {
+    for (const slug of Object.values(entry.heldItems ?? {})) {
+      if (slug) assert.ok(itemOf(slug), `${entry.slug} carries ${slug}, which is not shipped`);
+    }
+  }
+});
+
+test('a wild Pokémon rolls its item the way the cartridge rolls it', options, () => {
+  // 45 nothing, 50 common, 5 rare — straight out of SetWildMonHeldItem.
+  assert.deepEqual(WILD_ITEM_ODDS, { nothing: 45, common: 95 });
+  assert.deepEqual(WILD_ITEM_ODDS_COMPOUND_EYES, { nothing: 20, common: 80 });
+
+  const rng = new Rng(9);
+  const counts = { none: 0, common: 0, rare: 0 };
+  for (let roll = 0; roll < 4000; roll++) {
+    const ditto = fixed(DITTO, 20);
+    ditto.heldItem = null;
+    rollWildHeldItem(rng, ditto);
+    if (!ditto.heldItem) counts.none++;
+    else if (ditto.heldItem === 'quick-powder') counts.common++;
+    else counts.rare++;
+  }
+  assert.ok(Math.abs(counts.none / 4000 - 0.45) < 0.05, `nothing: ${counts.none / 4000}`);
+  assert.ok(Math.abs(counts.common / 4000 - 0.5) < 0.05, `common: ${counts.common / 4000}`);
+  assert.ok(counts.rare > 0 && counts.rare / 4000 < 0.1, `rare: ${counts.rare / 4000}`);
+
+  // A Compound Eyes in the lead turns up far more of them.
+  let carrying = 0;
+  for (let roll = 0; roll < 2000; roll++) {
+    const ditto = fixed(DITTO, 20);
+    ditto.heldItem = null;
+    rollWildHeldItem(rng, ditto, { compoundEyes: true });
+    if (ditto.heldItem) carrying++;
+  }
+  assert.ok(carrying / 2000 > 0.7, `with Compound Eyes: ${carrying / 2000}`);
+});
+
+test('a species whose two slots match always carries it', options, () => {
+  const rng = new Rng(3);
+  const pokemon = fixed(PIKACHU, 20);
+  // Stand in a species table where both slots hold the same thing, which is
+  // how the cartridge says "always".
+  speciesOf(PIKACHU).heldItems = { common: 'oran-berry', rare: 'oran-berry' };
+  try {
+    for (let roll = 0; roll < 50; roll++) {
+      pokemon.heldItem = null;
+      rollWildHeldItem(rng, pokemon);
+      assert.equal(pokemon.heldItem, 'oran-berry');
+    }
+  } finally {
+    speciesOf(PIKACHU).heldItems = { common: null, rare: 'light-ball' };
+  }
+});
+
+test('a wild encounter arrives with whatever it rolled', options, () => {
+  const area = { id: 'test', tags: ['grass'], encounters: [{ species: 'ditto' }] };
+  const companion = fixed(PIKACHU, 30);
+
+  const rng = new Rng(2);
+  let carrying = 0;
+  for (let roll = 0; roll < 300; roll++) {
+    if (rollWildPokemon(rng, area, companion).heldItem) carrying++;
+  }
+  assert.ok(carrying > 100, `only ${carrying} of 300 turned up carrying anything`);
+});
+
+test('a trainer hands the berry to the Pokémon they lead with last', options, () => {
+  const rng = new Rng(6);
+
+  // A gym leader's ace, and nobody else's.
+  const party = [fixed(GEODUDE, 30), fixed(GEODUDE, 32), fixed(GEODUDE, 35)];
+  giveTrainerItems(rng, party, 'leader');
+  assert.equal(party[0].heldItem, null);
+  assert.equal(party[1].heldItem, null);
+  assert.equal(party[2].heldItem, 'sitrus-berry');
+
+  // An ordinary trainer's almost never does: 55 of 1487 in Emerald.
+  let carrying = 0;
+  for (let roll = 0; roll < 2000; roll++) {
+    const one = [fixed(GEODUDE, 20)];
+    giveTrainerItems(rng, one, 'trainer');
+    if (one[0].heldItem) carrying++;
+  }
+  assert.ok(carrying / 2000 < 0.1, `ordinary trainers carried ${carrying / 2000}`);
+  assert.ok(carrying > 0, 'but not never');
+});
+
+// ------------------------------------------------------- confusion and love
+
+test('confusion runs out, and hurts on the way', options, () => {
+  const player = fixed(PIKACHU, 50, ['tackle']);
+  const battle = fight(player, punchbag());
+
+  assert.equal(battle.confuse(battle.player, []), true);
+  assert.ok(hasVolatile(battle.player, VOLATILE.CONFUSION));
+  // Already confused is not confused twice.
+  assert.equal(battle.confuse(battle.player, []), false);
+
+  const before = player.hp;
+  let hitItself = false;
+  for (let turn = 0; turn < 12 && battle.running; turn++) {
+    if (battle.takeTurn().some((entry) => entry.kind === 'confusionDamage')) hitItself = true;
+  }
+  assert.ok(hitItself, 'twelve turns confused and it never once hit itself');
+  assert.ok(player.hp < before);
+  assert.equal(hasVolatile(battle.player, VOLATILE.CONFUSION), false, 'it should have worn off');
+});
+
+test('a Persim Berry is eaten the moment the confusion lands', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.heldItem = 'persim-berry';
+  const battle = fight(player, punchbag());
+
+  const log = [];
+  battle.confuse(battle.player, log);
+  assert.equal(hasVolatile(battle.player, VOLATILE.CONFUSION), false);
+  assert.equal(player.heldItem, null);
+  assert.ok(log.some((entry) => entry.kind === 'berry'));
+});
+
+test('infatuation needs one of each', options, () => {
+  const male = fixed(PIKACHU, 50);
+  male.gender = 'male';
+  const female = punchbag();
+  female.gender = 'female';
+
+  const battle = fight(male, female);
+  assert.equal(battle.infatuate(battle.player, /** @type {any} */ (battle.foe), []), true);
+  assert.ok(hasVolatile(/** @type {any} */ (battle.foe), VOLATILE.INFATUATION));
+
+  // And refuses a pair that is not one of each.
+  female.gender = 'male';
+  const same = fight(male, female);
+  assert.equal(same.infatuate(same.player, /** @type {any} */ (same.foe), []), false);
+
+  // Or one that has no gender at all.
+  const magnemite = fixed(MAGNEMITE, 50);
+  magnemite.gender = null;
+  const neither = fight(male, magnemite);
+  assert.equal(neither.infatuate(neither.player, /** @type {any} */ (neither.foe), []), false);
+});
+
+test('Misty Terrain keeps both of them off whatever stands on it', options, () => {
+  const battle = fight(fixed(PIKACHU, 50), punchbag());
+  battle.field.setTerrain(TERRAIN.MISTY, 5);
+  assert.equal(battle.confuse(battle.player, []), false);
+});
+
+// ------------------------------------------ hazards, guards and lost moves
+
+test('what is laid on the ground bites what walks onto it', options, () => {
+  const toll = (hazards, arriving) =>
+    hazardToll(hazards, arriving, (attacking, types) => (types.includes('flying') ? 2 : 1));
+
+  // Spikes only reach the ground, and stack in three layers.
+  const grounded = { types: ['normal'], grounded: true };
+  assert.equal(toll({ spikes: 1, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 }, grounded).damage, 1 / 8);
+  assert.equal(toll({ spikes: 3, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 }, grounded).damage, 1 / 4);
+  assert.equal(
+    toll({ spikes: 3, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 }, { types: ['flying'], grounded: false }).damage,
+    0,
+  );
+
+  // Stealth Rock reaches everything, scaled by how it takes a Rock move.
+  const rocks = { spikes: 0, toxicSpikes: 0, stealthRock: 1, stickyWeb: 0 };
+  assert.equal(toll(rocks, { types: ['flying'], grounded: false }).damage, 1 / 4);
+
+  // Toxic Spikes poison what walks on them, and a grounded Poison type takes
+  // them away simply by arriving.
+  const poison = { spikes: 0, toxicSpikes: 1, stealthRock: 0, stickyWeb: 0 };
+  assert.equal(toll(poison, grounded).status, 'psn');
+  assert.equal(toll(poison, { types: ['steel'], grounded: true }).status, null);
+  assert.equal(toll(poison, { types: ['poison'], grounded: true }).absorbs, true);
+
+  // And a web takes a stage of Speed off whatever is standing on it.
+  assert.equal(toll({ spikes: 0, toxicSpikes: 0, stealthRock: 0, stickyWeb: 1 }, grounded).stat, 'spe');
+});
+
+test('the next Pokémon a trainer sends out walks onto them', options, () => {
+  const player = fixed(PIKACHU, 90, ['spikes', 'thunderbolt']);
+  const battle = fight(player, [fixed(GEODUDE, 5), fixed(GEODUDE, 5)]);
+
+  battle.field.addHazard('foe', 'spikes');
+  const next = battle.foeQueue[0];
+  const before = next.pokemon.hp;
+
+  // Knock the first one down and the second walks in over the spikes.
+  const log = [];
+  while (battle.running && log.length < 200) log.push(...battle.takeTurn());
+  assert.ok(next.pokemon.hp < before || next.pokemon.hp === 0, 'the second one should have been bitten');
+
+  // A pair of Heavy-Duty Boots steps over them.
+  const booted = fight(fixed(PIKACHU, 90), punchbag());
+  booted.field.addHazard('player', 'spikes');
+  booted.player.pokemon.heldItem = 'heavy-duty-boots';
+  const full = booted.player.pokemon.hp;
+  booted.walkOntoHazards(booted.player, []);
+  assert.equal(booted.player.pokemon.hp, full);
+});
+
+test('a guard holds for a turn, and gets harder to put up', options, () => {
+  // Every move in the table is one the dex actually ships.
+  for (const slug of Object.keys(PROTECT_MOVES)) assert.ok(moveOf(slug), `${slug} is not a move`);
+
+  assert.equal(protectChance(0), 1);
+  assert.ok(protectChance(1) - 1 / 3 < 1e-9);
+  assert.ok(protectChance(2) < 0.2);
+
+  const player = fixed(PIKACHU, 50, ['protect']);
+  const foe = fixed(GEODUDE, 50, ['tackle']);
+  const battle = fight(player, foe);
+
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'protect'));
+  assert.ok(log.some((entry) => entry.kind === 'protected'), 'the tackle should have been stopped');
+});
+
+test('a Spiky Shield charges whatever touched it', options, () => {
+  const player = fixed(PIKACHU, 50, ['spiky-shield']);
+  const foe = fixed(GEODUDE, 60, ['tackle']);
+  const battle = fight(player, foe);
+
+  const before = foe.hp;
+  battle.takeTurn();
+  assert.ok(foe.hp < before, 'the Pokémon that ran into it should have paid');
+});
+
+test('a move can be taken away', options, () => {
+  const player = fixed(PIKACHU, 50, ['taunt', 'thunderbolt']);
+  const foe = fixed(GEODUDE, 60, ['defense-curl', 'tackle']);
+  const battle = fight(player, foe);
+
+  assert.ok(battle.applyLock(battle.player, /** @type {any} */ (battle.foe), { state: VOLATILE.TAUNT, turns: 3 }, []));
+  // Under a Taunt it has to reach for the attack.
+  const usable = battle.stillAllowed(/** @type {any} */ (battle.foe), foe.moves);
+  assert.deepEqual(usable.map((slot) => slot.move), ['tackle']);
+
+  // A Mental Herb undoes it.
+  foe.heldItem = 'mental-herb';
+  battle.eatMentalHerb(/** @type {any} */ (battle.foe), []);
+  assert.equal(hasVolatile(/** @type {any} */ (battle.foe), VOLATILE.TAUNT), false);
+  assert.equal(foe.heldItem, null);
+});
+
+test('an Encore locks a Pokémon into what it just used', options, () => {
+  const foe = fixed(GEODUDE, 60, ['tackle', 'defense-curl']);
+  const battle = fight(fixed(PIKACHU, 50, ['encore']), foe);
+  battle.foe.lastMove = 'defense-curl';
+
+  assert.ok(battle.applyLock(battle.player, /** @type {any} */ (battle.foe), { state: VOLATILE.ENCORE, turns: 3 }, []));
+  assert.equal(battle.chooseMove(/** @type {any} */ (battle.foe), battle.player), 'defense-curl');
+});
+
+test('the clocks run down together', options, () => {
+  const combatant = { volatile: {} };
+  addVolatile(combatant, VOLATILE.TAUNT, 2);
+  addVolatile(combatant, VOLATILE.CONFUSION, 1);
+
+  assert.deepEqual(tickVolatile(combatant), [VOLATILE.CONFUSION]);
+  assert.deepEqual(tickVolatile(combatant), [VOLATILE.TAUNT]);
+  assert.deepEqual(tickVolatile(combatant), []);
+});
+
+// -------------------------------------------------------- the new abilities
+
+test('the engine reads most of the dex now', options, () => {
+  const dex = gameData().abilities;
+  assert.ok(Object.keys(ABILITIES).length > Object.keys(dex).length * 0.75);
+  for (const slug of Object.keys(ABILITIES)) assert.ok(dex[slug], `${slug} is not in the dex`);
+});
+
+test('a stat the other side is not allowed to touch', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.ability = 'clear-body';
+  const battle = fight(player, punchbag());
+
+  // The other side cannot, but its own moves still can.
+  assert.equal(battle.applyStage(battle.player, 'atk', -1, []), false);
+  assert.equal(battle.applyStage(battle.player, 'atk', -1, [], { source: 'self' }), true);
+  assert.equal(battle.applyStage(battle.player, 'atk', 1, []), true);
+});
+
+test('Contrary reads every change the other way round', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.ability = 'contrary';
+  const battle = fight(player, punchbag());
+
+  battle.applyStage(battle.player, 'atk', -1, []);
+  assert.equal(battle.player.stages.atk, 1);
+
+  // And Simple reads every one twice as far.
+  player.ability = 'simple';
+  battle.player.stages.atk = 0;
+  battle.applyStage(battle.player, 'atk', 1, [], { source: 'self' });
+  assert.equal(battle.player.stages.atk, 2);
+});
+
+test('Defiant answers a drop and Unaware ignores the lot', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.ability = 'defiant';
+  const battle = fight(player, punchbag());
+  battle.applyStage(battle.player, 'def', -1, []);
+  assert.equal(battle.player.stages.atk, 2);
+
+  // Unaware reads the other side's stages as zero.
+  const blind = fixed(PIKACHU, 50, ['thunderbolt']);
+  blind.ability = 'unaware';
+  const foe = fixed(GEODUDE, 70);
+  const second = fight(blind, foe);
+  const move = moveOf('thunderbolt');
+  const plain = second.computeDamage(second.player, /** @type {any} */ (second.foe), move).damage;
+  second.foe.stages.spd = 6;
+  assert.equal(second.computeDamage(second.player, /** @type {any} */ (second.foe), move).damage, plain);
+});
+
+test('taking something down is worth a stage', options, () => {
+  const player = fixed(PIKACHU, 90, ['thunderbolt']);
+  player.ability = 'moxie';
+  const battle = fight(player, [fixed(GEODUDE, 5), fixed(GEODUDE, 5)]);
+
+  while (battle.running && battle.turn < 20) battle.takeTurn();
+  assert.ok(battle.player.stages.atk > 0, 'Moxie should have paid for the knockout');
+});
+
+test('a Protean becomes what it is about to use', options, () => {
+  const player = fixed(PIKACHU, 50, ['tackle']);
+  player.ability = 'protean';
+  const battle = fight(player, punchbag());
+
+  assert.deepEqual(battle.typesOf(battle.player), ['electric']);
+  battle.takeTurn();
+  assert.deepEqual(battle.typesOf(battle.player), ['normal']);
+});
+
+test('a Scrappy reaches a Ghost that Normal cannot', options, () => {
+  const player = fixed(PIKACHU, 50, ['tackle']);
+  const gengar = fixed(94, 50);
+  const battle = fight(player, gengar);
+  const move = moveOf('tackle');
+
+  assert.equal(battle.effectivenessOf(battle.player, move, /** @type {any} */ (battle.foe)), 0);
+  player.ability = 'scrappy';
+  assert.ok(battle.effectivenessOf(battle.player, move, /** @type {any} */ (battle.foe)) > 0);
+});
+
+test('a Truant works every other turn', options, () => {
+  const player = fixed(PIKACHU, 50, ['tackle']);
+  player.ability = 'truant';
+  const battle = fight(player, punchbag());
+
+  const first = battle.takeTurn();
+  const second = battle.takeTurn();
+  const moved = (log) => log.some((entry) => entry.kind === 'move' && entry.side === 'player');
+  assert.notEqual(moved(first), moved(second), 'it should move on one turn and loaf on the other');
+});
+
+test('a Gluttony reaches for a berry early, and a Ripen doubles it', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.heldItem = 'liechi-berry'; // waits for a quarter
+  player.ability = 'gluttony';
+  const battle = fight(player, punchbag());
+
+  player.hp = Math.floor(maxHp(player) * 0.45);
+  battle.eatOneBerry(battle.player, []);
+  assert.equal(player.heldItem, null, 'Gluttony should have reached at half');
+  assert.equal(battle.player.stages.atk, 1);
+
+  // A Ripen makes it worth two stages instead of one.
+  const ripe = fixed(PIKACHU, 50);
+  ripe.heldItem = 'liechi-berry';
+  ripe.ability = 'ripen';
+  const second = fight(ripe, punchbag());
+  ripe.hp = Math.floor(maxHp(ripe) * 0.2);
+  second.eatOneBerry(second.player, []);
+  assert.equal(second.player.stages.atk, 2);
+});
+
+test('an Unnerve keeps the berry in its wrapper', options, () => {
+  const player = fixed(PIKACHU, 50);
+  player.heldItem = 'sitrus-berry';
+  const foe = punchbag();
+  foe.ability = 'unnerve';
+  const battle = fight(player, foe);
+
+  player.hp = Math.floor(maxHp(player) * 0.3);
+  battle.eatOneBerry(battle.player, []);
+  assert.equal(player.heldItem, 'sitrus-berry');
+});
+
+test('a Pickpocket helps itself to what touched it', options, () => {
+  const player = fixed(PIKACHU, 50, ['tackle']);
+  const foe = punchbag();
+  foe.ability = 'pickpocket';
+  foe.heldItem = null;
+  player.heldItem = 'leftovers';
+
+  const battle = fight(player, foe);
+  battle.takeTurn();
+  assert.equal(foe.heldItem, 'leftovers');
+  assert.equal(player.heldItem, null);
+});
+
+test('the four Ruin abilities weigh on everything but their holder', options, () => {
+  const player = fixed(PIKACHU, 50);
+  const foe = punchbag();
+
+  const before = fight(player, foe);
+  const plain = before.stat(before.player, 'spa');
+  const theirs = before.stat(/** @type {any} */ (before.foe), 'spa');
+
+  foe.ability = 'vessel-of-ruin';
+  const ruined = fight(player, foe);
+  assert.equal(ruined.stat(ruined.player, 'spa'), Math.floor(plain * 0.75));
+  // And not on the Pokémon carrying it.
+  assert.equal(ruined.stat(/** @type {any} */ (ruined.foe), 'spa'), theirs);
+});

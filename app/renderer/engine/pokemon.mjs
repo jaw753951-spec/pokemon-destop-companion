@@ -30,6 +30,7 @@ import {
  * @property {number} statusTurns
  * @property {string|null} heldItem
  * @property {string} ability
+ * @property {'male'|'female'|null} gender null for the species that have none
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
@@ -47,6 +48,20 @@ import {
 export const SHINY_ODDS = 1 / 4096;
 
 /**
+ * How often a wild Pokémon turns out to be carrying something.
+ *
+ * Straight from the cartridge: a hundred-sided roll, under 45 and it carries
+ * nothing, under 95 and it carries the common slot, otherwise the rare one.
+ * A Compound Eyes in the lead — here, the companion — moves both lines, which
+ * is the one thing in the game that changes them.
+ *
+ * A species whose two slots hold the same item always carries it; that is how
+ * the games say "always" rather than with a third number.
+ */
+export const WILD_ITEM_ODDS = { nothing: 45, common: 95 };
+export const WILD_ITEM_ODDS_COMPOUND_EYES = { nothing: 20, common: 80 };
+
+/**
  * Roll a new Pokémon at a level.
  *
  * @param {import('../core/rng.mjs').Rng} rng
@@ -58,6 +73,7 @@ export const SHINY_ODDS = 1 / 4096;
  *   ball?: string|null,
  *   hiddenAbility?: boolean,
  *   shiny?: boolean,
+ *   gender?: 'male'|'female'|null,
  * }} [options]
  * @returns {Pokemon}
  */
@@ -84,6 +100,7 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     statusTurns: 0,
     heldItem: null,
     ability: pickAbility(rng, species, options.hiddenAbility ?? false),
+    gender: options.gender !== undefined ? options.gender : rollGender(rng, species),
     shiny: options.shiny ?? rng.chance(SHINY_ODDS),
     caughtAt: Date.now(),
     ball: options.ball ?? null,
@@ -114,6 +131,54 @@ function pickAbility(rng, species, hiddenAbility) {
     : species.abilities.filter((entry) => !entry.hidden);
   if (pool.length) return rng.pick(pool).name;
   return species.abilities[0]?.name ?? 'none';
+}
+
+/**
+ * Whether this one is male, female, or neither.
+ *
+ * The dex files it as eighths: -1 for a species with no gender at all, and
+ * otherwise how many eighths of them are female. A Bulbasaur is 1, so one in
+ * eight; a Chansey is 8, so all of them.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {any} species
+ * @returns {'male'|'female'|null}
+ */
+export function rollGender(rng, species) {
+  const rate = species?.genderRate ?? -1;
+  if (rate < 0) return null;
+  return rng.next() < rate / 8 ? 'female' : 'male';
+}
+
+/**
+ * Give a wild Pokémon whatever it turned out to be carrying.
+ *
+ * Only the wild: a trainer's Pokémon is handed its item by whoever built the
+ * party, which is what the cartridges do too — `SetWildMonHeldItem` refuses to
+ * run at all in a trainer battle.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {Pokemon} pokemon
+ * @param {{compoundEyes?: boolean}} [options] whether the lead has the ability
+ *   that turns up more of them
+ * @returns {string|null} what it ended up holding
+ */
+export function rollWildHeldItem(rng, pokemon, options = {}) {
+  const slots = speciesOf(pokemon.speciesId)?.heldItems;
+  if (!slots || (!slots.common && !slots.rare)) return null;
+
+  // Both slots holding the same thing is how the games say "always".
+  if (slots.common && slots.common === slots.rare) {
+    pokemon.heldItem = slots.common;
+    return pokemon.heldItem;
+  }
+
+  const odds = options.compoundEyes ? WILD_ITEM_ODDS_COMPOUND_EYES : WILD_ITEM_ODDS;
+  const roll = rng.int(0, 99);
+  if (roll < odds.nothing) return null;
+
+  pokemon.heldItem = (roll < odds.common ? slots.common : slots.rare) ?? null;
+  return pokemon.heldItem;
 }
 
 /**

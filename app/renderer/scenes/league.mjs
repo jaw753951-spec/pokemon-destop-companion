@@ -14,7 +14,7 @@ import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { evolveToLevel } from '../engine/encounter.mjs';
+import { evolveToLevel, giveTrainerItems } from '../engine/encounter.mjs';
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
@@ -260,7 +260,10 @@ export function buildParty(session, trainer, levelBonus) {
   const roster = (trainer.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length ? roster : strongestOfType(session, trainer.type, 3);
-  return species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 24 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 24 }));
+  // The Elite Four and the champion save the berry for the Pokémon they lead
+  // with last, as every one of them does in Emerald.
+  return giveTrainerItems(session.rng, party, 'champion');
 }
 
 /**

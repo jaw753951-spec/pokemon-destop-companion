@@ -147,7 +147,8 @@ export const ABILITIES = {
 
   // ---- Types the holder is simply not hit by, and the ones it drinks.
 
-  levitate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null) },
+  levitate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
+  eelevate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
   'volt-absorb': { absorb: (ctx, move) => (move.type === 'electric' ? { heal: ABSORB_HEAL } : null) },
   'water-absorb': { absorb: (ctx, move) => (move.type === 'water' ? { heal: ABSORB_HEAL } : null) },
   'earth-eater': { absorb: (ctx, move) => (move.type === 'ground' ? { heal: ABSORB_HEAL } : null) },
@@ -349,7 +350,167 @@ export const ABILITIES = {
     turn: (ctx) => { if (ctx.foe.pokemon.status === 'slp') ctx.damage(ctx.foe, 1 / 8); },
   },
   'ice-face': { sturdy: true },
+
+  // ---- Stats the other side is not allowed to touch.
+
+  'clear-body': { statDrop: () => true },
+  'white-smoke': { statDrop: () => true },
+  'full-metal-body': { statDrop: () => true },
+  'hyper-cutter': { statDrop: (ctx, stat) => stat === 'atk' },
+  'big-pecks': { statDrop: (ctx, stat) => stat === 'def' },
+  'mirror-armor': { reflectsDrops: true },
+
+  // And the ones that answer a drop rather than refuse it.
+  defiant: { onStatDropped: (ctx) => ctx.raise(ctx.self, 'atk', 2) },
+  competitive: { onStatDropped: (ctx) => ctx.raise(ctx.self, 'spa', 2) },
+  'anger-point': { onCrit: (ctx) => ctx.raise(ctx.self, 'atk', 12) },
+  'guard-dog': { onStatDropped: (ctx, stat) => { if (stat === 'atk') ctx.raise(ctx.self, 'atk', 2); } },
+
+  // The three that read the whole table differently.
+  contrary: { invertStages: true },
+  simple: { doubleStages: true },
+  unaware: { ignoresStages: true },
+
+  // ---- What taking something down is worth.
+
+  moxie: { onKnockOut: (ctx) => ctx.raise(ctx.self, 'atk', 1) },
+  'chilling-neigh': { onKnockOut: (ctx) => ctx.raise(ctx.self, 'atk', 1) },
+  'grim-neigh': { onKnockOut: (ctx) => ctx.raise(ctx.self, 'spa', 1) },
+  'soul-heart': { onKnockOut: (ctx) => ctx.raise(ctx.self, 'spa', 1) },
+  'as-one-glastrier': { onKnockOut: (ctx) => ctx.raise(ctx.self, 'atk', 1), blocksBerries: true },
+  'as-one-spectrier': { onKnockOut: (ctx) => ctx.raise(ctx.self, 'spa', 1), blocksBerries: true },
+  'beast-boost': {
+    // Whichever of its own stats is highest, which is what makes it read as a
+    // different ability on every Pokémon that has it.
+    onKnockOut: (ctx) => {
+      const stats = ctx.statsOf(ctx.self);
+      const best = ['atk', 'def', 'spa', 'spd', 'spe'].reduce((a, b) => (stats[b] > stats[a] ? b : a));
+      ctx.raise(ctx.self, best, 1);
+    },
+  },
+  'supreme-overlord': { onKnockOut: (ctx) => { ctx.raise(ctx.self, 'atk', 1); ctx.raise(ctx.self, 'spa', 1); } },
+
+  // ---- Being a different type from the one on the card.
+
+  protean: { retypes: 'move' },
+  libero: { retypes: 'move' },
+  'color-change': { retypes: 'hit' },
+  scrappy: { hitsGhosts: true },
+  'minds-eye': { hitsGhosts: true, ignoresEvasion: true },
+  corrosion: { corrodes: true },
+  dragonize: { moveType: (ctx, move) => (move.type === 'normal' ? 'dragon' : null), power: platePower },
+  'fire-mane': { power: (ctx, move) => (move.type === 'fire' ? 1.5 : 1) },
+  // "Its moves behave as though the sun were out", which is the whole of it.
+  'mega-sol': { actsSunny: true },
+  'aura-guard': { taken: (ctx, move) => (hasFlag(move, 'contact') ? 0.5 : 1) },
+  'wonder-guard': { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 1 : 0) },
+
+  // ---- Conditions turned to advantage, and conditions refused.
+
+  'toxic-boost': { stat: (ctx, stat) => (ctx.self.pokemon.status === 'psn' && stat === 'atk' ? 1.5 : 1) },
+  'flare-boost': { stat: (ctx, stat) => (ctx.self.pokemon.status === 'brn' && stat === 'spa' ? 1.5 : 1) },
+  'early-bird': { wakesTwiceAsFast: true },
+  synchronize: { reflectsStatus: true },
+  'shield-dust': { noSecondaryTaken: true },
+  oblivious: { blockVolatile: (ctx, state) => state === 'infatuation' || state === 'taunt' },
+  'own-tempo': { blockVolatile: (ctx, state) => state === 'confusion' },
+  'aroma-veil': { blockVolatile: (ctx, state) => LOCKED_STATES.has(state) },
+  'tangled-feet': { evasion: (ctx) => (ctx.self.volatile.confusion > 0 ? 0.5 : 1) },
+  'cute-charm': { contact: (ctx) => ctx.infatuate(ctx.foe, 0.3) },
+  rivalry: {
+    // Harder against its own kind and softer against the other, which needs
+    // both of them to have one at all.
+    power: (ctx) => {
+      const mine = ctx.self.pokemon.gender;
+      const theirs = ctx.foe.pokemon.gender;
+      if (!mine || !theirs) return 1;
+      return mine === theirs ? 1.25 : 0.75;
+    },
+  },
+
+  // ---- Answering a hit with something that was not there before.
+
+  'poison-touch': { contact: (ctx) => ctx.inflict(ctx.foe, 'psn', 0.3) },
+  'cursed-body': { hit: (ctx) => ctx.disable(ctx.foe, 0.3) },
+  'spicy-spray': { hit: (ctx) => ctx.inflict(ctx.foe, 'brn', 1) },
+  'perish-body': { contact: (ctx) => ctx.perish() },
+  'toxic-debris': {
+    hit: (ctx, move) => { if (move.damageClass === 'physical') ctx.layHazard('toxicSpikes'); },
+  },
+  'toxic-chain': { onHitDealt: (ctx) => ctx.inflict(ctx.foe, 'psn', 0.3) },
+  'liquid-ooze': { drainHurts: true },
+  'innards-out': { faint: (ctx) => ctx.damageFlat(ctx.foe, ctx.lastDamage) },
+  damp: { dampens: true },
+
+  // ---- Charging up off something that was aimed at it.
+
+  'wind-power': { absorbCharge: (ctx, move) => hasFlag(move, 'wind') },
+  electromorphosis: { absorbCharge: () => true },
+
+  // ---- Turns given up, and turns taken.
+
+  truant: { skipsEveryOther: true },
+  'slow-start': {
+    stat: (ctx, stat) =>
+      ctx.self.turnsTaken < 5 && (stat === 'atk' || stat === 'spe') ? 0.5 : 1,
+  },
+  moody: {
+    turn: (ctx) => {
+      const stats = ['atk', 'def', 'spa', 'spd', 'spe'];
+      const up = ctx.rng.pick(stats);
+      const down = ctx.rng.pick(stats.filter((stat) => stat !== up));
+      ctx.raise(ctx.self, up, 2);
+      ctx.raise(ctx.self, down, -1);
+    },
+  },
+  'surge-surfer': { stat: (ctx, stat) => (ctx.terrain === TERRAIN.ELECTRIC && stat === 'spe' ? 2 : 1) },
+  'queenly-majesty': { blocksPriority: true },
+  dazzling: { blocksPriority: true },
+  'armor-tail': { blocksPriority: true },
+  'long-reach': { noContact: true },
+  'unseen-fist': { unseenFist: true },
+  'piercing-drill': { piercing: true },
+  'mycelium-might': { movesLastWithStatus: true, ignoresAbilities: true },
+  infiltrator: { infiltrates: true },
+  pressure: { pressures: true },
+  'parental-bond': { hitsTwice: true },
+  'screen-cleaner': { start: (ctx) => ctx.clearScreens() },
+  'supersweet-syrup': { start: (ctx) => ctx.raise(ctx.foe, 'eva', -1) },
+  'magic-bounce': { bouncesStatus: true },
+
+  // ---- What is held, and what becomes of it.
+
+  'sticky-hold': { keepsItem: true },
+  unburden: { unburden: true },
+  pickpocket: { contact: (ctx) => ctx.steal() },
+  magician: { onHitDealt: (ctx) => ctx.steal() },
+  unnerve: { blocksBerries: true },
+  gluttony: { berryEarly: true },
+  ripen: { berryDouble: true },
+  'cheek-pouch': { onBerry: (ctx) => ctx.heal(ctx.self, 1 / 3) },
+  harvest: { regrowsBerry: 0.5 },
+  'cud-chew': { regrowsBerry: 1 },
+
+  // ---- The four that weigh on everything but their holder.
+
+  'vessel-of-ruin': { ruin: { stat: 'spa', multiplier: 0.75 } },
+  'sword-of-ruin': { ruin: { stat: 'def', multiplier: 0.75 } },
+  'tablets-of-ruin': { ruin: { stat: 'atk', multiplier: 0.75 } },
+  'beads-of-ruin': { ruin: { stat: 'spd', multiplier: 0.75 } },
+
+  // And the one that helps itself to whatever the other side worked for.
+  opportunist: { copiesRaises: true },
+
+  // Confusion on top of the poison, which needed confusion to exist first.
+  'poison-puppeteer': {
+    onHitDealt: (ctx) => {
+      if (ctx.foe.pokemon.status === 'psn') ctx.confuse(ctx.foe);
+    },
+  },
 };
+
+/** The states a move can take away, which an Aroma Veil refuses on its own. */
+const LOCKED_STATES = new Set(['taunt', 'encore', 'disable', 'torment']);
 
 /**
  * The ability a Pokémon is acting on, if the engine knows what it does.

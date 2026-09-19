@@ -434,16 +434,21 @@ export function itemSuits(held, pokemon) {
  * for a move that has run dry.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {{early?: boolean}} [options] whether a Gluttony is reaching early
  * @returns {{slug: string, held: any}|null}
  */
-export function heldTrigger(pokemon) {
+export function heldTrigger(pokemon, options = {}) {
   const slug = pokemon.heldItem;
   const held = slug ? itemOf(slug)?.held : null;
   if (!slug || !held || pokemon.hp <= 0) return null;
 
   switch (held.on) {
-    case 'hp':
-      return pokemon.hp <= maxHp(pokemon) * held.at ? { slug, held } : null;
+    case 'hp': {
+      // A Gluttony reaches for a berry at half health however low the berry
+      // itself waits for, which is what makes the pinch berries worth holding.
+      const at = options.early ? Math.max(held.at, 1 / 2) : held.at;
+      return pokemon.hp <= maxHp(pokemon) * at ? { slug, held } : null;
+    }
     case 'status':
       return pokemon.status && (held.status === 'any' || held.status === pokemon.status) ? { slug, held } : null;
     case 'pp':

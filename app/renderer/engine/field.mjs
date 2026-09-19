@@ -16,6 +16,10 @@
  *   and untouched.
  * - **Screens** belong to one side rather than to the field, and halve the
  *   damage of one damage class coming at that side.
+ * - **Hazards** belong to a side too, and bite whatever is sent out onto them.
+ *   The companion never switches, so the ones laid at its feet never go off —
+ *   but a trainer sends out one Pokémon after another, and every one of them
+ *   walks onto what was laid down for the last.
  */
 
 /** The weather the games can put over a battle. */
@@ -42,11 +46,11 @@ export const FIELD_TURNS = 5;
  * The moves that set one, by what they set.
  *
  * PokeAPI files every one of these under the same "whole field effect"
- * category without saying which effect, so the nine of them are named here.
- * Nine lines is the whole table — the alternative is parsing English prose for
- * the word "sunlight".
+ * category without saying which effect, so they are named here. Seventeen
+ * lines is the whole table — the alternative is parsing English prose for the
+ * word "sunlight".
  *
- * @type {Record<string, {weather?: string, terrain?: string, screen?: string}>}
+ * @type {Record<string, {weather?: string, terrain?: string, screen?: string, hazard?: string}>}
  */
 export const FIELD_MOVES = {
   'sunny-day': { weather: WEATHER.SUN },
@@ -62,7 +66,20 @@ export const FIELD_MOVES = {
   reflect: { screen: 'physical' },
   'light-screen': { screen: 'special' },
   'aurora-veil': { screen: 'both' },
+  spikes: { hazard: 'spikes' },
+  'toxic-spikes': { hazard: 'toxicSpikes' },
+  'stealth-rock': { hazard: 'stealthRock' },
+  'sticky-web': { hazard: 'stickyWeb' },
 };
+
+/** How many layers of each hazard a side can take. */
+export const HAZARD_LAYERS = { spikes: 3, toxicSpikes: 2, stealthRock: 1, stickyWeb: 1 };
+
+/** What each layer of Spikes costs whoever walks onto it. */
+const SPIKE_DAMAGE = [0, 1 / 8, 1 / 6, 1 / 4];
+
+/** And what Stealth Rock costs, before the type chart has its say. */
+const ROCK_DAMAGE = 1 / 8;
 
 /**
  * The three healing moves whose worth the weather decides.
@@ -96,6 +113,30 @@ export class Field {
      * @type {Record<'player'|'foe', {physical: number, special: number}>}
      */
     this.screens = { player: { physical: 0, special: 0 }, foe: { physical: 0, special: 0 } };
+    /**
+     * What is on the ground on each side, in layers.
+     * @type {Record<'player'|'foe', Record<string, number>>}
+     */
+    this.hazards = { player: freshHazards(), foe: freshHazards() };
+  }
+
+  /**
+   * Lay another layer of a hazard at one side's feet.
+   *
+   * @param {'player'|'foe'} side the side it is laid on, not the side that laid it
+   * @param {string} hazard
+   * @returns {boolean} whether there was room for another layer
+   */
+  addHazard(side, hazard) {
+    const limit = HAZARD_LAYERS[hazard] ?? 1;
+    if ((this.hazards[side][hazard] ?? 0) >= limit) return false;
+    this.hazards[side][hazard] = (this.hazards[side][hazard] ?? 0) + 1;
+    return true;
+  }
+
+  /** @param {'player'|'foe'} side */
+  clearHazards(side) {
+    this.hazards[side] = freshHazards();
   }
 
   /** Whether anything at all is going on, which is what `noField` asks. */
@@ -288,4 +329,38 @@ export function terrainBlocksStatus(terrain, status) {
 /** Psychic Terrain takes the jump out of a priority move aimed at the ground. */
 export function terrainBlocksPriority(terrain, priority, defenderGrounded) {
   return terrain === TERRAIN.PSYCHIC && priority > 0 && defenderGrounded;
+}
+
+/** A side with nothing on the ground. */
+const freshHazards = () => ({ spikes: 0, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 });
+
+/**
+ * What walking onto a side's hazards costs, for a Pokémon just sent out.
+ *
+ * Spikes and Sticky Web only reach something standing on the ground; Stealth
+ * Rock is in the air and reaches everything, scaled by how well the newcomer
+ * takes a Rock move. Toxic Spikes are absorbed by a grounded Poison type,
+ * which is the one hazard a Pokémon can clear simply by arriving.
+ *
+ * @param {Record<string, number>} hazards
+ * @param {{types: string[], grounded: boolean}} arriving
+ * @param {(attacking: string, defending: string[]) => number} effectiveness
+ * @returns {{damage: number, status: string|null, stat: string|null, absorbs: boolean}}
+ */
+export function hazardToll(hazards, arriving, effectiveness) {
+  const toll = { damage: 0, status: /** @type {string|null} */ (null), stat: /** @type {string|null} */ (null), absorbs: false };
+
+  if (hazards.stealthRock > 0) {
+    toll.damage += ROCK_DAMAGE * effectiveness('rock', arriving.types);
+  }
+  if (!arriving.grounded) return toll;
+
+  toll.damage += SPIKE_DAMAGE[Math.min(hazards.spikes, SPIKE_DAMAGE.length - 1)] ?? 0;
+  if (hazards.stickyWeb > 0) toll.stat = 'spe';
+
+  if (hazards.toxicSpikes > 0) {
+    if (arriving.types.includes('poison')) toll.absorbs = true;
+    else if (!arriving.types.includes('steel')) toll.status = 'psn';
+  }
+  return toll;
 }

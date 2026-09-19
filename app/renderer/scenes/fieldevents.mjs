@@ -12,7 +12,7 @@ import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
-import { evolveToLevel, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
+import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { ACTOR_SCALE, COMPANION_X, groundY } from '../render/field.mjs';
 
@@ -480,7 +480,8 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, 3);
 
-  return species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  return giveTrainerItems(session.rng, party, 'leader');
 }
 
 /**

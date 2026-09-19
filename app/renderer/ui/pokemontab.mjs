@@ -46,6 +46,7 @@ export function pokemonTab(app, session, refresh) {
       el('div.pokemon-right', {}, [
         el('div.pokemon-heading', {}, [
           el('span.pokemon-nickname', { text: pokemon.nickname || localized(species?.name, '') }),
+          genderMark(pokemon),
           shinyMark(pokemon, t('pokemon.shiny')),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
@@ -170,6 +171,20 @@ function moveSlot(app, session, slot, refresh) {
     ]),
     moveClasses(move),
   ]);
+}
+
+/**
+ * The ♂ or ♀ beside a name, for the species that have one.
+ *
+ * It is not decoration: infatuation needs one of each, and a Rivalry reads
+ * both, so a player looking at why a move did nothing needs to be able to see
+ * it.
+ *
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ */
+function genderMark(pokemon) {
+  if (!pokemon.gender) return null;
+  return el(`span.gender-mark.${pokemon.gender}`, { text: t(`pokemon.gender.${pokemon.gender}`) });
 }
 
 /**

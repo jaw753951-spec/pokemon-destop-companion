@@ -7,12 +7,13 @@
  * of the turn. Battles are fought automatically, so the engine produces a list
  * of log entries per turn which the battle scene plays back as animation.
  */
-import { moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
+import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect } from './abilities.mjs';
 import {
   Field,
   FIELD_MOVES,
   FIELD_TURNS,
+  hazardToll,
   TERRAIN,
   terrainBlocksPriority,
   terrainBlocksStatus,
@@ -25,6 +26,23 @@ import {
   weatherStat,
 } from './field.mjs';
 import { applyHeldEffect, heldPassive, heldTrigger, heldShield, itemSuits } from './items.mjs';
+import {
+  addVolatile,
+  clearVolatile,
+  CONFUSION_POWER,
+  CONFUSION_SELF_HIT,
+  CONFUSION_TURNS,
+  freshVolatile,
+  hasVolatile,
+  INFATUATION_BLOCK,
+  LOCK_MOVES,
+  oppositeGenders,
+  PROTECT_BYPASS,
+  PROTECT_MOVES,
+  protectChance,
+  tickVolatile,
+  VOLATILE,
+} from './volatile.mjs';
 import { gainFromDefeat, levelOf, maxHp, statsOf } from './pokemon.mjs';
 import { stageMultiplier } from './stats.mjs';
 
@@ -37,6 +55,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {number} turnsTaken
  * @property {'player'|'foe'} side
  * @property {Record<string, any>} marks what an ability or item has left on it
+ * @property {Record<string, any>} volatile the states that end with the battle
  * @property {string|null} charging a two-turn move part way through
  * @property {boolean} mustRecharge whether last turn's move has to be paid for
  * @property {string|null} lastMove for the items that reward repeating one
@@ -144,6 +163,10 @@ export class Battle {
    */
   enter(combatant, log) {
     const other = combatant === this.player ? this.foe : this.player;
+    // An Unburden is waiting for the item to be gone, so it has to know there
+    // was one to begin with.
+    combatant.marks.hadItem = Boolean(combatant.pokemon.heldItem);
+
     const ability = abilityEffect(combatant.pokemon);
     if (!ability?.start || !other) return;
 
@@ -189,6 +212,9 @@ export class Battle {
    * @returns {string|null}
    */
   weatherFor(forCombatant) {
+    // A Mega Sol carries its own sunshine, whatever the sky is doing.
+    if (forCombatant && abilityEffect(forCombatant.pokemon)?.actsSunny) return WEATHER.SUN;
+
     for (const combatant of [this.player, this.foe]) {
       if (combatant && abilityEffect(combatant.pokemon)?.suppressWeather) return null;
     }
@@ -274,13 +300,17 @@ export class Battle {
         // A Clear Amulet, and every ability that answers a drop, only care
         // about a drop the other side caused.
         if (change < 0 && target !== self && heldShield(target.pokemon, 'statDrops')) return false;
-        return battle.applyStage(target, stat, change, log, { ability: self.pokemon.ability });
+        return battle.applyStage(target, stat, change, log, {
+          ability: self.pokemon.ability,
+          ...(target === self ? { source: 'self' } : {}),
+        });
       },
 
       /** @param {Combatant} target @param {string} status @param {number} chance */
       inflict(target, status, chance) {
         if (!battle.rng.chance(chance)) return false;
-        return battle.inflictStatus(target, STATUS_TO_AILMENT[status] ?? status, log);
+        const other = target === self ? foe : self;
+        return battle.inflictAilment(other, target, STATUS_TO_AILMENT[status] ?? status, log);
       },
 
       /** @param {Combatant} target */
@@ -299,6 +329,72 @@ export class Battle {
       setWeather: (weather) => this.startWeather(weather, self, log),
       /** @param {string} terrain */
       setTerrain: (terrain) => this.startTerrain(terrain, self, log),
+
+      /** @param {Combatant} target @param {number} chance */
+      infatuate: (target, chance) => battle.rng.chance(chance) && battle.infatuate(self, target, log),
+
+      /** @param {Combatant} target */
+      confuse: (target) => battle.confuse(target, log),
+
+      /** @param {Combatant} target @param {number} chance */
+      disable(target, chance) {
+        if (!battle.rng.chance(chance)) return false;
+        if (!target.lastMove || !target.pokemon.moves.some((slot) => slot.move === target.lastMove)) return false;
+        if (battle.blocksVolatile(target, VOLATILE.DISABLE, log)) return false;
+        if (!addVolatile(target, VOLATILE.DISABLE, 4, { disabledMove: target.lastMove })) return false;
+        log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.DISABLE, move: target.lastMove } });
+        battle.eatMentalHerb(target, log);
+        return true;
+      },
+
+      /** Start the count on both sides, which is what a Perish Body does. */
+      perish() {
+        for (const combatant of [self, foe]) {
+          if (!addVolatile(combatant, VOLATILE.PERISH, 4)) continue;
+          log.push({ kind: 'volatile', side: combatant.side, data: { state: VOLATILE.PERISH } });
+        }
+      },
+
+      /** @param {string} hazard laid at the other side's feet */
+      layHazard(hazard) {
+        if (!battle.field.addHazard(foe.side, hazard)) return false;
+        log.push({ kind: 'hazard', side: foe.side, data: { hazard } });
+        return true;
+      },
+
+      /** @param {Combatant} target @param {number} amount in hit points */
+      damageFlat(target, amount) {
+        if (target.pokemon.hp <= 0 || amount <= 0) return;
+        if (battle.abilityOf(target)?.indirectImmune) return;
+        const dealt = Math.min(target.pokemon.hp, Math.round(amount));
+        target.pokemon.hp -= dealt;
+        log.push({ kind: 'abilityDamage', side: target.side, data: { amount: dealt, ability: self.pokemon.ability } });
+      },
+
+      /** Take down whatever the other side put up. */
+      clearScreens() {
+        let cleared = false;
+        for (const side of /** @type {const} */ (['player', 'foe'])) {
+          for (const kind of /** @type {const} */ (['physical', 'special'])) {
+            if (battle.field.screens[side][kind] <= 0) continue;
+            battle.field.screens[side][kind] = 0;
+            cleared = true;
+          }
+        }
+        if (cleared) log.push({ kind: 'screenEnded', side: self.side, data: {} });
+        return cleared;
+      },
+
+      /** Take the other side's held item, if it has one and is not holding on. */
+      steal() {
+        if (self.pokemon.heldItem || !foe.pokemon.heldItem) return false;
+        if (battle.abilityOf(foe, self)?.keepsItem) return false;
+        const slug = foe.pokemon.heldItem;
+        foe.pokemon.heldItem = null;
+        self.pokemon.heldItem = slug;
+        log.push({ kind: 'stole', side: self.side, data: { item: slug } });
+        return true;
+      },
     };
   }
 
@@ -314,13 +410,49 @@ export class Battle {
    * @returns {boolean} whether anything moved
    */
   applyStage(target, stat, change, log, data = {}) {
+    const other = target === this.player ? this.foe : this.player;
+    const ability = this.abilityOf(target);
+
+    // A Contrary reads every change the other way round, and a Simple reads
+    // every one twice as far.
+    let shift = change;
+    if (ability?.invertStages) shift = -shift;
+    if (ability?.doubleStages) shift *= 2;
+
+    // Something the other side is doing to it, and it says no.
+    const fromOther = shift < 0 && data.source !== 'self';
+    if (fromOther && ability?.statDrop?.(this.abilityContext(target, other ?? target, log), stat)) {
+      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      return false;
+    }
+    // Or says no and hands it back, which is what a Mirror Armor does.
+    if (fromOther && ability?.reflectsDrops && other) {
+      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      return this.applyStage(other, stat, shift, log, { source: 'self' });
+    }
+
     const before = target.stages[stat] ?? 0;
-    const after = Math.max(-6, Math.min(6, before + change));
+    const after = Math.max(-6, Math.min(6, before + shift));
     if (after === before) return false;
     target.stages[stat] = after;
     // A White Herb remembers that something was lowered so it can undo it.
-    if (change < 0) target.marks.lowered = true;
-    log.push({ kind: 'stat', side: target.side, data: { stat, change, stage: after, ...data } });
+    if (shift < 0) target.marks.lowered = true;
+    log.push({ kind: 'stat', side: target.side, data: { stat, change: shift, stage: after, ...data } });
+
+    // An Opportunist helps itself to whatever the other side just worked for.
+    if (shift > 0 && data.source !== 'copied' && other && this.abilityOf(other)?.copiesRaises) {
+      log.push({ kind: 'ability', side: other.side, data: { ability: other.pokemon.ability } });
+      this.applyStage(other, stat, shift, log, { source: 'copied' });
+    }
+
+    // And what answering a drop is worth: a Defiant's two stages of Attack.
+    if (fromOther && ability?.onStatDropped && other) {
+      const mark = log.length;
+      ability.onStatDropped(this.abilityContext(target, other, log), stat);
+      if (log.length > mark) {
+        log.splice(mark, 0, { kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      }
+    }
     return true;
   }
 
@@ -386,8 +518,8 @@ export class Battle {
 
     const balloon = heldPassive(combatant.pokemon, 'immune');
     if (balloon?.moveType === 'ground' && !combatant.marks.popped) return false;
-    if (combatant.pokemon.ability === 'levitate') return false;
-    return !speciesOf(combatant.pokemon.speciesId).types.includes('flying');
+    if (this.abilityOf(combatant)?.floats) return false;
+    return !this.typesOf(combatant).includes('flying');
   }
 
   /**
@@ -436,6 +568,8 @@ export class Battle {
         this.endOfTurnStatus(combatant, log);
         this.endOfTurnField(combatant, log);
         this.endOfTurnAbility(combatant, log);
+        this.regrowBerry(combatant, log);
+        this.tickStates(combatant, log);
       }
       this.tickField(log);
       this.checkFaint(log);
@@ -453,7 +587,7 @@ export class Battle {
    */
   endOfTurnField(combatant, log) {
     const ability = this.abilityOf(combatant);
-    const types = speciesOf(combatant.pokemon.speciesId).types;
+    const types = this.typesOf(combatant);
     const weather = this.weatherFor(combatant);
 
     const sheltered =
@@ -485,6 +619,23 @@ export class Battle {
     const ability = abilityEffect(combatant.pokemon);
     if (!ability?.turn || !other) return;
     ability.turn(this.abilityContext(combatant, other, log));
+  }
+
+  /**
+   * Count a combatant's battle-long states down and announce what wore off.
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  tickStates(combatant, log) {
+    for (const state of tickVolatile(combatant)) {
+      // A perish count running out is the one that is not a relief.
+      if (state === VOLATILE.PERISH) {
+        combatant.pokemon.hp = 0;
+        log.push({ kind: 'perished', side: combatant.side });
+        continue;
+      }
+      log.push({ kind: 'volatileEnded', side: combatant.side, data: { state } });
+    }
   }
 
   /**
@@ -581,6 +732,53 @@ export class Battle {
   }
 
   /**
+   * How much the other side's mere presence takes off a stat.
+   *
+   * The four Ruin abilities each weigh on one stat of everything on the field
+   * but their own holder, which is why this is asked of the other side rather
+   * than of the Pokémon whose stat it is.
+   *
+   * @param {Combatant} combatant whose stat is being read
+   * @param {string} stat
+   */
+  ruinFactor(combatant, stat) {
+    const other = combatant === this.player ? this.foe : this.player;
+    const ruin = other ? abilityEffect(other.pokemon)?.ruin : null;
+    return ruin?.stat === stat ? ruin.multiplier : 1;
+  }
+
+  /**
+   * What a Pokémon counts as right now.
+   *
+   * Usually its species' types, and the games do not let that change outside
+   * a battle — but a Protean rewrites it every time its holder attacks and a
+   * Color Change rewrites it every time its holder is hit, so the answer
+   * lives on the combatant and the species is only the starting point.
+   *
+   * @param {Combatant} combatant
+   * @returns {string[]}
+   */
+  typesOf(combatant) {
+    return combatant.marks.types ?? speciesOf(combatant.pokemon.speciesId).types;
+  }
+
+  /**
+   * Make a Pokémon a different type for the rest of the battle.
+   *
+   * @param {Combatant} combatant
+   * @param {string[]} types
+   * @param {LogEntry[]} log
+   * @returns {boolean} whether it was anything other than what it already was
+   */
+  becomeType(combatant, types, log) {
+    const before = this.typesOf(combatant);
+    if (before.length === types.length && types.every((type, index) => before[index] === type)) return false;
+    combatant.marks.types = types;
+    log.push({ kind: 'typeChanged', side: combatant.side, data: { types } });
+    return true;
+  }
+
+  /**
    * A move's priority once the attacker's ability and the ground have had
    * their say.
    *
@@ -596,8 +794,13 @@ export class Battle {
     const priority = (move.priority ?? 0) + (ability?.priority?.(this.abilityContext(attacker, defender, []), move) ?? 0);
 
     // Psychic Terrain refuses to let anything cut in front of a Pokémon
-    // standing on it.
+    // standing on it, and so do the abilities that do nothing else.
     if (terrainBlocksPriority(this.field.terrain, priority, this.grounded(defender))) return 0;
+    if (priority > 0 && this.abilityOf(defender, attacker)?.blocksPriority) return 0;
+
+    // A Mycelium Might gives up the queue for its status moves in exchange
+    // for the other side's ability not counting against them.
+    if (move.damageClass === 'status' && ability?.movesLastWithStatus) return -7;
     return priority;
   }
 
@@ -613,12 +816,23 @@ export class Battle {
 
     const restriction = heldPassive(attacker.pokemon, 'stat');
 
+    // An Encore takes the choice away entirely: the last move, again.
+    if (hasVolatile(attacker, VOLATILE.ENCORE)) {
+      const encored = usable.find((slot) => slot.move === attacker.volatile.encoreMove);
+      if (encored) return encored.move;
+    }
+
     // A Choice item locks its holder into the first move it picks, for as long
     // as that move has PP — which is the price it charges for the power.
     if (restriction?.lock) {
       const locked = usable.find((slot) => slot.move === attacker.lockedMove);
       if (locked) return locked.move;
     }
+
+    // And what has been taken away: the move a Disable named, every status
+    // move under a Taunt, and the one it used last under a Torment.
+    usable = this.stillAllowed(attacker, usable);
+    if (usable.length === 0) return 'struggle';
 
     // An Assault Vest buys Special Defence with the holder's status moves.
     if (restriction?.noStatus) {
@@ -638,6 +852,32 @@ export class Battle {
   }
 
   /**
+   * The moves still open to a Pokémon that has had some taken away.
+   *
+   * Everything here narrows the list; nothing widens it, so a Pokémon left
+   * with nothing struggles, which is what the games do when a Taunt lands on
+   * something that only knows status moves.
+   *
+   * @param {Combatant} attacker
+   * @param {Array<{move: string, pp: number}>} usable
+   */
+  stillAllowed(attacker, usable) {
+    let left = usable;
+    if (hasVolatile(attacker, VOLATILE.DISABLE)) {
+      left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
+    }
+    if (hasVolatile(attacker, VOLATILE.TAUNT)) {
+      const attacks = left.filter((slot) => moveOf(slot.move)?.damageClass !== 'status');
+      if (attacks.length > 0) left = attacks;
+    }
+    if (hasVolatile(attacker, VOLATILE.TORMENT)) {
+      const others = left.filter((slot) => slot.move !== attacker.lastMove);
+      if (others.length > 0) left = others;
+    }
+    return left;
+  }
+
+  /**
    * @param {Combatant} attacker
    * @param {Combatant} defender
    * @param {LogEntry[]} log
@@ -649,9 +889,24 @@ export class Battle {
       const slug = this.pendingItem;
       this.pendingItem = null;
       const used = this.items?.throw(slug, attacker.pokemon) ?? false;
+      // A medicine that clears conditions clears the two that never reach the
+      // save as well, which is what a player throwing a Full Heal expects.
+      if (used && itemOf(slug)?.use?.status === 'any') this.cureVolatile(attacker, log);
       attacker.turnsTaken++;
       log.push({ kind: 'item', side: attacker.side, data: { item: slug, used } });
       return;
+    }
+
+    // A Truant works every other turn and loafs the rest, which is the price
+    // of whatever it was given in exchange.
+    if (this.abilityOf(attacker)?.skipsEveryOther) {
+      attacker.marks.loafing = !attacker.marks.loafing;
+      if (attacker.marks.loafing) {
+        attacker.turnsTaken++;
+        log.push({ kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.push({ kind: 'loafing', side: attacker.side });
+        return;
+      }
     }
 
     // A move that has to be paid for costs the turn after it, which is what
@@ -703,8 +958,24 @@ export class Battle {
     // when nothing is holding one.
     attacker.repeats = attacker.lastMove === moveName ? attacker.repeats + 1 : 0;
     attacker.lastMove = moveName;
+    // A guard only gets harder to put up while it keeps going up.
+    if (!PROTECT_MOVES[moveName]) attacker.volatile.protectStreak = 0;
 
     const move = this.effectiveMove(attacker, defender, base);
+
+    // A Protean becomes whatever it is about to use.
+    if (this.abilityOf(attacker)?.retypes === 'move') {
+      if (this.becomeType(attacker, [move.type], log)) {
+        log.splice(log.length - 1, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+      }
+    }
+
+    // A Pressure on the other side charges a second point for being aimed at.
+    if (this.abilityOf(defender)?.pressures) {
+      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      if (slot) slot.pp = Math.max(0, slot.pp - 1);
+    }
+
     log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
 
     // A move the defender is simply sealed against — a sound at a Soundproof,
@@ -712,6 +983,17 @@ export class Battle {
     // Goggles — never gets as far as an accuracy roll.
     if (this.movePrevented(attacker, defender, move)) {
       log.push({ kind: 'noEffect', side: defender.side });
+      return;
+    }
+
+    // Something between the two of them.
+    if (this.blockedByGuard(attacker, defender, move, moveName, log)) return;
+
+    // A Magic Bounce sends a status move back where it came from.
+    if (move.damageClass === 'status' && this.abilityOf(defender, attacker)?.bouncesStatus) {
+      log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+      log.push({ kind: 'bounced', side: defender.side });
+      this.applyStatusMove(defender, attacker, move, log);
       return;
     }
 
@@ -788,12 +1070,53 @@ export class Battle {
 
     // Powder does nothing to a Grass type, which is the one classification the
     // games gate on a type rather than on an ability.
-    if (hasFlag(move, 'powder') && speciesOf(defender.pokemon.speciesId).types.includes('grass')) return true;
+    if (hasFlag(move, 'powder') && this.typesOf(defender).includes('grass')) return true;
 
     const shield = heldShield(defender.pokemon, 'flags');
     if (shield && move.flags?.some((flag) => shield.includes(flag))) return true;
 
     return Boolean(this.abilityOf(defender, attacker)?.blockMove?.(this.abilityContext(defender, attacker, []), move));
+  }
+
+  /**
+   * Whether the Pokémon in front got behind something this turn, and what
+   * running into it costs.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {any} move
+   * @param {string} moveName
+   * @param {LogEntry[]} log
+   */
+  blockedByGuard(attacker, defender, move, moveName, log) {
+    if (defender.volatile.protectTurn !== this.turn) return false;
+    // A guard is something to hide behind, not something to stand behind while
+    // the other side helps itself — a move aimed at its user goes through.
+    if (move.damageClass === 'status' && !(move.statChanges ?? []).some((change) => change.change < 0)) {
+      if ((move.meta?.ailment ?? 'none') === 'none') return false;
+    }
+    if (PROTECT_BYPASS.has(moveName)) return false;
+
+    // An Unseen Fist reaches through one as long as it is touching, and a
+    // Piercing Drill simply goes through.
+    const ability = this.abilityOf(attacker);
+    if (ability?.piercing || (ability?.unseenFist && hasFlag(move, 'contact'))) return false;
+
+    log.push({ kind: 'protected', side: defender.side });
+
+    // What the guard charges for touching it.
+    const price = PROTECT_MOVES[defender.volatile.protectMove ?? ''] ?? {};
+    if (!hasFlag(move, 'contact') || this.abilityOf(attacker)?.indirectImmune) return true;
+    if (heldShield(attacker.pokemon, 'contactEffects')) return true;
+
+    if (price.damage) {
+      const amount = Math.max(1, Math.floor(attacker.maxHp * price.damage));
+      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - amount);
+      log.push({ kind: 'damage', side: attacker.side, data: { amount } });
+    }
+    if (price.stat) this.applyStage(attacker, price.stat, price.stages ?? -1, log);
+    if (price.status) this.inflictStatus(attacker, STATUS_TO_AILMENT[price.status] ?? price.status, log);
+    return true;
   }
 
   /**
@@ -933,25 +1256,53 @@ export class Battle {
   }
 
   /**
-   * Eat the held berry if its moment has come, which is what makes one worth
-   * holding — and what the bag's restock setting then replaces.
+   * Eat a held berry whose moment has come, on either side.
    *
-   * Only the companion's is checked: nothing the game sends against it is
-   * given anything to hold.
+   * Both sides are checked now that they both carry things: a wild Pokémon
+   * rolls its species' held item the way the cartridge rolls it, and a gym
+   * leader's ace is handed a berry the way a gym leader's ace always is. The
+   * bag's restock setting then replaces the companion's.
    *
    * @param {LogEntry[]} log
    */
   eatHeldBerry(log) {
-    const combatant = this.player;
-    const trigger = heldTrigger(combatant.pokemon);
+    for (const combatant of [this.player, this.foe]) {
+      if (combatant) this.eatOneBerry(combatant, log);
+    }
+  }
+
+  /**
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  eatOneBerry(combatant, log) {
+    // An Unnerve on the other side is what keeps a berry in its wrapper.
+    const other = combatant === this.player ? this.foe : this.player;
+    if (other && this.abilityOf(other)?.blocksBerries) return;
+
+    // A Persim cures the confusion that never reaches the save, and a Lum
+    // cures it along with everything else, so both are asked here rather than
+    // through the trigger, which only sees what the Pokémon is carrying.
+    const cure = heldPassive(combatant.pokemon, 'status');
+    if (cure && (cure.status === 'cnf' || cure.status === 'any') && this.cureVolatile(combatant, log)) {
+      log.push({ kind: 'berry', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
+      combatant.pokemon.heldItem = null;
+      return;
+    }
+
+    // A Gluttony reaches for a pinch berry at half rather than a quarter.
+    const ability = this.abilityOf(combatant);
+    const trigger = heldTrigger(combatant.pokemon, { early: Boolean(ability?.berryEarly) });
     if (!trigger) return;
 
     const { slug, held } = trigger;
+    // A Ripen makes the berry worth twice what it says.
+    const ripe = ability?.berryDouble ? { ...held, ...doubled(held) } : held;
     if (held.stat) {
       // A stat berry raises a stage, which lives on the combatant rather than
       // on the Pokémon, so the battle applies that one itself.
       const stat = held.stat === 'random' ? this.rng.pick(STAT_KEYS) : held.stat;
-      if (!this.applyStage(combatant, stat, held.stages ?? 1, log)) return;
+      if (!this.applyStage(combatant, stat, ripe.stages ?? 1, log, { source: 'self' })) return;
     } else if (held.crit) {
       // A Lansat sharpens the next hit rather than raising a stat.
       combatant.marks.critStages = (combatant.marks.critStages ?? 0) + held.crit;
@@ -960,12 +1311,37 @@ export class Battle {
     } else if (held.first) {
       // A Custap is spent when the turn order is decided, not here.
       return;
-    } else if (!applyHeldEffect(combatant.pokemon, held)) {
+    } else if (!applyHeldEffect(combatant.pokemon, ripe)) {
       return;
     }
 
     combatant.pokemon.heldItem = null;
+    combatant.marks.ateBerry = slug;
     log.push({ kind: 'berry', side: combatant.side, data: { item: slug } });
+
+    // A Cheek Pouch is paid for eating whatever it was.
+    if (ability?.onBerry) {
+      log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+      ability.onBerry(this.abilityContext(combatant, other ?? combatant, log));
+    }
+  }
+
+  /**
+   * A berry growing back in the holder's hand, which is what a Harvest does
+   * half the time and a Cud Chew always does the turn after.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  regrowBerry(combatant, log) {
+    const chance = this.abilityOf(combatant)?.regrowsBerry;
+    if (!chance || combatant.pokemon.heldItem || !combatant.marks.ateBerry) return;
+    if (!this.rng.chance(chance)) return;
+
+    combatant.pokemon.heldItem = combatant.marks.ateBerry;
+    combatant.marks.ateBerry = null;
+    log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+    log.push({ kind: 'regrew', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
   }
 
   /**
@@ -977,7 +1353,7 @@ export class Battle {
     const pokemon = combatant.pokemon;
 
     if (pokemon.status === STATUS.SLEEP) {
-      pokemon.statusTurns--;
+      pokemon.statusTurns -= this.abilityOf(combatant)?.wakesTwiceAsFast ? 2 : 1;
       if (pokemon.statusTurns <= 0) {
         pokemon.status = null;
         log.push({ kind: 'status', side: combatant.side, data: { status: null, woke: true } });
@@ -1003,7 +1379,45 @@ export class Battle {
       return false;
     }
 
+    // Confusion is checked after the conditions in the save, as the games
+    // order it, and lands its hit on the Pokémon itself rather than on
+    // anything in front of it.
+    if (hasVolatile(combatant, VOLATILE.CONFUSION)) {
+      log.push({ kind: 'volatileActive', side: combatant.side, data: { state: VOLATILE.CONFUSION } });
+      if (this.rng.chance(CONFUSION_SELF_HIT)) {
+        this.hitSelf(combatant, log);
+        return false;
+      }
+    }
+
+    if (hasVolatile(combatant, VOLATILE.INFATUATION) && this.rng.chance(INFATUATION_BLOCK)) {
+      log.push({ kind: 'volatileBlocked', side: combatant.side, data: { state: VOLATILE.INFATUATION } });
+      return false;
+    }
+
     return true;
+  }
+
+  /**
+   * The hit a confused Pokémon lands on itself.
+   *
+   * A typeless physical 40 against its own Defence, with no type chart, no
+   * critical roll and nothing held or able to change it — which is what makes
+   * confusion worth inflicting on something that would otherwise out-tank you.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  hitSelf(combatant, log) {
+    const level = levelOf(combatant.pokemon);
+    const attack = this.stat(combatant, 'atk');
+    const defence = this.stat(combatant, 'def');
+    const base =
+      Math.floor(Math.floor((Math.floor((2 * level) / 5 + 2) * CONFUSION_POWER * attack) / defence) / 50) + 2;
+    const damage = Math.max(1, Math.floor(base * (this.rng.int(85, 100) / 100)));
+
+    combatant.pokemon.hp = Math.max(0, combatant.pokemon.hp - damage);
+    log.push({ kind: 'confusionDamage', side: combatant.side, data: { amount: damage } });
   }
 
   /**
@@ -1093,7 +1507,15 @@ export class Battle {
       defender.marks.ateResist = null;
     }
 
-    if (critical) log.push({ kind: 'critical', side: defender.side });
+    if (critical) {
+      log.push({ kind: 'critical', side: defender.side });
+      // An Anger Point turns a weak spot into the highest Attack there is.
+      const angered = this.abilityOf(defender, attacker);
+      if (angered?.onCrit && defender.pokemon.hp > 0) {
+        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        angered.onCrit(this.abilityContext(defender, attacker, log));
+      }
+    }
     log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
     if (effectiveness !== 1) {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness } });
@@ -1103,8 +1525,15 @@ export class Battle {
     const drain = move.meta?.drain ?? 0;
     if (drain > 0 && total > 0) {
       const healed = Math.max(1, Math.floor((total * drain) / 100));
-      attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
-      log.push({ kind: 'heal', side: attacker.side, data: { amount: healed } });
+      // A Liquid Ooze turns the drink into the same amount of damage.
+      if (this.abilityOf(defender, attacker)?.drainHurts) {
+        attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - healed);
+        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'damage', side: attacker.side, data: { amount: healed } });
+      } else {
+        attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
+        log.push({ kind: 'heal', side: attacker.side, data: { amount: healed } });
+      }
     } else if (drain < 0 && total > 0) {
       const recoil = Math.max(1, Math.floor((total * -drain) / 100));
       attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
@@ -1130,6 +1559,7 @@ export class Battle {
       log.push({ kind: 'damage', side: attacker.side, data: { amount: cost, recoil: true } });
     }
 
+    defender.marks.lastDamage = total;
     if (total > 0) this.answerHit(attacker, defender, move, total, effectiveness, log);
     this.applySecondaryEffects(attacker, defender, move, log);
   }
@@ -1146,12 +1576,26 @@ export class Battle {
    */
   hitCount(attacker, move) {
     const min = move.meta?.minHits;
-    if (!min) return 1;
+    // A Parental Bond adds a second, weaker hit to a move that had one.
+    if (!min) return this.abilityOf(attacker)?.hitsTwice && move.damageClass !== 'status' ? 2 : 1;
     const max = move.meta.maxHits ?? min;
 
     if (this.abilityOf(attacker)?.maxHits) return max;
     const dice = heldPassive(attacker.pokemon, 'multiHit');
     return this.rng.int(dice ? Math.min(max, dice.min) : min, max);
+  }
+
+  /**
+   * The charge an ability stored off something aimed at it, spent on the next
+   * Electric move that goes out.
+   *
+   * @param {Combatant} attacker
+   * @param {any} move
+   */
+  chargeMultiplier(attacker, move) {
+    if (!attacker.marks.charged || move.type !== 'electric') return 1;
+    attacker.marks.charged = false;
+    return 2;
   }
 
   /**
@@ -1207,7 +1651,30 @@ export class Battle {
     if (defender.pokemon.hp > 0) {
       this.answerWithItem(attacker, defender, move, effectiveness, log);
       const ability = this.abilityOf(defender, attacker);
+
+      // A Color Change becomes whatever just hit it.
+      if (ability?.retypes === 'hit') this.becomeType(defender, [move.type], log);
+      // And the two that store a charge off it.
+      if (ability?.absorbCharge?.(this.abilityContext(defender, attacker, log), move)) {
+        defender.marks.charged = true;
+        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+      }
+
+      const before = log.length;
       ability?.hit?.(this.abilityContext(defender, attacker, log), move, damage);
+      if (log.length > before) {
+        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+      }
+    }
+
+    // And what landing one is worth to the Pokémon that did.
+    const dealt = this.abilityOf(attacker);
+    if (dealt?.onHitDealt && attacker.pokemon.hp > 0) {
+      const before = log.length;
+      dealt.onHitDealt(this.abilityContext(attacker, defender, log), move, damage);
+      if (log.length > before) {
+        log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+      }
     }
 
     if (!this.touches(attacker, defender, move)) return;
@@ -1239,6 +1706,8 @@ export class Battle {
    */
   touches(attacker, defender, move) {
     if (!hasFlag(move, 'contact')) return false;
+    // A Long Reach never touches anything.
+    if (this.abilityOf(attacker)?.noContact) return false;
     // A Punching Glove takes the contact out of a punch, and Protective Pads
     // keep whatever is on the other side from mattering.
     const glove = heldPassive(attacker.pokemon, 'damage');
@@ -1304,19 +1773,28 @@ export class Battle {
 
     const attackerAbility = this.abilityOf(attacker);
     const defenderAbility = this.abilityOf(defender, attacker);
-    const effectiveness = typeEffectiveness(move.type, speciesOf(defender.pokemon.speciesId).types);
+    const effectiveness = this.effectivenessOf(attacker, move, defender);
     if (effectiveness === 0) return { damage: 0, effectiveness: 0, critical: false };
 
     const critical = this.rollCritical(attacker, defender, move);
-    const attack = this.stat(attacker, attackStat, critical ? { ignoreNegative: true } : {});
-    const defence = this.stat(defender, defenceStat, critical ? { ignorePositive: true } : {});
+    // An Unaware on either side reads the other's stages as zero: the
+    // attacker's boosts do not help it, the defender's walls do not hold.
+    const blindAttacker = Boolean(defenderAbility?.ignoresStages);
+    const blindDefender = Boolean(attackerAbility?.ignoresStages);
+    const attack = this.stat(attacker, attackStat, {
+      ...(critical ? { ignoreNegative: true } : {}),
+      ...(blindAttacker ? { ignoreStages: true } : {}),
+    });
+    const defence = this.stat(defender, defenceStat, {
+      ...(critical ? { ignorePositive: true } : {}),
+      ...(blindDefender ? { ignoreStages: true } : {}),
+    });
 
     const base = Math.floor(
       Math.floor((Math.floor((2 * level) / 5 + 2) * (move.power ?? 0) * attack) / defence) / 50,
     ) + 2;
 
-    const species = speciesOf(attacker.pokemon.speciesId);
-    const stab = species.types.includes(move.type) ? 1.5 : 1;
+    const stab = this.typesOf(attacker).includes(move.type) ? 1.5 : 1;
 
     // Burn halves physical damage, unless the ability holding it is the sort
     // that thrives on a condition.
@@ -1331,6 +1809,7 @@ export class Battle {
     const abilityTaken = defenderAbility?.taken?.(defendContext, move, effectiveness) ?? 1;
 
     const held = this.heldDamage(attacker, move, effectiveness);
+    const charged = attackerAbility?.absorbCharge ? this.chargeMultiplier(attacker, move) : 1;
     const resisted = this.heldResist(defender, move, effectiveness);
     const weather = weatherDamage(this.weatherFor(attacker), move.type);
     const terrain = terrainDamage(
@@ -1339,7 +1818,8 @@ export class Battle {
       this.grounded(attacker),
       this.grounded(defender),
     );
-    const screen = this.screenMultiplier(defender, move, critical);
+    // An Infiltrator is not stopped by anything the other side put up.
+    const screen = attackerAbility?.infiltrates ? 1 : this.screenMultiplier(defender, move, critical);
 
     const damage = Math.max(
       1,
@@ -1356,10 +1836,34 @@ export class Battle {
           abilityTaken *
           weather *
           terrain *
-          screen,
+          screen *
+          charged,
       ),
     );
     return { damage, effectiveness, critical };
+  }
+
+  /**
+   * How well a move goes against what is in front of it.
+   *
+   * A Scrappy or a Mind's Eye reads a Ghost's immunity to Normal and Fighting
+   * as no immunity at all, which is the one thing that can turn a zero into
+   * something.
+   *
+   * @param {Combatant} attacker
+   * @param {any} move
+   * @param {Combatant} defender
+   */
+  effectivenessOf(attacker, move, defender) {
+    const types = this.typesOf(defender);
+    const plain = typeEffectiveness(move.type, types);
+    if (plain > 0) return plain;
+
+    const ability = this.abilityOf(attacker);
+    if (!ability?.hitsGhosts || !['normal', 'fighting'].includes(move.type)) return plain;
+    // Only the Ghost part of the immunity is ignored; the rest of the chart
+    // still applies, so a Ghost/Flying takes the Flying half as usual.
+    return typeEffectiveness(move.type, types.filter((type) => type !== 'ghost'));
   }
 
   /**
@@ -1449,15 +1953,16 @@ export class Battle {
     if (!meta) return;
 
     const ability = this.abilityOf(attacker);
-    // Sheer Force trades every secondary effect away for the damage it adds,
-    // and a Covert Cloak refuses them from the other side.
+    // Sheer Force trades every secondary effect away for the damage it adds;
+    // a Covert Cloak and a Shield Dust refuse them from the other side.
     if (ability?.noSecondary || heldShield(defender.pokemon, 'secondary')) return;
+    if (this.abilityOf(defender, attacker)?.noSecondaryTaken) return;
 
     // Serene Grace doubles the odds of whatever a move was already going to do.
     const odds = ability?.secondary ?? 1;
 
     if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0) {
-      if (this.rng.next() < (meta.ailmentChance / 100) * odds) this.inflictStatus(defender, meta.ailment, log);
+      if (this.rng.next() < (meta.ailmentChance / 100) * odds) this.inflictAilment(attacker, defender, meta.ailment, log);
     }
 
     const flinchChance = Math.max(
@@ -1502,7 +2007,31 @@ export class Battle {
           did = true;
         }
       }
+      // A hazard is laid at the other side's feet, not at the user's.
+      if (field.hazard && this.field.addHazard(defender.side, field.hazard)) {
+        log.push({ kind: 'hazard', side: defender.side, data: { hazard: field.hazard } });
+        did = true;
+      }
     }
+
+    // Getting behind something for the turn.
+    const guard = PROTECT_MOVES[attacker.lastMove ?? ''];
+    if (guard) {
+      const streak = attacker.volatile.protectStreak ?? 0;
+      if (this.rng.chance(protectChance(streak))) {
+        attacker.volatile.protectStreak = streak + 1;
+        attacker.volatile.protectTurn = this.turn;
+        attacker.volatile.protectMove = attacker.lastMove;
+        log.push({ kind: 'protect', side: attacker.side, data: { move: attacker.lastMove } });
+        did = true;
+      } else {
+        attacker.volatile.protectStreak = 0;
+      }
+    }
+
+    // Taking a move away.
+    const lock = LOCK_MOVES[attacker.lastMove ?? ''];
+    if (lock && this.applyLock(attacker, defender, lock, log)) did = true;
 
     if (meta?.healing > 0) {
       // Sunshine makes a Synthesis worth two thirds of a bar and any other
@@ -1520,7 +2049,7 @@ export class Battle {
     if (meta?.ailment && meta.ailment !== 'none') {
       // A status move's listed chance is 0 when it always applies.
       const chance = meta.ailmentChance > 0 ? meta.ailmentChance / 100 : 1;
-      if (this.rng.next() < chance && this.inflictStatus(defender, meta.ailment, log)) did = true;
+      if (this.rng.next() < chance && this.inflictAilment(attacker, defender, meta.ailment, log)) did = true;
     }
 
     if (move.statChanges?.length) {
@@ -1528,6 +2057,91 @@ export class Battle {
     }
 
     if (!did) log.push({ kind: 'noEffect', side: defender.side });
+  }
+
+  /**
+   * Take a move, or every status move, away from the Pokémon in front.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {{state: string, turns: number}} lock
+   * @param {LogEntry[]} log
+   */
+  applyLock(attacker, defender, lock, log) {
+    // A Disable and an Encore both need something to have been used first.
+    if (lock.state === VOLATILE.DISABLE || lock.state === VOLATILE.ENCORE) {
+      if (!defender.lastMove || !defender.pokemon.moves.some((slot) => slot.move === defender.lastMove)) {
+        return false;
+      }
+    }
+    if (this.blocksVolatile(defender, lock.state, log)) return false;
+
+    const extra =
+      lock.state === VOLATILE.DISABLE
+        ? { disabledMove: defender.lastMove }
+        : lock.state === VOLATILE.ENCORE
+          ? { encoreMove: defender.lastMove }
+          : {};
+    if (!addVolatile(defender, lock.state, lock.turns, extra)) return false;
+
+    log.push({ kind: 'volatile', side: defender.side, data: { state: lock.state, move: defender.lastMove } });
+    // A Mental Herb is spent the moment something is taken away.
+    this.eatMentalHerb(defender, log);
+    return true;
+  }
+
+  /**
+   * A Mental Herb, which undoes whatever has just been taken away.
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  eatMentalHerb(combatant, log) {
+    if (!heldPassive(combatant.pokemon, 'free')) return;
+
+    let freed = false;
+    for (const state of [VOLATILE.INFATUATION, VOLATILE.TAUNT, VOLATILE.ENCORE, VOLATILE.DISABLE, VOLATILE.TORMENT]) {
+      if (!clearVolatile(combatant, state)) continue;
+      log.push({ kind: 'volatileEnded', side: combatant.side, data: { state } });
+      freed = true;
+    }
+    if (!freed) return;
+    log.push({ kind: 'heldFired', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
+    combatant.pokemon.heldItem = null;
+  }
+
+  /**
+   * What a Pokémon just sent out walks onto.
+   *
+   * Only the opponent's side ever has anything on it in practice — the
+   * companion never leaves the field — but the toll is read the same way for
+   * both, because the rule is the rule.
+   *
+   * @param {Combatant} arriving
+   * @param {LogEntry[]} log
+   */
+  walkOntoHazards(arriving, log) {
+    const hazards = this.field.hazards[arriving.side];
+    if (Object.values(hazards).every((layers) => layers === 0)) return;
+
+    // A pair of Heavy-Duty Boots steps over the lot.
+    if (heldShield(arriving.pokemon, 'hazards')) return;
+
+    const types = this.typesOf(arriving);
+    const toll = hazardToll(hazards, { types, grounded: this.grounded(arriving) }, typeEffectiveness);
+
+    if (toll.absorbs) {
+      hazards.toxicSpikes = 0;
+      log.push({ kind: 'hazardCleared', side: arriving.side, data: { hazard: 'toxicSpikes' } });
+    }
+    if (toll.damage > 0 && !this.abilityOf(arriving)?.indirectImmune) {
+      const amount = Math.max(1, Math.floor(arriving.maxHp * toll.damage));
+      arriving.pokemon.hp = Math.max(0, arriving.pokemon.hp - amount);
+      log.push({ kind: 'hazardDamage', side: arriving.side, data: { amount } });
+    }
+    if (toll.stat) this.applyStage(arriving, toll.stat, -1, log);
+    if (toll.status && arriving.pokemon.hp > 0) {
+      this.inflictStatus(arriving, STATUS_TO_AILMENT[toll.status] ?? toll.status, log);
+    }
   }
 
   /**
@@ -1539,15 +2153,114 @@ export class Battle {
    */
   applyStatChanges(attacker, defender, move, log) {
     // A move that raises stats targets its user; one that lowers them targets
-    // the opponent. That holds for essentially every move in the games.
+    // the opponent. That holds for essentially every move in the games — bar
+    // the two that raise the opponent's on purpose, to confuse something that
+    // now hits harder, which the move data files under its own category.
+    const raisesTheOther = move.meta?.category === 'swagger';
     let changed = false;
     for (const change of move.statChanges) {
-      const target = change.change > 0 ? attacker : defender;
+      const target = change.change > 0 && !raisesTheOther ? attacker : defender;
       // A Clear Amulet refuses a drop the other side is trying to apply.
       if (change.change < 0 && heldShield(target.pokemon, 'statDrops')) continue;
       if (this.applyStage(target, change.stat, change.change, log)) changed = true;
     }
     return changed;
+  }
+
+  /**
+   * Hand a Pokémon whatever condition a move or an ability is trying to give
+   * it, major or not.
+   *
+   * The five that go into the save go one way and the two that end with the
+   * battle go the other, but a move does not distinguish between them — a
+   * Confuse Ray and a Thunder Wave are both a move with an ailment on it — so
+   * neither does the caller.
+   *
+   * @param {Combatant} source who is doing it
+   * @param {Combatant} target
+   * @param {string} ailment as the move data names it
+   * @param {LogEntry[]} log
+   * @returns {boolean} whether it took hold
+   */
+  inflictAilment(source, target, ailment, log) {
+    if (ailment === 'confusion') return this.confuse(target, log);
+    if (ailment === 'infatuation') return this.infatuate(source, target, log);
+    return this.inflictStatus(target, ailment, log);
+  }
+
+  /**
+   * Confuse a Pokémon for the two to five turns the games roll.
+   *
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   */
+  confuse(target, log) {
+    if (target.pokemon.hp <= 0) return false;
+    if (this.blocksVolatile(target, VOLATILE.CONFUSION, log)) return false;
+    if (!addVolatile(target, VOLATILE.CONFUSION, this.rng.int(...CONFUSION_TURNS))) return false;
+
+    log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.CONFUSION } });
+    // A Persim Berry is eaten the moment the confusion lands, as it is in the
+    // games; the ordinary berry check would not come round until the turn ends.
+    this.eatOneBerry(target, log);
+    return true;
+  }
+
+  /**
+   * Infatuate a Pokémon with the one in front of it, which needs one of each.
+   *
+   * @param {Combatant} source
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   */
+  infatuate(source, target, log) {
+    if (target.pokemon.hp <= 0) return false;
+    if (!oppositeGenders(source.pokemon, target.pokemon)) return false;
+    if (this.blocksVolatile(target, VOLATILE.INFATUATION, log)) return false;
+    // No clock: it lasts as long as the pair are facing each other.
+    if (!addVolatile(target, VOLATILE.INFATUATION, Infinity)) return false;
+
+    log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.INFATUATION } });
+    this.eatOneBerry(target, log);
+    return true;
+  }
+
+  /**
+   * Clear the states a medicine can reach: the confusion and the infatuation
+   * that a Full Heal or a Lum Berry says it cures.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   * @returns {boolean} whether there was anything to clear
+   */
+  cureVolatile(combatant, log) {
+    let cured = false;
+    for (const state of [VOLATILE.CONFUSION, VOLATILE.INFATUATION]) {
+      if (!clearVolatile(combatant, state)) continue;
+      log.push({ kind: 'volatileEnded', side: combatant.side, data: { state } });
+      cured = true;
+    }
+    return cured;
+  }
+
+  /**
+   * Whether something keeps a battle-long state off a Pokémon: an ability, a
+   * herb, or Misty Terrain under its feet.
+   *
+   * @param {Combatant} target
+   * @param {string} state
+   * @param {LogEntry[]} log
+   */
+  blocksVolatile(target, state, log) {
+    if (this.field.terrain === TERRAIN.MISTY && this.grounded(target)) return true;
+
+    const other = target === this.player ? this.foe : this.player;
+    const ability = this.abilityOf(target, other ?? undefined);
+    if (ability?.blockVolatile?.(this.abilityContext(target, other ?? target, log), state)) {
+      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      return true;
+    }
+    return false;
   }
 
   /**
@@ -1561,8 +2274,11 @@ export class Battle {
     if (!status) return false;
     if (target.pokemon.status) return false;
 
-    const types = speciesOf(target.pokemon.speciesId).types;
-    if (IMMUNE_TYPES[status]?.some((type) => types.includes(type))) return false;
+    const types = this.typesOf(target);
+    const source = target === this.player ? this.foe : this.player;
+    // A Corrosion poisons the two types that are supposed to be past it.
+    const corrodes = status === STATUS.POISON && this.abilityOf(source ?? target)?.corrodes;
+    if (!corrodes && IMMUNE_TYPES[status]?.some((type) => types.includes(type))) return false;
 
     // Nothing freezes in sunshine, which is the one condition the weather has
     // an opinion about.
@@ -1572,7 +2288,7 @@ export class Battle {
     // Terrain only keeps it awake.
     if (terrainBlocksStatus(this.field.terrain, status) && this.grounded(target)) return false;
 
-    const other = target === this.player ? this.foe : this.player;
+    const other = source;
     const ability = this.abilityOf(target, other ?? undefined);
     if (ability?.blockStatus?.(this.abilityContext(target, other ?? target, log), status)) {
       log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
@@ -1582,6 +2298,12 @@ export class Battle {
     target.pokemon.status = status;
     target.pokemon.statusTurns = status === STATUS.SLEEP ? this.rng.int(1, 3) : 0;
     log.push({ kind: 'status', side: target.side, data: { status } });
+
+    // A Synchronize passes what it was given straight back.
+    if (ability?.reflectsStatus && other && other.pokemon.hp > 0 && !other.pokemon.status) {
+      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      this.inflictStatus(other, ailment, log);
+    }
     return true;
   }
 
@@ -1612,13 +2334,16 @@ export class Battle {
     if (this.foe.pokemon.hp <= 0) {
       log.push({ kind: 'faint', side: 'foe', data: { speciesId: this.foe.pokemon.speciesId } });
       this.onFaint(this.foe, log);
+      this.onKnockOut(this.player, this.foe, log);
       this.awardExperience(this.foe, log);
 
       const next = this.foeQueue.shift();
       if (next) {
         this.foe = next;
         log.push({ kind: 'sendOut', side: 'foe', data: { speciesId: next.pokemon.speciesId } });
-        // Whatever walks in next does so with its own ability in hand.
+        // It walks onto whatever was laid down for the one before it, and
+        // then does whatever its own ability does on the way in.
+        this.walkOntoHazards(next, log);
         this.enter(next, log);
       } else {
         this.foe = null;
@@ -1631,8 +2356,28 @@ export class Battle {
     if (this.player.pokemon.hp <= 0) {
       log.push({ kind: 'faint', side: 'player', data: { speciesId: this.player.pokemon.speciesId } });
       this.onFaint(this.player, log);
+      if (this.foe) this.onKnockOut(this.foe, this.player, log);
       this.outcome = 'lost';
       log.push({ kind: 'end', data: { outcome: 'lost' } });
+    }
+  }
+
+  /**
+   * What taking something down is worth to whoever did it.
+   *
+   * @param {Combatant} winner
+   * @param {Combatant} fallen
+   * @param {LogEntry[]} log
+   */
+  onKnockOut(winner, fallen, log) {
+    if (winner.pokemon.hp <= 0) return;
+    const ability = this.abilityOf(winner);
+    if (!ability?.onKnockOut) return;
+
+    const before = log.length;
+    ability.onKnockOut(this.abilityContext(winner, fallen, log));
+    if (log.length > before) {
+      log.splice(before, 0, { kind: 'ability', side: winner.side, data: { ability: winner.pokemon.ability } });
     }
   }
 
@@ -1648,9 +2393,11 @@ export class Battle {
     const ability = abilityEffect(fallen.pokemon);
     if (!ability?.faint || !other) return;
 
+    // A Damp on the other side is what an Aftermath runs into.
+    if (this.abilityOf(other)?.dampens) return;
     const byContact = this.touches(other, fallen, moveOf(other.lastMove ?? '') ?? {});
     const before = log.length;
-    ability.faint(this.abilityContext(fallen, other, log, { byContact }));
+    ability.faint(this.abilityContext(fallen, other, log, { byContact, lastDamage: fallen.marks.lastDamage ?? 0 }));
     if (log.length > before) {
       log.splice(before, 0, { kind: 'ability', side: fallen.side, data: { ability: fallen.pokemon.ability } });
     }
@@ -1698,6 +2445,7 @@ function makeCombatant(pokemon, side) {
     turnsTaken: 0,
     side,
     marks: {},
+    volatile: freshVolatile(),
     charging: null,
     mustRecharge: false,
     lastMove: null,
@@ -1715,25 +2463,36 @@ function makeCombatant(pokemon, side) {
  * A stat after its stage multiplier, and paralysis' Speed penalty.
  * @param {Combatant} combatant
  * @param {string} stat
- * @param {{ignorePositive?: boolean, ignoreNegative?: boolean, battle?: any}} [options]
+ * @param {{ignorePositive?: boolean, ignoreNegative?: boolean, ignoreStages?: boolean, battle?: any}} [options]
  */
 export function effectiveStat(combatant, stat, options = {}) {
   const base = statsOf(combatant.pokemon)[stat] ?? 1;
-  let stage = combatant.stages[stat] ?? 0;
+  let stage = options.ignoreStages ? 0 : combatant.stages[stat] ?? 0;
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;
 
   const battle = options.battle ?? null;
   const ability = battle ? battle.abilityOf(combatant) : null;
-  const types = speciesOf(combatant.pokemon.speciesId).types;
+  const types = battle ? battle.typesOf(combatant) : speciesOf(combatant.pokemon.speciesId).types;
 
   // An ability and the weather both scale the finished stat rather than the
   // base one, which is where the games apply them too.
   const fromAbility = ability?.stat?.(battle.abilityContext(combatant, combatant, []), stat) ?? 1;
   const fromWeather = battle ? weatherStat(battle.weatherFor(combatant), stat, types) : 1;
+  const fromRuin = battle ? battle.ruinFactor(combatant, stat) : 1;
+
+  // An Unburden doubles the Speed of a Pokémon that has spent what it had.
+  const unburdened =
+    ability?.unburden && combatant.marks.hadItem && !combatant.pokemon.heldItem && stat === 'spe' ? 2 : 1;
 
   let value = Math.floor(
-    base * stageMultiplier(stage) * heldStatMultiplier(combatant.pokemon, stat) * fromAbility * fromWeather,
+    base *
+      stageMultiplier(stage) *
+      heldStatMultiplier(combatant.pokemon, stat) *
+      fromAbility *
+      fromWeather *
+      fromRuin *
+      unburdened,
   );
   // Paralysis costs half the Speed it leaves, unless the ability carrying it
   // is one that turns a condition into an advantage.
@@ -1831,9 +2590,10 @@ export function expectedDamage(attacker, defender, move) {
     Math.floor((Math.floor((2 * level) / 5 + 2) * move.power * attack) / defence) / 50,
   ) + 2;
 
-  const species = speciesOf(attacker.pokemon.speciesId);
-  const stab = species.types.includes(move.type) ? 1.5 : 1;
-  const effectiveness = typeEffectiveness(move.type, speciesOf(defender.pokemon.speciesId).types);
+  const types = attacker.marks?.types ?? speciesOf(attacker.pokemon.speciesId).types;
+  const stab = types.includes(move.type) ? 1.5 : 1;
+  const against = defender.marks?.types ?? speciesOf(defender.pokemon.speciesId).types;
+  const effectiveness = typeEffectiveness(move.type, against);
   const accuracy = (move.accuracy ?? 100) / 100;
   const hits = move.meta?.minHits ? ((move.meta.minHits + (move.meta.maxHits ?? move.meta.minHits)) / 2) : 1;
 
@@ -1973,4 +2733,23 @@ function hasRoomToChange(move, attacker, defender) {
     const stage = target.stages[change.stat] ?? 0;
     return change.change > 0 ? stage < 6 : stage > -6;
   });
+}
+
+/**
+ * What a berry is worth to something that ripened it.
+ *
+ * A Ripen doubles the effect rather than the item, so only the numbers the
+ * effect carries are touched — the condition it waits for is not.
+ *
+ * @param {any} held
+ */
+function doubled(held) {
+  /** @type {Record<string, any>} */
+  const out = {};
+  if (held.stages) out.stages = held.stages * 2;
+  if (held.heal?.fraction) out.heal = { ...held.heal, fraction: held.heal.fraction * 2 };
+  if (held.heal?.amount) out.heal = { ...held.heal, amount: held.heal.amount * 2 };
+  if (held.amount) out.amount = held.amount * 2;
+  if (held.multiplier !== undefined && held.on === 'resist') out.multiplier = 0;
+  return out;
 }
