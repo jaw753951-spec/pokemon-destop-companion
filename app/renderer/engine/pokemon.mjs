@@ -34,6 +34,8 @@ import {
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
+ * @property {string} [forme] the battle-only alternate forme it is wearing, if
+ *   any — set by the battle as its shape changes and gone when the battle is
  */
 
 /**
@@ -226,11 +228,25 @@ export function levelOf(pokemon) {
   return levelForExperience(species.growthRate, pokemon.experience);
 }
 
-/** @param {Pokemon} pokemon */
-export function statsOf(pokemon) {
+/**
+ * The base stats the Pokémon is currently wearing.
+ *
+ * An alternate forme carries its own set, and a battle reads them through the
+ * forme the combatant is marked with — a Zen Mode below half really is twice
+ * the attack and half the speed on its card. Outside a battle no forme is
+ * marked, so this is the species' own numbers, which is what the screens
+ * should be showing anyway.
+ *
+ * @param {Pokemon} pokemon
+ * @param {string} [forme] the alternate forme it is currently wearing, if any
+ */
+export function statsOf(pokemon, forme) {
   const species = speciesOf(pokemon.speciesId);
+  const base = forme
+    ? (species.forms ?? []).find((form) => form.slug === forme)?.stats ?? species.stats
+    : species.stats;
   const nature = gameData().natures[pokemon.nature] ?? { increased: null, decreased: null };
-  return computeStats(species.stats, pokemon.ivs, pokemon.evs, levelOf(pokemon), nature);
+  return computeStats(base, pokemon.ivs, pokemon.evs, levelOf(pokemon), nature);
 }
 
 /** @param {Pokemon} pokemon */

@@ -98,6 +98,8 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   /** @type {Battler|null} */
   let foeBattler = null;
   let loadedFoeId = '';
+  /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
+  let loadedPlayerId = '';
 
   const message = el('div.battle-message');
   const conditions = el('div.battle-field');
@@ -107,64 +109,71 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
-  const loadFoeSprite = () => {
-    const foe = battle.foe?.pokemon;
-    const key = spriteKey(foe);
-    if (!foe || key === loadedFoeId) return;
-    loadedFoeId = key;
-    const art = artOf(foe, 'front');
+  /**
+   * Put a battle sprite on a side, whichever of back and front the data had.
+   *
+   * Both sides go through the same path — keyed on the sprite key, so a
+   * Pokémon whose shape changes mid-fight is reloaded like a new picture
+   * rather than left wearing the old one.
+   *
+   * @param {'player'|'foe'} side
+   * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+   */
+  const loadBattler = (side, pokemon) => {
+    const key = spriteKey(pokemon);
+    if (!pokemon || !key) return;
+    const loaded = side === 'player' ? loadedPlayerId : loadedFoeId;
+    if (key === loaded) return;
+    if (side === 'player') loadedPlayerId = key;
+    else loadedFoeId = key;
+
+    const back = side === 'player' ? artOf(pokemon, 'back') : null;
+    const front = artOf(pokemon, 'front');
+    const art = back ?? front;
     if (!art) return;
     loadSprite(art.path, art.meta).then((sprite) => {
-      if (loadedFoeId !== key) return;
-      // The BW set draws backs and fronts at much the same size (mean height 75
-      // against 78), so the foe is shrunk to put it up the field. Without this
-      // the two sit on the same plane and the battle reads flat.
-      foeBattler = new Battler({
+      const latest = side === 'player' ? loadedPlayerId : loadedFoeId;
+      if (latest !== key) return; // a newer shape already took the spot
+      const battler = new Battler({
         sprite,
-        x: FOE_SPOT.x,
-        y: FOE_SPOT.y,
-        facing: -1,
-        scale: fitScale(sprite, FOE_ROOM, 0.8),
+        ...(side === 'foe'
+          ? {
+              x: FOE_SPOT.x,
+              y: FOE_SPOT.y,
+              facing: -1,
+              // The BW set draws backs and fronts at much the same size (mean
+              // height 75 against 78), so the foe is shrunk to put it up the
+              // field. Without this the two sit on the same plane and the
+              // battle reads flat.
+              scale: fitScale(sprite, FOE_ROOM, 0.8),
+            }
+          : {
+              x: PLAYER_SPOT.x,
+              y: PLAYER_SPOT.y,
+              facing: 1,
+              scale: fitScale(sprite, PLAYER_ROOM, 1),
+              // No back art: the front sprite stands in, mirrored so the
+              // companion still looks up the field at what it is fighting.
+              flip: Boolean(!back),
+            }),
       });
+      if (side === 'player') playerBattler = battler;
+      else foeBattler = battler;
     });
   };
+
+  const loadFoeSprite = () => loadBattler('foe', battle.foe?.pokemon ?? null);
 
   return {
     keepBelow: true,
 
     mount(app) {
-      const active = session.active;
-      const back = artOf(active, 'back');
-      const front = artOf(active, 'front');
-      if (back) {
-        loadSprite(back.path, back.meta).then((sprite) => {
-          playerBattler = new Battler({
-            sprite,
-            x: PLAYER_SPOT.x,
-            y: PLAYER_SPOT.y,
-            facing: 1,
-            scale: fitScale(sprite, PLAYER_ROOM, 1),
-          });
-        });
-      } else if (front) {
-        loadSprite(front.path, front.meta).then((sprite) => {
-          // No back art: the front sprite stands in, mirrored so the companion
-          // still looks up the field at what it is fighting.
-          playerBattler = new Battler({
-            sprite,
-            x: PLAYER_SPOT.x,
-            y: PLAYER_SPOT.y,
-            facing: 1,
-            scale: fitScale(sprite, PLAYER_ROOM, 1),
-            flip: true,
-          });
-        });
-      }
+      loadBattler('player', session.active);
       loadFoeSprite();
       if (backdrop) loadBackdrop(backdrop).then((image) => { backdropImage = image; });
 
       app.audio.playMusic(music ?? gameData().bgm.cues[trainer ? 'battleTrainer' : 'battleWild']);
-      app.audio.playCry(battle.foe?.pokemon.speciesId ?? active.speciesId);
+      app.audio.playCry(battle.foe?.pokemon.speciesId ?? session.active.speciesId);
 
       // A shiny gets a line of its own, after the one that says what turned
       // up: in the cartridges it is a sparkle and a chime, and here it is the
@@ -397,6 +406,39 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         break;
       }
 
+      case 'formChanged': {
+        // The shape a Pokémon now wears: the sprite is reloaded by the key
+        // change, the way a sent-out one is. A forme of null means back to
+        // the ordinary shape, which is the usual thing a message names.
+        const shifter = entry.side === 'player' ? player : foe;
+        loadBattler(entry.side, entry.side === 'player' ? player : foe);
+        if (entry.data?.forme) {
+          const formName = speciesOf(shifter?.speciesId)?.forms?.find((form) => form.slug === entry.data.forme);
+          say(t('battle.formChanged', {
+            name: nameOf(shifter),
+            form: localized(formName?.name, entry.data.forme),
+          }));
+        } else {
+          say(t('battle.formReverted', { name: nameOf(shifter) }));
+        }
+        updateBars();
+        app.audio.blip('confirm');
+        break;
+      }
+
+      case 'formBroken':
+        // The disguise shattering is its own moment: the ability line already
+        // played, and the shape swap rides the same key change as above.
+        loadBattler(entry.side, entry.side === 'player' ? player : foe);
+        say(t('battle.formBroken', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          ability: localized(abilityOf(entry.data?.ability)?.name, entry.data?.ability ?? ''),
+        }));
+        battlerFor(entry.side)?.setPose('hit');
+        app.audio.blip('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
       case 'typeChanged':
         say(t('battle.typeChanged', {
           name: nameOf(entry.side === 'player' ? player : foe),
@@ -556,7 +598,9 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
       case 'sendOut':
         loadedFoeId = '';
+        loadedPlayerId = '';
         loadFoeSprite();
+        loadBattler('player', player);
         updateBars();
         say(t('event.wild', { name: nameOf(battle.foe?.pokemon) }));
         if (battle.foe?.pokemon.shiny) queue.unshift({ kind: 'shiny', data: {} });

@@ -117,7 +117,7 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * alternate palette never built falls back to the ordinary one, which is worth
  * doing silently: a missing picture is worse than a missing sparkle.
  *
- * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
  * @param {'front'|'back'|'icon'} kind
  * @returns {{path: string, meta: any}|null}
  */
@@ -125,6 +125,24 @@ export function artOf(pokemon, kind) {
   if (!pokemon) return null;
   const entry = gameData().sprites[pokemon.speciesId];
   if (!entry) return null;
+
+  // An alternate forme is a picture of its own beside the default's, which is
+  // why the forme is part of the path rather than a filter over it. There is
+  // no back or box icon published for the formes, so those fall back to the
+  // default's — a Mimikyu that lost its disguise still walks on the same
+  // feet, and the player's own busted Mimikyu is drawn mirrored as ever.
+  const forme = pokemon.forme;
+  if (forme && kind === 'front') {
+    const formMeta = entry[`form-${forme}`];
+    if (formMeta) {
+      const formShiny = pokemon.shiny ? entry.shiny?.[`form-${forme}`] : null;
+      const form = formShiny ?? formMeta;
+      return {
+        path: `pokemon/${pokemon.speciesId}/front-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
+        meta: form,
+      };
+    }
+  }
 
   const shiny = pokemon.shiny ? entry.shiny?.[kind] : null;
   const meta = shiny ?? entry[kind];
@@ -135,23 +153,26 @@ export function artOf(pokemon, kind) {
 }
 
 /**
- * A key that changes whenever the picture would: the species, and which of
- * its two palettes.
+ * A key that changes whenever the picture would: the species, which of its
+ * two palettes, and which of its shapes it is wearing.
  *
  * Screens that cache a decoded sprite keyed on the species alone would keep
  * showing the ordinary art after a swap to a shiny of the same species, which
- * is exactly the moment a player is looking for the difference.
+ * is exactly the moment a player is looking for the difference — and the same
+ * trap again the moment a Castform walks out of the rain.
  *
- * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
  */
 export const spriteKey = (pokemon) =>
-  pokemon ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}` : '';
+  pokemon
+    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}`
+    : '';
 
 /**
  * The `pdc://` URL of a Pokémon's art, for the screens that set an `img` or a
  * CSS background rather than decoding a sprite strip.
  *
- * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
  * @param {'front'|'back'|'icon'} kind
  */
 export const artPath = (pokemon, kind) => artOf(pokemon, kind)?.path ?? null;

@@ -257,8 +257,18 @@ export const ABILITIES = {
   drizzle: { start: (ctx) => ctx.setWeather(WEATHER.RAIN) },
   'sand-stream': { start: (ctx) => ctx.setWeather(WEATHER.SANDSTORM), weatherImmune: true },
   'snow-warning': { start: (ctx) => ctx.setWeather(WEATHER.SNOW) },
-  'desolate-land': { start: (ctx) => ctx.setWeather(WEATHER.SUN) },
-  'primordial-sea': { start: (ctx) => ctx.setWeather(WEATHER.RAIN) },
+  forecast: {},
+
+  // The Cramorant that dived after something: the forme it wears is the
+  // engine's business (a forme read off the move it just used), so this
+  // entry exists so the Pokémon screen can say the ability is known rather
+  // than leave a player to wonder what their bird is doing.
+  'gulp-missile': {},
+
+  // A Mimikyu's head is not its face: the hit that lands on it breaks the
+  // disguise and does nothing else, and the busted shape hangs about for
+  // the rest of the battle.
+  disguise: { busted: true },
   'electric-surge': { start: (ctx) => ctx.setTerrain(TERRAIN.ELECTRIC) },
   'hadron-engine': { start: (ctx) => ctx.setTerrain(TERRAIN.ELECTRIC) },
   'grassy-surge': { start: (ctx) => ctx.setTerrain(TERRAIN.GRASSY) },
@@ -349,7 +359,7 @@ export const ABILITIES = {
   'bad-dreams': {
     turn: (ctx) => { if (ctx.foe.pokemon.status === 'slp') ctx.damage(ctx.foe, 1 / 8); },
   },
-  'ice-face': { sturdy: true },
+  'ice-face': { sturdy: true, busted: true },
 
   // ---- Stats the other side is not allowed to touch.
 

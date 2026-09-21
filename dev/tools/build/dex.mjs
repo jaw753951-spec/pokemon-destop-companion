@@ -329,6 +329,14 @@ async function buildAbilities(pool, log) {
         if (!ability || ability.is_main_series === false) return;
 
         const effect = (ability.effect_entries ?? []).find((item) => item.language?.name === 'en');
+        // A few abilities belong to mechanics this game will not have, so
+        // keeping them would be keeping a rule that can never fire. The
+        // Primal weathers belong to Primordial Groudon and Kyogre, which are
+        // not forms this game can reach; Battle Bond's and Power Construct's
+        // formes were removed from the games that would carry them here; and
+        // the Mega-exclusive abilities hang off Mega Stones, which the item
+        // filter below already retires.
+        if (FORM_ONLY_ABILITIES.has(ability.name)) return;
         out[ability.name] = {
           id: ability.id,
           name: nameBundle(ability.names, ability.name),
@@ -344,9 +352,29 @@ async function buildAbilities(pool, log) {
 }
 
 /**
- * Items, restricted to the pockets the companion actually uses. Categories are
- * read first so we only fetch the items we keep.
+ * The abilities that belong to a forme this game cannot reach, dropped at the
+ * source so no species ever rolls one and no screen ever shows one.
+ *
+ * Each is a mechanic rather than a rule: the Primal weathers ride on the two
+ * Primal reversions (which would need Red Orb and Blue Orb to be form-change
+ * items, a system the bag has no pocket for), and the two Bond abilities ride
+ * on Ash-Greninja and Complete Zygarde — formes the games themselves retired
+ * from general play and this companion has no cutscene to earn. Zero to Hero
+ * is the one that cannot follow the same road: it is Palafin's only ability,
+ * so dropping it would leave the species pointing at nothing, and a Pokémon
+ * carrying no ability at all is a worse lie than one carrying a rule the
+ * battle never gets to use — a switch-out the game never calls for. It stays
+ * as built data the screen shows as inert.
+ *
+ * @type {Set<string>}
  */
+const FORM_ONLY_ABILITIES = new Set([
+  'desolate-land',
+  'primordial-sea',
+  'delta-stream',
+  'battle-bond',
+  'power-construct',
+]);
 async function buildItems(pool, log, natures) {
   const categoryIndex = await fetchJson(`${POKEAPI}/item-category/index.json`);
   /** @type {Map<string, {url: string, pocket: string, category: string}>} */
@@ -1090,6 +1118,13 @@ async function buildSpecies(pool, log, limit) {
         const stats = {};
         for (const stat of pokemon.stats) stats[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
 
+        // The other varieties, with the rule each one changes its shape by —
+        // weather, health, a held item, a turn spent below half. Only the
+        // ones the battle can actually trigger are worth carrying; the rest
+        // (regional forms, Mega, Gigantamax) would need a system this game
+        // does not have, so they are not fetched at all.
+        const forms = await buildForms(species, pool);
+
         out[id] = {
           id,
           slug: species.name,
@@ -1117,6 +1152,7 @@ async function buildSpecies(pool, log, limit) {
           text: flavorBundle(species.flavor_text_entries),
           learnset: extractLearnset(pokemon.moves),
           evolutionChain: idFromUrl(species.evolution_chain.url),
+          forms,
         };
 
         const chainId = out[id].evolutionChain;
@@ -1129,8 +1165,119 @@ async function buildSpecies(pool, log, limit) {
 
   await attachEvolutions(out, chains, pool);
   log(`species ${Object.keys(out).length}`);
+  const formSpecies = Object.values(out).filter((entry) => entry.forms.length).length;
+  const formCount = Object.values(out).reduce((total, entry) => total + entry.forms.length, 0);
+  log(`species forms ${formCount} across ${formSpecies} species the battle can change`);
   return out;
 }
+
+/**
+ * Which varieties of a species the battle itself can change between, and what
+ * each one looks like.
+ *
+ * Every non-default variety is fetched for its stats, types and sprite, but
+ * only those whose forme hangs off a condition a battle provides are kept —
+ * a weather Forecast, a Zen Mode below half, a Disguise broken by a hit, an
+ * item a wild Pokémon can be rolled holding. The rest (regional forms, Mega,
+ * Gigantamax, Origin, Crowned) would need a trainer to choose them or an item
+ * this game retires, so they stay out of the data rather than in it dead.
+ *
+ * @param {any} species the `pokemon-species` record
+ * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
+ * @returns {Promise<Array<any>>}
+ */
+async function buildForms(species, pool) {
+  const trigger = FORM_TRIGGER.get(species.name);
+  if (!trigger) return [];
+
+  // Only the one alternate forme the engine knows is kept, by the slug
+  // `forms.mjs` names for it — a species like Minior publishes a forme per
+  // colour, all of which share the one behaviour, and keeping all of them
+  // would be thirteen entries the battle can never tell apart.
+  const formeSlug = FORM_FORME.get(species.name);
+  const wanted = species.varieties.filter(
+    (variety) => !variety.is_default && idFromUrl(variety.pokemon.url) !== null,
+  );
+  const chosen = formeSlug
+    ? wanted.filter((variety) => variety.pokemon.name === formeSlug)
+    : wanted;
+  if (!chosen.length) return [];
+
+  return Promise.all(
+    chosen.map((variety) =>
+      pool(async () => {
+        const pokemon = await fetchJson(
+          `${POKEAPI}${variety.pokemon.url.replace('/api/v2', '')}index.json`,
+        );
+        return {
+          slug: pokemon.name,
+          name: nameBundle(pokemon.names, pokemon.name),
+          // The variety's numeric id, which is where the sprite step finds the
+          // forme's picture — most alternate formes live under ids above
+          // 10000 rather than beside the default one.
+          id: idFromUrl(variety.pokemon.url),
+          trigger,
+          types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
+          stats: pokemon.stats.reduce((record, stat) => {
+            record[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
+            return record;
+          }, {}),
+          sprite: Boolean(pokemon.sprites?.other?.showdown?.front_default || pokemon.sprites?.front_default),
+        };
+      }),
+    ),
+  );
+}
+
+/**
+ * The forme each battle-triggered species changes into, by the species that
+ * owns it.
+ *
+ * PokeAPI publishes every published variety — Minior in seven colours and
+ * Mimikyu as a totem twice over, and a Darmanitan whose Galar cousin shares
+ * the species record — while the battle can only ever reach the one, which
+ * this names. The forecast formes and the gulp-missile catches are the
+ * exception: those wear a different shape per weather or per catch, and all
+ * of them are reachable.
+ *
+ * @type {Map<string, string|null>}
+ */
+const FORM_FORME = new Map([
+  ['castform', null],
+  ['darmanitan', 'darmanitan-zen'],
+  ['wishiwashi', 'wishiwashi-school'],
+  ['minior', 'minior-red'],
+  ['mimikyu', 'mimikyu-busted'],
+  ['eiscue', 'eiscue-noice'],
+  ['cramorant', null],
+]);
+
+/**
+ * The battle-triggered forme changes, by the species that owns them.
+ *
+ * Each trigger names the hook the engine runs it on: `enter` (weather on the
+ * way in), `weather` (the sky moving over it), `turn` (end-of-turn health
+ * checks), `hit` (a Disguise broken), `move` (a move the holder uses), and
+ * `revert` (the condition that undid it has gone). `back` names the forme to
+ * fall back to when the condition stops holding, when that differs from the
+ * default one.
+ *
+ * @type {Map<string, string>}
+ */
+const FORM_TRIGGER = new Map([
+  // Weather reads the sky the moment the Pokémon walks in.
+  ['castform', 'weather'],
+  // Health: Zen Mode below half, Schooling above a quarter, Shields Down the
+  // other way round — the meteor up, the core down.
+  ['darmanitan', 'turn'],
+  ['wishiwashi', 'turn'],
+  ['minior', 'turn'],
+  // One hit to break, and the battle keeps it broken.
+  ['mimikyu', 'hit'],
+  ['eiscue', 'hit'],
+  // A Surf or a Dive catches something, and it stays caught.
+  ['cramorant', 'move'],
+]);
 
 /**
  * Forget any held-item slot naming something the game does not ship.

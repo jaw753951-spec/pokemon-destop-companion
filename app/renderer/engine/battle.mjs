@@ -9,6 +9,7 @@
  */
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect } from './abilities.mjs';
+import { formeFor } from './forms.mjs';
 import {
   Field,
   FIELD_MOVES,
@@ -166,6 +167,17 @@ export class Battle {
     // An Unburden is waiting for the item to be gone, so it has to know there
     // was one to begin with.
     combatant.marks.hadItem = Boolean(combatant.pokemon.heldItem);
+
+    // Whatever the weather on the field already says about the shape it
+    // arrives in — a Forecast walks in as rain or snow made it.
+    this.applyForme(combatant, {
+      ...this.formeState(combatant),
+      // A Disguise is whole the moment it walks in: the marks a battle
+      // carries do not follow a Pokémon between battles, and the save never
+      // held one.
+      broken: false,
+      usedMove: null,
+    }, log);
 
     const ability = abilityEffect(combatant.pokemon);
     if (!ability?.start || !other) return;
@@ -469,6 +481,7 @@ export class Battle {
     if (!this.field.setWeather(weather, turns)) return false;
     log.push({ kind: 'weather', side: source.side, data: { weather, turns } });
     this.checkSeeds(log);
+    this.evaluateFormes(log);
     return true;
   }
 
@@ -571,12 +584,101 @@ export class Battle {
         this.regrowBerry(combatant, log);
         this.tickStates(combatant, log);
       }
+      this.evaluateFormes(log);
       this.tickField(log);
       this.checkFaint(log);
       this.eatHeldBerry(log);
     }
 
     return log;
+  }
+
+  /**
+   * The forme each side should be wearing, if either has changed shape.
+   *
+   * Called at the moments a forme can flip: on the way in, when the weather
+   * moves, at the end of a turn (health checks), after a move that catches
+   * something, and after a hit that breaks something. A species with no forme
+   * to wear costs this a map lookup and returns, which is the common case.
+   *
+   * @param {LogEntry[]} log
+   */
+  evaluateFormes(log) {
+    for (const combatant of [this.player, this.foe]) {
+      if (!combatant || combatant.pokemon.hp <= 0) continue;
+      this.applyForme(combatant, this.formeState(combatant), log);
+    }
+  }
+
+  /**
+   * What the shape a combatant wears hangs off, in the one shape every
+   * caller passes it: the sky above, the health it is at, whether something
+   * about it has been broken, and what it last did.
+   *
+   * @param {Combatant} combatant
+   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null}}
+   */
+  formeState(combatant) {
+    return {
+      current: combatant.marks.forme ?? null,
+      weather: this.weatherFor(combatant),
+      weatherTurns: this.field.weatherTurns,
+      overhp: combatant.pokemon.hp,
+      maxhp: combatant.maxHp,
+      broken: Boolean(combatant.marks.formeBroken),
+      usedMove: combatant.lastMove,
+    };
+  }
+
+  /**
+   * Move a combatant into the forme its condition now calls for.
+   *
+   * The max hit points a forme brings with it are added on the way in and
+   * taken back off on the way out, the way evolution tops a level-up up — a
+   * Zen Mode's larger bar should not read as having healed into it. A wanted
+   * forme of `null` means back to the species' ordinary shape: the forme's
+   * health comes off, and the marks are cleared rather than pointed at a slug
+   * the data would then be asked to look up.
+   *
+   * @param {Combatant} combatant
+   * @param {{current?: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null}} state
+   * @param {LogEntry[]} log
+   * @returns {boolean} whether the forme moved
+   */
+  applyForme(combatant, state, log) {
+    const current = combatant.marks.forme ?? null;
+    // A busted Disguise is a state, not a shape the weather can undo: while
+    // the mark is set, the busted forme is the only one on offer, whatever
+    // the periodic checks keep asking for.
+    if (combatant.marks.formeBroken) {
+      const busted = this.bustedFormeOf(combatant.pokemon);
+      if (busted) {
+        if (current === busted) return false;
+        combatant.marks.forme = busted;
+        combatant.pokemon.forme = busted;
+        return true;
+      }
+    }
+    const wanted = formeFor(combatant.pokemon, { ...state, current });
+    if (wanted === current) return false;
+
+    const before = current ? statsOf(combatant.pokemon, current).hp : maxHp(combatant.pokemon);
+    combatant.marks.forme = wanted;
+    // The Pokémon wears the slug too, so every screen that holds one — the
+    // health bars, the nameplates, the sprite cache keys — reads the shape it
+    // is in straight off it, without knowing what a combatant is.
+    combatant.pokemon.forme = wanted;
+    const after = wanted ? statsOf(combatant.pokemon, wanted).hp : maxHp(combatant.pokemon);
+    combatant.pokemon.hp = Math.max(1, Math.min(after, combatant.pokemon.hp + (after - before)));
+    // The forme replaces the species' types, which is where its resistances
+    // live; an explicit rewrite would fight the next forme change.
+    combatant.marks.types = null;
+    log.push({
+      kind: 'formChanged',
+      side: combatant.side,
+      data: { forme: wanted, ability: combatant.pokemon.ability },
+    });
+    return true;
   }
 
   /**
@@ -753,13 +855,18 @@ export class Battle {
    * Usually its species' types, and the games do not let that change outside
    * a battle — but a Protean rewrites it every time its holder attacks and a
    * Color Change rewrites it every time its holder is hit, so the answer
-   * lives on the combatant and the species is only the starting point.
+   * lives on the combatant and the species is only the starting point. An
+   * alternate forme carries its own types the same way.
    *
    * @param {Combatant} combatant
    * @returns {string[]}
    */
   typesOf(combatant) {
-    return combatant.marks.types ?? speciesOf(combatant.pokemon.speciesId).types;
+    const species = speciesOf(combatant.pokemon.speciesId);
+    const forme = combatant.marks.forme
+      ? (species.forms ?? []).find((form) => form.slug === combatant.marks.forme)
+      : null;
+    return combatant.marks.types ?? forme?.types ?? species.types;
   }
 
   /**
@@ -1017,6 +1124,13 @@ export class Battle {
 
     this.afterUse(attacker, defender, move, log);
 
+    // Whatever a move caught in its mouth, or a shape its health had just
+    // crossed into, is a shape change worth showing as it happens rather than
+    // waiting for the turn to end. The turn-end check still runs, so this is
+    // an early word on things that have already changed and no word at all on
+    // things that have not.
+    this.evaluateFormes(log);
+
     // A move that has to be recharged says so now, so the next turn can be
     // spent paying for it.
     if (hasFlag(move, 'recharge') && attacker.pokemon.hp > 0) attacker.mustRecharge = true;
@@ -1149,6 +1263,12 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   afterUse(attacker, defender, move, log) {
+    // A Gulp Missile has already been wearing what it caught since the move
+    // that caught it, so this is where it catches it — the catch is
+    // registered through the shared evaluateFormes, which re-reads the move
+    // the combatant just used.
+    this.evaluateFormes(log);
+
     const spray = heldPassive(attacker.pokemon, 'used');
     if (!spray || !spray.flags?.some((flag) => hasFlag(move, flag))) return;
 
@@ -1480,6 +1600,15 @@ export class Battle {
       critical = critical || result.critical;
       if (result.effectiveness === 0) break;
 
+      // A Disguise or an Ice Face takes the hit and shatters instead of
+      // letting any of it through — whatever the hit would have done.
+      if (this.bustForme(attacker, defender)) {
+        defender.marks.formeBroken = true;
+        this.applyForme(defender, { ...this.formeState(defender), broken: true }, log);
+        log.push({ kind: 'formBroken', side: defender.side, data: { ability: defender.pokemon.ability } });
+        break;
+      }
+
       const survives = this.survivesHit(defender, result.damage);
       defender.pokemon.hp = Math.max(survives ? 1 : 0, defender.pokemon.hp - result.damage);
       total += result.damage;
@@ -1500,6 +1629,11 @@ export class Battle {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness: 0 } });
       return;
     }
+
+    // A shattering disguise took every hit of the move: there is nothing to
+    // report as damage, and none of what hangs off damage — drain, recoil,
+    // secondary effects — applies to a hit nobody took.
+    if (total === 0) return;
 
     // A berry eaten on the way in is announced before the damage it softened.
     if (defender.marks.ateResist) {
@@ -1622,6 +1756,33 @@ export class Battle {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness: 0 } });
     }
     return true;
+  }
+
+  /**
+   * Whether the hit that just reached the defender broke something about its
+   * shape instead of hurting it — a Disguise shattering, an Ice Face coming
+   * off. The first hit only, and not while a Mold Breaker is swinging.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @returns {boolean}
+   */
+  bustForme(attacker, defender) {
+    if (defender.marks.formeBroken) return false;
+    return Boolean(this.abilityOf(defender, attacker)?.busted);
+  }
+
+  /**
+   * The broken shape of a Disguise or an Ice Face, if the species wears one.
+   *
+   * @param {import('./pokemon.mjs').Pokemon} pokemon
+   * @returns {string|null}
+   */
+  bustedFormeOf(pokemon) {
+    const species = speciesOf(pokemon.speciesId);
+    if (!species) return null;
+    const slug = species.slug;
+    return slug === 'mimikyu' ? 'mimikyu-busted' : slug === 'eiscue' ? 'eiscue-noice' : null;
   }
 
   /**
@@ -2466,7 +2627,9 @@ function makeCombatant(pokemon, side) {
  * @param {{ignorePositive?: boolean, ignoreNegative?: boolean, ignoreStages?: boolean, battle?: any}} [options]
  */
 export function effectiveStat(combatant, stat, options = {}) {
-  const base = statsOf(combatant.pokemon)[stat] ?? 1;
+  // The forme the combatant wears carries its own base stats — a Zen Mode's
+  // Attack comes out of the forme, not out of the species.
+  const base = statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
   let stage = options.ignoreStages ? 0 : combatant.stages[stat] ?? 0;
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;
