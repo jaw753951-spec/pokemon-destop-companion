@@ -260,8 +260,14 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
   }
 
   for (const league of leagues) {
-    const members = [...league.eliteFour, league.champion];
-    note(league.eliteFour.length >= 4, `league ${league.region}: only ${league.eliteFour.length} Elite Four`);
+    // A league may seat alternates — people who share one seat, where the
+    // games' own rosters vary (Alola's fourth is Hala's or Molayne's). They
+    // are checked as members too, so a party or a name that has gone missing
+    // fails the build whichever of them the roll puts on the field.
+    const alternates = league.alternates ?? [];
+    const members = [...league.eliteFour, ...alternates, league.champion];
+    note(league.eliteFour.length + alternates.length >= 4, `league ${league.region}: only ${league.eliteFour.length + alternates.length} Elite Four`);
+    note(league.eliteFour.length + alternates.length === league.eliteFour.length + new Set(alternates).size, `league ${league.region}: a member is seated twice`);
     for (const member of members) {
       note(Boolean(member.name?.[base.code]), `league ${league.region}/${member.id}: no ${base.code} name`);
       note((member.party ?? []).length > 0, `league ${league.region}/${member.id}: no party`);
