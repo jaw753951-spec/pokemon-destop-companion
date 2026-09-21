@@ -198,16 +198,16 @@ export function fieldScene(session) {
     if (setup.leader) {
       session.badges.push(setup.leader.type);
       session.trainerWins = 0;
-      app.audio.playMusic(gameData().bgm.cues.obtainBadge ?? null);
+      app.audio.playJingle(gameData().bgm.cues.obtainBadge ?? null);
       app.toast(t('badge.obtained', { name: badgeLabel(setup.leader) }));
     } else if (setup.trainer) {
       session.trainerWins++;
-      app.audio.playMusic(gameData().bgm.cues.victoryTrainer ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryTrainer ?? null);
     } else {
       // Only wild Pokémon can be caught, so only they reach the tray — and
       // only when the companion was the one left standing.
       for (const pokemon of result.defeated) session.addToTray(pokemon);
-      app.audio.playMusic(gameData().bgm.cues.victoryWild ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null);
     }
 
     restock(app);

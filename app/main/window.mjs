@@ -69,6 +69,12 @@ export function getWindow() {
 /**
  * Resize around the window's current centre, so changing the scale does not
  * throw the companion into a corner.
+ *
+ * The centre is kept in so far as the resized window can stay on screen; when
+ * it cannot, the window slides back just far enough to fit rather than being
+ * teleported to the default top-centre spot — the user placed the companion,
+ * and a scale change should not undo that.
+ *
  * @param {number} scale
  */
 export function applyScale(scale) {
@@ -81,7 +87,7 @@ export function applyScale(scale) {
   const centreX = x + currentWidth / 2;
   const centreY = y + currentHeight / 2;
 
-  const position = clampToDisplay(Math.round(centreX - width / 2), Math.round(centreY - height / 2), width, height);
+  const position = keepOnDisplay(Math.round(centreX - width / 2), Math.round(centreY - height / 2), width, height);
   window.setContentSize(width, height);
   window.setPosition(position.x, position.y);
   return { width, height, ...position };
@@ -123,5 +129,47 @@ function clampToDisplay(x, y, width, height) {
   return {
     x: Math.round(primary.workArea.x + (primary.workArea.width - width) / 2),
     y: primary.workArea.y + 8,
+  };
+}
+
+/**
+ * Nudge a window that would sit partly or wholly off-screen back into the
+ * display it came from, rather than relocating it. The least move that fits
+ * wins: a companion dragged half onto a second monitor stays on that monitor.
+ *
+ * @param {number} x
+ * @param {number} y
+ * @param {number} width
+ * @param {number} height
+ */
+function keepOnDisplay(x, y, width, height) {
+  const displays = screen.getAllDisplays();
+  const primary = screen.getPrimaryDisplay();
+
+  if (!Number.isFinite(x) || !Number.isFinite(y)) {
+    return {
+      x: Math.round(primary.workArea.x + (primary.workArea.width - width) / 2),
+      y: primary.workArea.y + 8,
+    };
+  }
+
+  // The display holding most of the window today is the one it belongs on.
+  let best = null;
+  let bestOverlap = -1;
+  for (const display of displays) {
+    const area = display.workArea;
+    const overlapX = Math.max(0, Math.min(x + width, area.x + area.width) - Math.max(x, area.x));
+    const overlapY = Math.max(0, Math.min(y + height, area.y + area.height) - Math.max(y, area.y));
+    const overlap = overlapX * overlapY;
+    if (overlap > bestOverlap) {
+      bestOverlap = overlap;
+      best = area;
+    }
+  }
+  if (!best) best = primary.workArea;
+
+  return {
+    x: Math.round(Math.max(best.x, Math.min(x, best.x + best.width - width))),
+    y: Math.round(Math.max(best.y, Math.min(y, best.y + best.height - height))),
   };
 }

@@ -70,8 +70,9 @@ export class Session {
   }
 
   rollAreaTimer() {
-    const [min, max] = AREA_ROTATION_MS;
-    return this.rng.int(min, max);
+    // The rotation is a fixed ten minutes now; the indirection survives so a
+    // spread of gaps can come back without touching the session's callers.
+    return typeof AREA_ROTATION_MS === 'number' ? AREA_ROTATION_MS : AREA_ROTATION_MS[0];
   }
 
   /**

@@ -11,8 +11,34 @@ import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { gameData, speciesIdBySlug, speciesOf } from '../core/data.mjs';
 import { createPokemon, levelOf, rollWildHeldItem } from './pokemon.mjs';
 
-/** How far a wild Pokémon's level may sit from the companion's. */
+/**
+ * How far a wild Pokémon's level may sit from the companion's.
+ *
+ * The spread narrows as the companion gets weaker: a level 5 starter meeting
+ * a level 20 bird is not a challenge, it is a blackout, so the earliest
+ * routes keep their wilds within a couple of levels either way and the range
+ * opens up as the team — and its movepool — grows into it.
+ */
 export const LEVEL_SPREAD = { min: -5, max: 15 };
+
+/**
+ * The spread actually on offer at a given level, widest at the top.
+ *
+ * | level | down | up |
+ * |-------|------|----|
+ * |   1–7 |   -2 | +2 |
+ * |  8–14 |   -3 | +5 |
+ * | 15–24 |   -4 | +9 |
+ * |   25+ |   -5 | +15 |
+ *
+ * @param {number} level
+ */
+export function spreadFor(level) {
+  if (level <= 7) return { min: -2, max: 2 };
+  if (level <= 14) return { min: -3, max: 5 };
+  if (level <= 24) return { min: -4, max: 9 };
+  return LEVEL_SPREAD;
+}
 
 /**
  * Roll a wild Pokémon for the area the companion is in.
@@ -42,7 +68,8 @@ export function rollWildPokemon(rng, area, companion) {
  */
 export function rollLevel(rng, companion) {
   const level = levelOf(companion);
-  return Math.max(1, Math.min(100, level + rng.int(LEVEL_SPREAD.min, LEVEL_SPREAD.max)));
+  const spread = spreadFor(level);
+  return Math.max(1, Math.min(100, level + rng.int(spread.min, spread.max)));
 }
 
 /**
@@ -156,7 +183,14 @@ export function rollTrainer(rng, area, companion, classes) {
   const trainerClass = rng.pick(local.length ? local : classes);
 
   const [minParty, maxParty] = trainerClass.party ?? [1, 3];
-  const size = rng.int(minParty, Math.max(minParty, maxParty));
+  // Parties start small: one Pokémon until the companion has seen its first
+  // few levels through, then the class's own range as the team fills out.
+  // Early trainers with three monsters a level-5 starter cannot out-trade
+  // made the first ten minutes a coin flip on which trainer walked up.
+  const companionLevel = levelOf(companion);
+  const cap = companionLevel <= 5 ? 1 : companionLevel <= 9 ? 2 : maxParty;
+  const high = Math.max(minParty, Math.min(maxParty, cap));
+  const size = companionLevel <= 5 ? minParty : rng.int(minParty, high);
 
   const party = [];
   for (let index = 0; index < size; index++) {
