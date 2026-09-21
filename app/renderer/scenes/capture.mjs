@@ -145,7 +145,7 @@ export function captureScene({ session, target, onFinish }) {
     if (result.caught) {
       settled = true;
       app.audio.blip('catch');
-      app.audio.playMusic(gameData().bgm.cues.caught ?? null);
+      app.audio.playJingle(gameData().bgm.cues.caught ?? null);
       message.textContent = t('capture.success', { name: label() });
 
       const nickname = await prompt(app, t('capture.nickname', { name: label() }), {

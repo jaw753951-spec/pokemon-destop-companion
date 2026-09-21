@@ -76,9 +76,11 @@ export class EventScheduler {
     if (this.forced) {
       const forced = this.forced;
       this.forced = null;
-      // Recorded like any other, so a forced rest stop still damps the odds of
-      // the next one being a rest stop too.
-      this.streak = forced === this.last ? this.streak + 1 : 1;
+      // A rest stop the game sent the companion to is followed by the odds
+      // saying no to another one: the streak records a full run rather than a
+      // first repeat, so the back-to-back rest stops a first-repeat's 10% used
+      // to hand out — the "heal twice after losing" report — cannot happen.
+      this.streak = forced === this.last ? this.streak + 1 : REPEAT_WEIGHTS.length;
       this.last = forced;
       return forced;
     }

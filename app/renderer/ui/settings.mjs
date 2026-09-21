@@ -87,7 +87,11 @@ export function settingsScene({ onClose, onSaveAndQuit }) {
 function tabRows(app, tab, rebuild) {
   switch (tab) {
     case 'sound':
-      return [volumeRow(app, 'settings.music', 'musicVolume'), volumeRow(app, 'settings.effects', 'effectVolume')];
+      return [
+        volumeRow(app, 'settings.music', 'musicVolume'),
+        volumeRow(app, 'settings.effects', 'effectVolume'),
+        volumeRow(app, 'settings.cries', 'cryVolume'),
+      ];
     case 'language':
       return languageRows(app, rebuild);
     case 'display':
@@ -124,7 +128,7 @@ function scaleRow(app) {
 /**
  * @param {import('../core/app.mjs').App} app
  * @param {string} labelKey
- * @param {'musicVolume'|'effectVolume'} key
+ * @param {'musicVolume'|'effectVolume'|'cryVolume'} key
  */
 function volumeRow(app, labelKey, key) {
   const value = el('span.value', { text: `${Math.round(app.settings[key] * 100)}%` });

@@ -25,6 +25,8 @@ export class AudioEngine {
     this.musicGain = null;
     /** @type {GainNode|null} */
     this.effectGain = null;
+    /** @type {GainNode|null} */
+    this.cryGain = null;
     /** @type {AudioBuffer|null} */
     this.noise = null;
 
@@ -39,6 +41,12 @@ export class AudioEngine {
 
     this.musicVolume = 0.6;
     this.effectVolume = 0.8;
+    this.cryVolume = 0.9;
+
+    /** @type {{name: string, song: any, startedAt: number, cursors: number[]}|null} */
+    this.jingle = null;
+    /** @type {number|undefined} */
+    this.jingleTimer = undefined;
   }
 
   /** Create the audio graph. Safe to call more than once. */
@@ -47,25 +55,31 @@ export class AudioEngine {
     this.context = new AudioContext();
     this.musicGain = this.context.createGain();
     this.effectGain = this.context.createGain();
+    this.cryGain = this.context.createGain();
     this.musicGain.connect(this.context.destination);
     this.effectGain.connect(this.context.destination);
+    this.cryGain.connect(this.context.destination);
     this.applyVolumes();
     this.noise = createNoiseBuffer(this.context);
   }
 
-  /** @param {{musicVolume?: number, effectVolume?: number}} volumes */
-  setVolumes({ musicVolume, effectVolume }) {
+  /**
+   * @param {{musicVolume?: number, effectVolume?: number, cryVolume?: number}} volumes
+   */
+  setVolumes({ musicVolume, effectVolume, cryVolume }) {
     if (typeof musicVolume === 'number') this.musicVolume = musicVolume;
     if (typeof effectVolume === 'number') this.effectVolume = effectVolume;
+    if (typeof cryVolume === 'number') this.cryVolume = cryVolume;
     this.applyVolumes();
   }
 
   applyVolumes() {
-    if (!this.context || !this.musicGain || !this.effectGain) return;
+    if (!this.context || !this.musicGain || !this.effectGain || !this.cryGain) return;
     const now = this.context.currentTime;
     // Music is mixed low: it plays under whatever the user is actually doing.
     this.musicGain.gain.setTargetAtTime(this.musicVolume * 0.22, now, 0.05);
     this.effectGain.gain.setTargetAtTime(this.effectVolume * 0.5, now, 0.05);
+    this.cryGain.gain.setTargetAtTime(this.cryVolume * 0.6, now, 0.05);
   }
 
   /**
@@ -92,10 +106,86 @@ export class AudioEngine {
     this.schedule();
   }
 
+  /**
+   * Play one of the short cue tracks — the fanfares, the heal chime — once,
+   * over whatever music is already playing, on the effects channel.
+   *
+   * These are sound effects that happen to be stored as MIDI: the cartridge
+   * stops the area music, plays the jingle, and resumes. Looping them through
+   * `playMusic` made the heal chime repeat forever, and replaced the area
+   * music with two seconds of silence afterwards.
+   *
+   * Scheduling reuses the music machinery, but on a private `current` that
+   * clears itself at the end of the song instead of looping.
+   *
+   * @param {string|null} name
+   */
+  async playJingle(name) {
+    if (!name) return;
+    this.start();
+    if (!this.context) return;
+    if (this.jingle?.name === name) return; // already playing this one
+
+    let song;
+    try {
+      song = await this.loadSong(name);
+    } catch {
+      return; // a missing cue is not worth a console error, let alone a break
+    }
+    if (!this.context || !this.effectGain) return;
+
+    const jingle = {
+      name,
+      song,
+      startedAt: this.context.currentTime + 0.05,
+      cursors: song.tracks.map(() => 0),
+    };
+    if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
+    this.jingle = jingle;
+    this.jingleTimer = window.setInterval(() => this.scheduleJingle(), TICK_MS);
+    this.scheduleJingle();
+  }
+
+  /** Queue the jingle's notes once through, then stop scheduling. */
+  scheduleJingle() {
+    const jingle = this.jingle;
+    if (!jingle || !this.context || !this.effectGain) return;
+    const { song, cursors } = jingle;
+    const horizon = this.context.currentTime + LOOKAHEAD_S;
+    const end = jingle.startedAt + song.duration;
+    let started = 0;
+
+    for (let pass = 0; pass < 4 && started < MAX_NOTES_PER_TICK; pass++) {
+      const origin = jingle.startedAt + pass * song.duration;
+      if (origin > horizon) break;
+      song.tracks.forEach((track, index) => {
+        while (cursors[index] < track.notes.length && started < MAX_NOTES_PER_TICK) {
+          const note = track.notes[cursors[index]];
+          const when = origin + note.t;
+          if (when > horizon) return;
+          this.playNote(track.program, note, Math.max(when, this.context.currentTime));
+          cursors[index]++;
+          started++;
+        }
+      });
+    }
+
+    // One pass is the whole jingle; past its end there is nothing to schedule
+    // and the private player stands down.
+    if (this.context.currentTime > end + 0.2) {
+      if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
+      this.jingleTimer = undefined;
+      this.jingle = null;
+    }
+  }
+
   stopMusic() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
     this.current = null;
+    if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
+    this.jingleTimer = undefined;
+    this.jingle = null;
   }
 
   /** Queue every note that starts within the look-ahead window. */
@@ -183,16 +273,25 @@ export class AudioEngine {
 
   /**
    * A Pokémon's cry. Missing cries are simply silent rather than fatal.
+   *
+   * Cries ride their own gain node so the sound tab can turn them down — or
+   * off — without touching the effects they share a speaker with.
+   *
    * @param {number} speciesId
    */
   async playCry(speciesId) {
-    await this.playSample(`cries/${speciesId}.ogg`);
+    await this.playSample(`cries/${speciesId}.ogg`, this.cryGain);
   }
 
-  /** @param {string} path */
-  async playSample(path) {
+  /**
+   * @param {string} path
+   * @param {GainNode|null} [output] the channel to voice it on, effects by default
+   */
+  async playSample(path, output = null) {
     this.start();
-    if (!this.context || !this.effectGain) return;
+    if (!this.context) return;
+    const sink = output ?? this.effectGain;
+    if (!sink) return;
     try {
       let pending = this.buffers.get(path);
       if (!pending) {
@@ -201,7 +300,7 @@ export class AudioEngine {
       }
       const source = this.context.createBufferSource();
       source.buffer = await pending;
-      source.connect(this.effectGain);
+      source.connect(sink);
       source.start();
     } catch {
       // A missing sample should never interrupt the game.

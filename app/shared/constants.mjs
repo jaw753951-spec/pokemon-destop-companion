@@ -34,8 +34,12 @@ export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 /** How often the field rolls for a random event. */
 export const EVENT_INTERVAL_MS = 60 * 1000;
 
-/** An area is swapped for another one after a random gap in this range. */
-export const AREA_ROTATION_MS = [7 * 60 * 1000, 10 * 60 * 1000];
+/**
+ * How long the companion stays in one area before moving on: ten minutes,
+ * fixed. The range that used to sit here made the interval something the
+ * player could only guess at; a fixed figure is one you can set a clock by.
+ */
+export const AREA_ROTATION_MS = 10 * 60 * 1000;
 
 /** The five daylight bands, and the hour each one starts at. */
 export const TIME_BANDS = [

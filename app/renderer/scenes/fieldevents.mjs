@@ -52,7 +52,9 @@ export function createEventRunner({ session, onBattle }) {
 
     /** Whether the companion should keep moving this frame. */
     get walking() {
-      return active === null || active.phase === 'approach';
+      // 'passing' is the walk-out of a finished rest stop: the companion is
+      // back on the road, so the world scrolls on behind it as before.
+      return active === null || active.phase === 'approach' || active.phase === 'passing';
     },
 
     /** Whether the companion is out of sight — inside the Pokémon Center. */
@@ -200,7 +202,7 @@ function startBerry(session, spawnAt) {
       loadImage(`items/${berry}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
       });
-      app.audio.playMusic(gameData().bgm.cues.obtainBerry ?? null);
+      app.audio.playJingle(gameData().bgm.cues.obtainBerry ?? null);
       app.toast(t('event.berryFound', { name: localized(itemOf(berry)?.name, berry) }));
     },
   };
@@ -241,7 +243,7 @@ function startBall(session, spawnAt) {
         state.carried.sprite = stillSprite(image);
       });
       const cue = itemOf(item)?.pocket === 'machines' ? 'obtainTm' : 'obtainItem';
-      app.audio.playMusic(gameData().bgm.cues[cue] ?? null);
+      app.audio.playJingle(gameData().bgm.cues[cue] ?? null);
       app.toast(t('event.itemFound', { name: localized(itemOf(item)?.name, item) }));
     },
   };
@@ -272,6 +274,14 @@ const SUPPLIES = [
 
 /** How long the companion stays inside, out of sight, being seen to. */
 const CENTER_STAY_MS = 5000;
+
+/**
+ * How long the Center stays on screen after the visit, while the walk carries
+ * the companion past it. Long enough for the building to slide off the left
+ * edge of the view at the walk's own pace, so the rest stop reads as a place
+ * passed rather than a place that stopped existing.
+ */
+const CENTER_PASS_MS = 6500;
 
 /**
  * The visit, beat by beat: which door frame to show, how long to hold it, and
@@ -328,15 +338,19 @@ function startHeal(session, spawnAt) {
     onTimer: (app) => {
       step += 1;
       const beat = CENTER_STEPS[step];
-      if (!beat) {
-        state.hidesActor = false;
-        return null;
+      if (beat) {
+        state.prop.frame = beat.frame;
+        state.hidesActor = Boolean(beat.inside);
+        if (beat.heal) restAndResupply(session, app);
+        return { phase: 'visit', duration: beat.ms };
       }
 
-      state.prop.frame = beat.frame;
-      state.hidesActor = Boolean(beat.inside);
-      if (beat.heal) restAndResupply(session, app);
-      return { phase: 'visit', duration: beat.ms };
+      // The visit is over, but the building is not: the companion walks on
+      // past the Center and the map carries it off the left edge like any
+      // other roadside scenery, instead of the place vanishing on the spot.
+      state.phase = 'passing';
+      state.hidesActor = false;
+      return { phase: 'passing', duration: CENTER_PASS_MS };
     },
   };
 
@@ -358,7 +372,7 @@ function restAndResupply(session, app) {
   const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
   session.addItem(supply.item, SUPPLY_COUNT);
 
-  app.audio.playMusic(gameData().bgm.cues.heal ?? null);
+  app.audio.playJingle(gameData().bgm.cues.heal ?? null);
   app.toast(
     `${t('event.healed')}\n${t('event.supplied', {
       name: localized(itemOf(supply.item)?.name, supply.item),

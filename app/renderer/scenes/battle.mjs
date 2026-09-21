@@ -8,6 +8,7 @@
 import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { weatherForArea } from '../../shared/area-tags.mjs';
 import { loadSprite } from '../core/assets.mjs';
+import { url } from '../core/bridge.mjs';
 import { abilityOf, artOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
 import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -19,8 +20,20 @@ import { Battler, fitScale } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
-/** How long each log entry holds the screen. */
+/**
+ * How long each log entry holds the screen.
+ *
+ * A click on the battle halves the wait for the entry currently on screen —
+ * the cadence is a watchable default, not a rule — so these are the full-pace
+ * numbers and `advance` does the halving.
+ */
 const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
+
+/** How much of a beat a click skips, as a share of the full wait. */
+const CLICK_SPEEDUP = 0.5;
+
+/** How long the red damage ghost holds before draining to the real bar. */
+const GHOST_DELAY_MS = 240;
 
 /**
  * The message box's top edge, in field pixels: it is 34 tall and sits 8 from
@@ -105,6 +118,18 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   const conditions = el('div.battle-field');
   const playerBar = healthBar();
   const foeBar = healthBar();
+  /** The trainer's remaining party, drawn as the balls still on their belt. */
+  const foeBalls = el('div.battle-balls');
+  /**
+   * How long until each side's damage ghost settles: one beat after the hit
+   * that opened the gap, so the red shows where the bar was before it drains.
+   * @type {{player: number, foe: number}}
+   */
+  const ghostTimers = { player: 0, foe: 0 };
+
+  /** The click ripples still fading, oldest first. */
+  /** @type {Array<{node: HTMLElement, life: number}>} */
+  const ripples = [];
 
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
@@ -164,6 +189,34 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
   const loadFoeSprite = () => loadBattler('foe', battle.foe?.pokemon ?? null);
 
+  /**
+   * The opponent's remaining party, one ball per Pokémon still standing.
+   *
+   * Trainers carry their team on their belt and the games count it down there
+   * as it faints; a wild Pokémon has no trainer, and the row stays empty.
+   */
+  function updateFoeBalls() {
+    const standing = (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0);
+    setChildren(
+      foeBalls,
+      Array.from({ length: standing }, () =>
+        el('img.battle-ball', { src: url('assets', 'items/poke-ball.png'), alt: '' })),
+    );
+  }
+
+  /**
+   * A click on the battle brings the next entry on at half the remaining wait
+   * — enough to hurry the fight along without skipping what is being said.
+   * @param {import('../core/app.mjs').App} app
+   */
+  function hurryBeat(app) {
+    if (finished) return;
+    // Half of the beat that is still to run, floored so a late click does not
+    // revive a beat that had already finished.
+    beat = Math.min(beat, Math.max(beat * (1 - CLICK_SPEEDUP), 16));
+    spawnClickEffect(app);
+  }
+
   return {
     keepBelow: true,
 
@@ -184,11 +237,20 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       ];
       updateBars();
       updateField();
+      updateFoeBalls();
+
+      // The whole screen is the click target: hurrying a fight along is what
+      // anyone mashing through a message box expects, and the scene already
+      // ignores pointer events except where the bag button asks for them.
+      const screenNode = el('div.battle-clickcatch');
+      screenNode.addEventListener('click', () => hurryBeat(app));
 
       return el('div.screen.battle-screen', {}, [
+        screenNode,
         el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
         el('div.battle-bar.player', {}, [nameplate(session.active), playerBar.root]),
         el('div.battle-actions', {}, [
+          foeBalls,
           button(t('battle.bag'), () => openBag(app), { className: 'small' }),
         ]),
         conditions,
@@ -199,6 +261,8 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     update(deltaMs, app) {
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
+      updateEffects(deltaMs);
+      tickBarGhosts(deltaMs);
 
       if (finished) return;
       beat -= deltaMs;
@@ -217,7 +281,12 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       }
 
       const entry = queue.shift();
-      if (entry) beat = play(entry, app);
+      if (entry) {
+        beat = play(entry, app);
+        // The party count follows the faints and the send-outs, wherever in
+        // the turn they happened to fall.
+        updateFoeBalls();
+      }
     },
 
     render(context) {
@@ -297,7 +366,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       case 'damage': {
         battlerFor(entry.side)?.setPose('hit');
         app.audio.blip('hit');
-        updateBars();
+        updateBars({ hurt: entry.side });
         return BEAT_MS.damage;
       }
 
@@ -612,7 +681,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
       case 'levelUp':
         say(t('battle.levelUp', { name: nameOf(player), level: entry.data?.level ?? levelOf(player) }));
-        app.audio.playMusic(gameData().bgm.cues.levelUp ?? null);
+        app.audio.playJingle(gameData().bgm.cues.levelUp ?? null);
         updateBars();
         break;
 
@@ -671,9 +740,17 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     message.textContent = text;
   }
 
-  function updateBars() {
+  /**
+   * @param {{hurt?: 'player'|'foe'}} [just] the side a hit just landed on, so
+   *   its ghost holds a beat before draining while the other's settles at once
+   */
+  function updateBars(just) {
     playerBar.set(session.active);
     foeBar.set(battle.foe?.pokemon ?? null);
+    ghostTimers.player = just?.hurt === 'player' ? GHOST_DELAY_MS : 0;
+    ghostTimers.foe = just?.hurt === 'foe' ? GHOST_DELAY_MS : 0;
+    if (ghostTimers.player <= 0) playerBar.settle();
+    if (ghostTimers.foe <= 0) foeBar.settle();
   }
 
   /**
@@ -693,10 +770,51 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     ]);
   }
 
-  /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} pokemon */
+  /**
+   * @param {number} deltaMs
+   */
+  function tickBarGhosts(deltaMs) {
+    ghostTimers.player -= deltaMs;
+    ghostTimers.foe -= deltaMs;
+    if (ghostTimers.player <= 0) playerBar.settle();
+    if (ghostTimers.foe <= 0) foeBar.settle();
+  }
+
+  /**
+   * @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} pokemon
+   * @returns {string}
+   */
   function nameOf(pokemon) {
     if (!pokemon) return '';
     return pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, '');
+  }
+
+  //
+  // The click ripple: a small ring where the pointer landed, gone in a
+  // quarter-second. Feedback that a click did something is the whole point of
+  // hurrying the beat, so the effect rides along with the speed-up.
+  //
+
+  /**
+   * @param {import('../core/app.mjs').App} app
+   */
+  function spawnClickEffect(app) {
+    const ring = el('div.click-ripple');
+    // The stage is scaled; the overlay is where unscaled coordinates live.
+    app.overlay.append(ring);
+    ripples.push({ node: ring, life: 1 });
+  }
+
+  /** @param {number} deltaMs */
+  function updateEffects(deltaMs) {
+    for (let index = ripples.length - 1; index >= 0; index--) {
+      const ripple = ripples[index];
+      ripple.life -= deltaMs / 260;
+      if (ripple.life <= 0) {
+        ripple.node.remove();
+        ripples.splice(index, 1);
+      }
+    }
   }
 }
 
@@ -715,23 +833,53 @@ function nameplate(pokemon) {
 
 function healthBar() {
   const fill = el('i');
+  // The ghost trails the real bar down in red wherever damage just landed, the
+  // way the handheld games show what was taken before it settles.
+  const ghost = el('i.ghost');
   const text = el('span.battle-hp');
-  const root = el('div.battle-track', {}, [fill, text]);
+  const track = el('div.battle-track', {}, [fill, ghost, text]);
 
   return {
-    root,
-    /** @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon */
+    root: track,
+    /**
+     * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+     */
     set(pokemon) {
       if (!pokemon) {
         fill.style.width = '0%';
+        ghost.style.width = '0%';
+        ghost.dataset.pending = 'false';
         text.textContent = '';
         return;
       }
       const max = maxHp(pokemon);
       const ratio = max > 0 ? Math.max(0, pokemon.hp) / max : 0;
-      fill.style.width = `${ratio * 100}%`;
+      const width = `${ratio * 100}%`;
+      fill.style.width = width;
       fill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
+
+      // The ghost shows where the bar stood before whatever just happened. A
+      // heal pulls it up at once — showing damage backwards reads wrong — and
+      // a hit leaves it where it was, red, until `settle` drains it to here.
+      const previous = Number.parseFloat(ghost.style.width) || 0;
+      if (ratio * 100 >= previous) {
+        ghost.style.width = width;
+        ghost.dataset.pending = 'false';
+      } else if (ghost.dataset.pending !== 'true') {
+        ghost.dataset.pending = 'true';
+      }
       text.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
+    },
+    /**
+     * Drain the ghost down to the real bar, once the hit has been seen.
+     * The `.drain` class swaps the transition from the fill's easing to a
+     * slower fall, and is removed again the moment it has done its work.
+     */
+    settle() {
+      if (ghost.dataset.pending !== 'true') return;
+      ghost.dataset.pending = 'false';
+      ghost.classList.add('drain');
+      ghost.style.width = fill.style.width;
     },
   };
 }
