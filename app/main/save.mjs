@@ -34,6 +34,9 @@ export async function listSlots() {
             summary: {
               speciesId: save.party?.active?.speciesId ?? null,
               nickname: save.party?.active?.nickname ?? null,
+              // Which of the two palettes the slot's Pokémon is drawn in, so
+              // the slot list shows the one the player actually has.
+              shiny: Boolean(save.party?.active?.shiny),
               // A Pokémon carries experience, not a level: what that comes to
               // depends on its species' growth rate, which only the renderer
               // has the data to work out.

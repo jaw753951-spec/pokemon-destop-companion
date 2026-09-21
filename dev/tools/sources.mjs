@@ -7,6 +7,7 @@
 
 export { TAG_TYPES } from '../../app/shared/area-tags.mjs';
 export { BALL_TIERS } from '../../app/shared/ball-tiers.mjs';
+export { MOVE_FLAGS, MOVE_FLAG_SET } from '../../app/shared/move-flags.mjs';
 
 export const POKEAPI = 'https://raw.githubusercontent.com/PokeAPI/api-data/master/data/api/v2';
 export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites';
@@ -14,6 +15,18 @@ export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries
 export const EMERALD = 'https://raw.githubusercontent.com/pret/pokeemerald/master';
 export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/master';
 export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
+
+/**
+ * How a move is classified — contact, sound, powder, punch and the rest.
+ *
+ * PokeAPI has no field for it, and the decompilations only carry the flags
+ * their own generation knew about, so a Gen-3 dump cannot say whether a move
+ * is a bullet or a slicing move. Pokémon Showdown's move table states every
+ * flag for every move and is served from the same plain HTTPS host as the
+ * rest, which is the whole of why it is here: one file, read once, for the
+ * one thing nothing else publishes.
+ */
+export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdown/master/data';
 
 /**
  * Portraits of named characters the league needs and Emerald never drew.

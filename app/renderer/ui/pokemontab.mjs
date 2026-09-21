@@ -6,11 +6,13 @@
  * opens the list of moves this Pokémon could hold instead — its level-up moves
  * so far, plus anything a TM has unlocked.
  */
+import { MOVE_FLAG_SET } from '../../shared/move-flags.mjs';
 import { url } from '../core/bridge.mjs';
-import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { button, el, scrollable } from '../core/dom.mjs';
+import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
+import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { availableMoves, experienceProgress, levelOf, maxHp, setMove, statsOf } from '../engine/pokemon.mjs';
+import { abilityWorks } from '../engine/abilities.mjs';
+import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList } from './dialog.mjs';
@@ -29,13 +31,13 @@ export function pokemonTab(app, session, refresh) {
   const stats = statsOf(pokemon);
   const level = levelOf(pokemon);
   const progress = experienceProgress(pokemon);
-  const spriteMeta = gameData().sprites[pokemon.speciesId]?.front;
+  const portrait = artOf(pokemon, 'front');
 
   return el('div.tab-body.pokemon-tab', {}, [
     el('div.pokemon-left', {}, [
       // The sprite is stored as a strip of frames; a window the width of one
       // frame, scrolled by CSS, shows the animation the field draws.
-      spriteMeta ? animatedPortrait(pokemon.speciesId, spriteMeta, localized(species?.name, '')) : null,
+      portrait ? animatedPortrait(portrait, localized(species?.name, '')) : null,
       statHexagon({ base: baselineStats(species, level), actual: stats }),
       statTable(stats, pokemon.evs),
     ]),
@@ -44,6 +46,8 @@ export function pokemonTab(app, session, refresh) {
       el('div.pokemon-right', {}, [
         el('div.pokemon-heading', {}, [
           el('span.pokemon-nickname', { text: pokemon.nickname || localized(species?.name, '') }),
+          genderMark(pokemon),
+          shinyMark(pokemon, t('pokemon.shiny')),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
         el('div.pokemon-types', {}, (species?.types ?? []).map((type) => typeChip(type))),
@@ -56,6 +60,7 @@ export function pokemonTab(app, session, refresh) {
           el('span.label', { text: t('pokemon.exp') }),
           el('span', { text: progress.needed ? `${progress.into}/${progress.needed}` : '—' }),
         ]),
+        abilityLine(pokemon),
         el('div.pokemon-line', {}, [
           el('span.label', { text: t('pokemon.held') }),
           el('span', {
@@ -100,18 +105,18 @@ function baselineStats(species, level) {
  * A one-frame window onto the sprite strip, animated by stepping the
  * background position — the same frames and timing the field uses.
  *
- * @param {number} speciesId
- * @param {{width: number, height: number, frames: number, delay: number}} meta
+ * @param {{path: string, meta: {width: number, height: number, frames: number, delay: number}}} art
  * @param {string} label
  */
-function animatedPortrait(speciesId, meta, label) {
+function animatedPortrait(art, label) {
+  const meta = art.meta;
   const node = el('div.pokemon-portrait', {
     role: 'img',
     'aria-label': label,
     style: {
       width: `${meta.width}px`,
       height: `${meta.height}px`,
-      backgroundImage: `url("${url('assets', `pokemon/${speciesId}/front.png`)}")`,
+      backgroundImage: `url("${url('assets', art.path)}")`,
       backgroundRepeat: 'no-repeat',
     },
   });
@@ -162,7 +167,70 @@ function moveSlot(app, session, slot, refresh) {
     el('span.move-name', { text: localized(move.name, entry.move) }),
     el('span.move-meta', {}, [
       typeChip(move.type, true),
-      el('span.move-pp', { text: `PP ${entry.pp}/${move.pp}` }),
+      el('span.move-pp', { text: `PP ${entry.pp}/${maxPp(entry)}` }),
+    ]),
+    moveClasses(move),
+  ]);
+}
+
+/**
+ * The ♂ or ♀ beside a name, for the species that have one.
+ *
+ * It is not decoration: infatuation needs one of each, and a Rivalry reads
+ * both, so a player looking at why a move did nothing needs to be able to see
+ * it.
+ *
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ */
+function genderMark(pokemon) {
+  if (!pokemon.gender) return null;
+  return el(`span.gender-mark.${pokemon.gender}`, { text: t(`pokemon.gender.${pokemon.gender}`) });
+}
+
+/**
+ * How a move is classified, as a row of chips: contact, punch, sound, powder
+ * and the rest.
+ *
+ * These are what half the abilities and a good number of the held items key
+ * off — a Static only answers a move that touched it, a pair of Safety
+ * Goggles only stops powder — so a player choosing between two moves of the
+ * same type and power is often choosing between these.
+ *
+ * @param {any} move
+ */
+function moveClasses(move) {
+  const flags = (move.flags ?? []).filter((flag) => MOVE_FLAG_SET.has(flag));
+  if (flags.length === 0) return null;
+  return el('span.move-flags', {}, flags.map((flag) => el('span.move-flag', { text: t(`moveFlag.${flag}`) })));
+}
+
+/**
+ * The ability, and what it does.
+ *
+ * An ability the engine has not been taught yet says so, in the same words the
+ * bag uses for an item it cannot act on — a player should not have to fight a
+ * battle to find out that nothing was going to happen.
+ *
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ */
+function abilityLine(pokemon) {
+  const ability = abilityOf(pokemon.ability);
+  const hidden = (speciesOf(pokemon.speciesId)?.abilities ?? []).some(
+    (entry) => entry.name === pokemon.ability && entry.hidden,
+  );
+
+  return el('div.pokemon-line.pokemon-ability', {}, [
+    el('span.label', { text: t('pokemon.ability') }),
+    el('span.ability-body', {}, [
+      el('span.ability-name', {}, [
+        el('span', { text: localized(ability?.name, pokemon.ability) }),
+        hidden ? el('span.ability-hidden', { text: t('pokemon.hiddenAbility') }) : null,
+      ]),
+      el('span.ability-text', {
+        text: abilityWorks(pokemon.ability)
+          ? localized(ability?.text, ability?.effect ?? '')
+          : t('items.noEffectYet'),
+      }),
     ]),
   ]);
 }

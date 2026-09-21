@@ -14,7 +14,7 @@ import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { evolveToLevel } from '../engine/encounter.mjs';
+import { evolveToLevel, giveTrainerItems } from '../engine/encounter.mjs';
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
@@ -206,6 +206,13 @@ function fingerprint(text) {
  * make the ladder a collection of strangers. So one whole league is drawn, and
  * the region is remembered only to say afterwards which one was beaten.
  *
+ * A league may also carry `alternates` — people who share one seat, where the
+ * games themselves let a roster differ (Alola's fourth seat is Hala's or
+ * Molayne's depending on the game). One of them is rolled at the door and
+ * walks in with the four, so a challenge still faces four and a champion —
+ * and the same challenger meets the same four all the way through, because
+ * the roll is made once, here, and not again between rounds.
+ *
  * @param {import('../engine/session.mjs').Session} session
  */
 export function resolveLeague(session) {
@@ -213,6 +220,10 @@ export function resolveLeague(session) {
   if (leagues.length === 0) return generatedLeague(session);
 
   const chosen = session.rng.pick(leagues);
+  if (chosen.alternates?.length) {
+    chosen.eliteFour = [...chosen.eliteFour, session.rng.pick(chosen.alternates)];
+    delete chosen.alternates;
+  }
   session.leagueRegion = chosen.region;
   return chosen;
 }
@@ -260,7 +271,10 @@ export function buildParty(session, trainer, levelBonus) {
   const roster = (trainer.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length ? roster : strongestOfType(session, trainer.type, 3);
-  return species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 24 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 24 }));
+  // The Elite Four and the champion save the berry for the Pokémon they lead
+  // with last, as every one of them does in Emerald.
+  return giveTrainerItems(session.rng, party, 'champion');
 }
 
 /**

@@ -8,7 +8,7 @@
  */
 import { FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
@@ -56,7 +56,8 @@ export function fieldScene(session) {
   let companion = null;
 
   let loadedAreaKey = '';
-  let loadedSpriteId = 0;
+  /** Which art is on screen: the species, and which of its two palettes. */
+  let loadedSpriteId = '';
   let offset = 0;
   /** Set while a menu or battle is on top; the walk and its timers stop. */
   let paused = false;
@@ -91,15 +92,15 @@ export function fieldScene(session) {
       app.audio.playMusic(session.area.music);
     }
 
-    const speciesId = session.active.speciesId;
+    const speciesId = spriteKey(session.active);
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
       // The box icon, not the battle sprite: it is the only official art drawn
       // at overworld scale, so a Wurmple stays ankle-high and a Wailord fills
       // the road, each in proportion to the map's own tiles.
-      const meta = gameData().sprites[speciesId]?.icon;
-      if (meta) {
-        loadSprite(`pokemon/${speciesId}/icon.png`, { ...meta, frames: 1, delay: 1000 })
+      const art = artOf(session.active, 'icon');
+      if (art) {
+        loadSprite(art.path, { ...art.meta, frames: 1, delay: 1000 })
           .then((sprite) => {
             if (loadedSpriteId === speciesId) companion = sprite;
           })

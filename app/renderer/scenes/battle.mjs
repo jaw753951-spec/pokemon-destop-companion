@@ -6,9 +6,10 @@
  * even though it was decided instantly.
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { weatherForArea } from '../../shared/area-tags.mjs';
 import { loadSprite } from '../core/assets.mjs';
-import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { button, el } from '../core/dom.mjs';
+import { abilityOf, artOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
+import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
@@ -62,11 +63,12 @@ const PLAYER_ROOM = {
  *   trainer?: {name: {ko: string, en: string}, portrait?: string|null, kind?: string}|null,
  *   backdrop?: string|null,
  *   music?: string|null,
+ *   weather?: string|null,
  *   onFinish: (result: {outcome: 'won'|'lost', defeated: import('../engine/pokemon.mjs').Pokemon[]}) => void,
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, onFinish }) {
+export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, weather = undefined, onFinish }) {
   const battle = new Battle({
     rng: session.rng,
     player: session.active,
@@ -78,6 +80,8 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       throw: (slug, pokemon) => throwItem(session, slug, pokemon),
     },
     trainerBattle: Boolean(trainer),
+    // The sky the place is under, unless the caller names one of its own.
+    weather: weather === undefined ? weatherForArea(session.area) : weather,
   });
 
   /** @type {import('../engine/battle.mjs').LogEntry[]} */
@@ -93,74 +97,93 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   let playerBattler = null;
   /** @type {Battler|null} */
   let foeBattler = null;
-  let loadedFoeId = 0;
+  let loadedFoeId = '';
+  /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
+  let loadedPlayerId = '';
 
   const message = el('div.battle-message');
+  const conditions = el('div.battle-field');
   const playerBar = healthBar();
   const foeBar = healthBar();
 
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
-  const loadFoeSprite = () => {
-    const foe = battle.foe?.pokemon;
-    if (!foe || foe.speciesId === loadedFoeId) return;
-    loadedFoeId = foe.speciesId;
-    const meta = gameData().sprites[foe.speciesId]?.front;
-    if (!meta) return;
-    loadSprite(`pokemon/${foe.speciesId}/front.png`, meta).then((sprite) => {
-      if (loadedFoeId !== foe.speciesId) return;
-      // The BW set draws backs and fronts at much the same size (mean height 75
-      // against 78), so the foe is shrunk to put it up the field. Without this
-      // the two sit on the same plane and the battle reads flat.
-      foeBattler = new Battler({
+  /**
+   * Put a battle sprite on a side, whichever of back and front the data had.
+   *
+   * Both sides go through the same path — keyed on the sprite key, so a
+   * Pokémon whose shape changes mid-fight is reloaded like a new picture
+   * rather than left wearing the old one.
+   *
+   * @param {'player'|'foe'} side
+   * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+   */
+  const loadBattler = (side, pokemon) => {
+    const key = spriteKey(pokemon);
+    if (!pokemon || !key) return;
+    const loaded = side === 'player' ? loadedPlayerId : loadedFoeId;
+    if (key === loaded) return;
+    if (side === 'player') loadedPlayerId = key;
+    else loadedFoeId = key;
+
+    const back = side === 'player' ? artOf(pokemon, 'back') : null;
+    const front = artOf(pokemon, 'front');
+    const art = back ?? front;
+    if (!art) return;
+    loadSprite(art.path, art.meta).then((sprite) => {
+      const latest = side === 'player' ? loadedPlayerId : loadedFoeId;
+      if (latest !== key) return; // a newer shape already took the spot
+      const battler = new Battler({
         sprite,
-        x: FOE_SPOT.x,
-        y: FOE_SPOT.y,
-        facing: -1,
-        scale: fitScale(sprite, FOE_ROOM, 0.8),
+        ...(side === 'foe'
+          ? {
+              x: FOE_SPOT.x,
+              y: FOE_SPOT.y,
+              facing: -1,
+              // The BW set draws backs and fronts at much the same size (mean
+              // height 75 against 78), so the foe is shrunk to put it up the
+              // field. Without this the two sit on the same plane and the
+              // battle reads flat.
+              scale: fitScale(sprite, FOE_ROOM, 0.8),
+            }
+          : {
+              x: PLAYER_SPOT.x,
+              y: PLAYER_SPOT.y,
+              facing: 1,
+              scale: fitScale(sprite, PLAYER_ROOM, 1),
+              // No back art: the front sprite stands in, mirrored so the
+              // companion still looks up the field at what it is fighting.
+              flip: Boolean(!back),
+            }),
       });
+      if (side === 'player') playerBattler = battler;
+      else foeBattler = battler;
     });
   };
+
+  const loadFoeSprite = () => loadBattler('foe', battle.foe?.pokemon ?? null);
 
   return {
     keepBelow: true,
 
     mount(app) {
-      const active = session.active;
-      const meta = gameData().sprites[active.speciesId];
-      if (meta?.back) {
-        loadSprite(`pokemon/${active.speciesId}/back.png`, meta.back).then((sprite) => {
-          playerBattler = new Battler({
-            sprite,
-            x: PLAYER_SPOT.x,
-            y: PLAYER_SPOT.y,
-            facing: 1,
-            scale: fitScale(sprite, PLAYER_ROOM, 1),
-          });
-        });
-      } else if (meta?.front) {
-        loadSprite(`pokemon/${active.speciesId}/front.png`, meta.front).then((sprite) => {
-          // No back art: the front sprite stands in, mirrored so the companion
-          // still looks up the field at what it is fighting.
-          playerBattler = new Battler({
-            sprite,
-            x: PLAYER_SPOT.x,
-            y: PLAYER_SPOT.y,
-            facing: 1,
-            scale: fitScale(sprite, PLAYER_ROOM, 1),
-            flip: true,
-          });
-        });
-      }
+      loadBattler('player', session.active);
       loadFoeSprite();
       if (backdrop) loadBackdrop(backdrop).then((image) => { backdropImage = image; });
 
       app.audio.playMusic(music ?? gameData().bgm.cues[trainer ? 'battleTrainer' : 'battleWild']);
-      app.audio.playCry(battle.foe?.pokemon.speciesId ?? active.speciesId);
+      app.audio.playCry(battle.foe?.pokemon.speciesId ?? session.active.speciesId);
 
-      queue = [{ kind: 'intro', data: {} }];
+      // A shiny gets a line of its own, after the one that says what turned
+      // up: in the cartridges it is a sparkle and a chime, and here it is the
+      // only thing that would tell a player what they are looking at.
+      queue = [
+        { kind: 'intro', data: {} },
+        ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
+      ];
       updateBars();
+      updateField();
 
       return el('div.screen.battle-screen', {}, [
         el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
@@ -168,6 +191,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         el('div.battle-actions', {}, [
           button(t('battle.bag'), () => openBag(app), { className: 'small' }),
         ]),
+        conditions,
         message,
       ]);
     },
@@ -319,6 +343,210 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         updateBars();
         break;
 
+      case 'volatile':
+        say(t(`volatile.${entry.data?.state}.start`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
+        }));
+        break;
+
+      case 'volatileActive':
+        say(t(`volatile.${entry.data?.state}.active`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'volatileBlocked':
+        say(t(`volatile.${entry.data?.state}.blocked`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'volatileEnded':
+        say(t(`volatile.${entry.data?.state}.end`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'confusionDamage':
+        say(t('battle.confusionDamage', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        battlerFor(entry.side)?.setPose('hit');
+        app.audio.blip('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
+      case 'perished':
+        say(t('battle.perished', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        updateBars();
+        break;
+
+      case 'protect':
+        say(t('battle.protecting', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'protected':
+        say(t('battle.protected', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'bounced':
+        say(t('battle.bounced', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'loafing':
+        say(t('battle.loafing', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'stole':
+      case 'regrew': {
+        const slug = entry.data?.item ?? '';
+        say(t(entry.kind === 'stole' ? 'battle.stole' : 'battle.regrew', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          item: localized(gameData().items[slug]?.name, slug),
+        }));
+        break;
+      }
+
+      case 'formChanged': {
+        // The shape a Pokémon now wears: the sprite is reloaded by the key
+        // change, the way a sent-out one is. A forme of null means back to
+        // the ordinary shape, which is the usual thing a message names.
+        const shifter = entry.side === 'player' ? player : foe;
+        loadBattler(entry.side, entry.side === 'player' ? player : foe);
+        if (entry.data?.forme) {
+          const formName = speciesOf(shifter?.speciesId)?.forms?.find((form) => form.slug === entry.data.forme);
+          say(t('battle.formChanged', {
+            name: nameOf(shifter),
+            form: localized(formName?.name, entry.data.forme),
+          }));
+        } else {
+          say(t('battle.formReverted', { name: nameOf(shifter) }));
+        }
+        updateBars();
+        app.audio.blip('confirm');
+        break;
+      }
+
+      case 'formBroken':
+        // The disguise shattering is its own moment: the ability line already
+        // played, and the shape swap rides the same key change as above.
+        loadBattler(entry.side, entry.side === 'player' ? player : foe);
+        say(t('battle.formBroken', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          ability: localized(abilityOf(entry.data?.ability)?.name, entry.data?.ability ?? ''),
+        }));
+        battlerFor(entry.side)?.setPose('hit');
+        app.audio.blip('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
+      case 'typeChanged':
+        say(t('battle.typeChanged', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          types: (entry.data?.types ?? [])
+            .map((type) => localized(gameData().types[type]?.name, type))
+            .join('·'),
+        }));
+        break;
+
+      case 'hazard':
+        say(t(`hazard.${entry.data?.hazard}`));
+        break;
+
+      case 'hazardCleared':
+        say(t('hazard.cleared'));
+        break;
+
+      case 'hazardDamage':
+        say(t('battle.hazardDamage', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        battlerFor(entry.side)?.setPose('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
+      case 'noEffect':
+        say(t('battle.noEffect'));
+        break;
+
+      case 'flinch':
+        say(t('battle.flinched', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'shiny':
+        say(t('battle.shiny'));
+        app.audio.blip('confirm');
+        break;
+
+      case 'ability':
+        say(t('battle.ability', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          ability: localized(abilityOf(entry.data?.ability)?.name, entry.data?.ability ?? ''),
+        }));
+        break;
+
+      case 'abilityTraced':
+        say(t('battle.abilityTraced', {
+          name: nameOf(player),
+          ability: localized(abilityOf(entry.data?.ability)?.name, entry.data?.ability ?? ''),
+        }));
+        break;
+
+      case 'abilityDamage':
+        battlerFor(entry.side)?.setPose('hit');
+        app.audio.blip('hit');
+        updateBars();
+        return BEAT_MS.damage;
+
+      case 'weather':
+        say(t(`weather.${entry.data?.weather}.start`));
+        updateField();
+        break;
+
+      case 'weatherEnded':
+        say(t(`weather.${entry.data?.value}.end`));
+        updateField();
+        break;
+
+      case 'weatherDamage':
+        say(t(`weather.${entry.data?.weather}.hurt`, { name: nameOf(entry.side === 'player' ? player : foe) }));
+        battlerFor(entry.side)?.setPose('hit');
+        updateBars();
+        break;
+
+      case 'terrain':
+        say(t(`terrain.${entry.data?.terrain}.start`));
+        updateField();
+        break;
+
+      case 'terrainEnded':
+        say(t(`terrain.${entry.data?.value}.end`));
+        updateField();
+        break;
+
+      case 'screen':
+        say(t(`screen.${entry.data?.screen}`));
+        break;
+
+      case 'screenEnded':
+        say(t('screen.ended'));
+        break;
+
+      case 'charging':
+        say(t('battle.charging', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
+        }));
+        break;
+
+      case 'recharge':
+        say(t('battle.recharge', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      case 'restored':
+        say(t('battle.restored', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          item: localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? ''),
+        }));
+        break;
+
       case 'item': {
         const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
         say(entry.data?.used
@@ -329,9 +557,18 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         break;
       }
 
-      case 'berry': {
-        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
-        say(t('battle.berryEaten', { name: nameOf(player), item: name }));
+      case 'berry':
+      case 'heldFired': {
+        // A berry is eaten; a policy, a seed or an orb simply goes off. The
+        // item's own pocket is what tells them apart, so the engine does not
+        // have to carry two log entries for one moment.
+        const slug = entry.data?.item ?? '';
+        const item = gameData().items[slug];
+        const holder = entry.side === 'foe' ? foe : player;
+        say(t(item?.pocket === 'berries' ? 'battle.berryEaten' : 'battle.heldFired', {
+          name: nameOf(holder),
+          item: localized(item?.name, slug),
+        }));
         app.audio.blip('confirm');
         updateBars();
         break;
@@ -339,7 +576,11 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
       case 'endure': {
         const holder = entry.side === 'player' ? player : foe;
-        const name = localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
+        // A Sturdy holds on where a Focus Sash would have been spent, so the
+        // line names whichever of the two did it.
+        const name = entry.data?.ability
+          ? localized(abilityOf(entry.data.ability)?.name, entry.data.ability)
+          : localized(gameData().items[entry.data?.item]?.name, entry.data?.item ?? '');
         say(t('battle.endured', { name: nameOf(holder), item: name }));
         app.audio.blip('hit');
         updateBars();
@@ -356,10 +597,13 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       }
 
       case 'sendOut':
-        loadedFoeId = 0;
+        loadedFoeId = '';
+        loadedPlayerId = '';
         loadFoeSprite();
+        loadBattler('player', player);
         updateBars();
         say(t('event.wild', { name: nameOf(battle.foe?.pokemon) }));
+        if (battle.foe?.pokemon.shiny) queue.unshift({ kind: 'shiny', data: {} });
         return BEAT_MS.faint;
 
       case 'experience':
@@ -432,6 +676,23 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     foeBar.set(battle.foe?.pokemon ?? null);
   }
 
+  /**
+   * What is over and under the field, as a line of chips above the message
+   * box: a battle where the rain decides the damage should say that it is
+   * raining for as long as it is, not only on the turn it started.
+   */
+  function updateField() {
+    const field = battle.field;
+    setChildren(conditions, [
+      field.weather
+        ? el('span.field-chip', { text: t(`weather.${field.weather}.name`), title: t(`weather.${field.weather}.start`) })
+        : null,
+      field.terrain
+        ? el('span.field-chip', { text: t(`terrain.${field.terrain}.name`), title: t(`terrain.${field.terrain}.start`) })
+        : null,
+    ]);
+  }
+
   /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} pokemon */
   function nameOf(pokemon) {
     if (!pokemon) return '';
@@ -444,7 +705,10 @@ function nameplate(pokemon) {
   const node = el('span.battle-name');
   if (pokemon) {
     const species = speciesOf(pokemon.speciesId);
-    node.textContent = `${pokemon.nickname || localized(species?.name, '')}  ${t('slot.level', { level: levelOf(pokemon) })}`;
+    const gender = pokemon.gender ? t(`pokemon.gender.${pokemon.gender}`) : '';
+    const shiny = pokemon.shiny ? SHINY_MARK : '';
+    const name = pokemon.nickname || localized(species?.name, '');
+    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(pokemon) })}`;
   }
   return node;
 }

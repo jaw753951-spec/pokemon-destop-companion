@@ -10,7 +10,7 @@ import { readFile, stat } from 'node:fs/promises';
 
 import { defaultLanguage } from '../../../app/shared/languages.mjs';
 import { LANGUAGES } from '../languages.mjs';
-import { MAX_SPECIES } from '../sources.mjs';
+import { MAX_SPECIES, MOVE_FLAG_SET } from '../sources.mjs';
 
 /**
  * @param {{assetDir: string, dataDir: string, log: (message: string) => void}} context
@@ -26,7 +26,7 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   const readAuthored = async (name) =>
     JSON.parse(await readFile(join(dataDir, '..', 'authored', name), 'utf8'));
 
-  const [species, moves, items, machines, natures, types, areas, sprites, actors, bgm, tiers, battle] =
+  const [species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, tiers, battle] =
     await Promise.all(
       [
         'species.json',
@@ -34,6 +34,7 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
         'items.json',
         'machines.json',
         'natures.json',
+        'abilities.json',
         'types.json',
         'areas.json',
         'sprites.json',
@@ -66,23 +67,54 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(silent.length === 0, `items marked as working with no effect: ${summarize(silent.map(([slug]) => slug))}`);
   note(Object.keys(machines).length > 100, `machines: only ${Object.keys(machines).length}`);
   note(Object.keys(natures).length === 25, `natures: ${Object.keys(natures).length} of 25`);
+  note(Object.keys(abilities).length > 250, `abilities: only ${Object.keys(abilities).length}`);
   note(areas.length > 0, 'areas: none built');
+
+  // A move without its classification would quietly take every ability and
+  // held item that keys off one out of the game, so the count is checked
+  // rather than the field's presence.
+  const unclassified = Object.values(moves).filter((move) => !Array.isArray(move.flags));
+  note(unclassified.length === 0, `moves with no classification field: ${unclassified.length}`);
+  const classified = Object.values(moves).filter((move) => move.flags?.length).length;
+  note(classified > 300, `moves classified: only ${classified}`);
+  const strayFlags = new Set();
+  for (const move of Object.values(moves)) {
+    for (const flag of move.flags ?? []) if (!MOVE_FLAG_SET.has(flag)) strayFlags.add(flag);
+  }
+  note(strayFlags.size === 0, `moves carry classifications the game does not ship: ${summarize([...strayFlags])}`);
 
   // Every species must be playable: a front sprite, an icon and a learnset.
   const noSprite = [];
+  const noShiny = [];
+  const noShinyIcon = [];
   const noLearnset = [];
+  const unknownAbilities = new Set();
   /** How many species each language shows another language's name for. */
   const borrowed = new Map(LANGUAGES.map((language) => [language.code, 0]));
   for (const entry of Object.values(species)) {
     const sprite = sprites[entry.id];
     if (!sprite?.front || !sprite.icon) noSprite.push(entry.id);
+    if (!sprite?.shiny?.front) noShiny.push(entry.id);
+    // The shiny box icon is derived from the two front sprites rather than
+    // downloaded, and that needs both of them to have come from the same
+    // source — so a gap here is a Pokémon that walks the field in its
+    // ordinary colours, not a broken build.
+    if (sprite?.shiny?.front && !sprite?.shiny?.icon) noShinyIcon.push(entry.id);
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
+    for (const ability of entry.abilities ?? []) {
+      if (!abilities[ability.name]) unknownAbilities.add(ability.name);
+    }
     for (const language of LANGUAGES) {
       if (!untranslated(entry.name, language)) continue;
       borrowed.set(language.code, (borrowed.get(language.code) ?? 0) + 1);
     }
   }
   note(noSprite.length === 0, `species missing art: ${summarize(noSprite)}`);
+  note(noShiny.length === 0, `species missing alternate-palette art: ${summarize(noShiny)}`);
+  if (noShinyIcon.length) {
+    log(`note: ${noShinyIcon.length} species have no shiny box icon and walk the field in their ordinary colours`);
+  }
+  note(unknownAbilities.size === 0, `species name abilities that were not built: ${summarize([...unknownAbilities])}`);
   note(noLearnset.length === 0, `species missing a level-up learnset: ${summarize(noLearnset)}`);
   for (const [code, count] of borrowed) {
     if (count) log(`note: ${count} species have no official "${code}" name and fall back`);
@@ -95,6 +127,17 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     for (const move of entry.learnset.machine) if (!moves[move]) unknownMoves.add(move);
   }
   note(unknownMoves.size === 0, `learnsets reference unknown moves: ${summarize([...unknownMoves])}`);
+
+  // The alternate palettes are files of their own, so the manifest measuring
+  // one is not proof that it landed.
+  const sampleIds = Object.keys(sprites).slice(0, 12);
+  for (const id of sampleIds) {
+    for (const [kind, meta] of Object.entries(sprites[id].shiny ?? {})) {
+      if (!meta) continue;
+      // eslint-disable-next-line no-await-in-loop
+      note(await fileExists(join(assetDir, 'pokemon', id, `${kind}-shiny.png`)), `species ${id}: no shiny ${kind}`);
+    }
+  }
 
   // Every area needs its five backgrounds and a loadable track.
   for (const area of areas) {
@@ -217,8 +260,14 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
   }
 
   for (const league of leagues) {
-    const members = [...league.eliteFour, league.champion];
-    note(league.eliteFour.length >= 4, `league ${league.region}: only ${league.eliteFour.length} Elite Four`);
+    // A league may seat alternates — people who share one seat, where the
+    // games' own rosters vary (Alola's fourth is Hala's or Molayne's). They
+    // are checked as members too, so a party or a name that has gone missing
+    // fails the build whichever of them the roll puts on the field.
+    const alternates = league.alternates ?? [];
+    const members = [...league.eliteFour, ...alternates, league.champion];
+    note(league.eliteFour.length + alternates.length >= 4, `league ${league.region}: only ${league.eliteFour.length + alternates.length} Elite Four`);
+    note(league.eliteFour.length + alternates.length === league.eliteFour.length + new Set(alternates).size, `league ${league.region}: a member is seated twice`);
     for (const member of members) {
       note(Boolean(member.name?.[base.code]), `league ${league.region}/${member.id}: no ${base.code} name`);
       note((member.party ?? []).length > 0, `league ${league.region}/${member.id}: no party`);

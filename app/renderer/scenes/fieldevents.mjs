@@ -8,11 +8,11 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
-import { evolveToLevel, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
+import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { ACTOR_SCALE, COMPANION_X, groundY } from '../render/field.mjs';
 
@@ -390,9 +390,9 @@ function startWild(session, spawnAt) {
     },
   };
 
-  const meta = gameData().sprites[wild.speciesId]?.icon;
-  if (meta) {
-    loadSprite(`pokemon/${wild.speciesId}/icon.png`, { ...meta, frames: 1, delay: 1000 }).then((sprite) => {
+  const art = artOf(wild, 'icon');
+  if (art) {
+    loadSprite(art.path, { ...art.meta, frames: 1, delay: 1000 }).then((sprite) => {
       state.prop.sprite = sprite;
     });
   }
@@ -480,7 +480,8 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, 3);
 
-  return species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  return giveTrainerItems(session.rng, party, 'leader');
 }
 
 /**
