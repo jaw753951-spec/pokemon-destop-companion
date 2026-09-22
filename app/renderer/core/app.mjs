@@ -227,39 +227,49 @@ export function runLoop(app) {
  * Drag the window by its top strip with the pointer, rather than leaving it to
  * the frameless window's own drag region — which answers on some window sizes
  * and not others. The position is remembered once, on the drop.
+ *
+ * Two things make this work where stepping the window along by the distance
+ * between two pointer events did not.
+ *
+ * The measurement is taken from the *desk*, not from the window. Every client
+ * coordinate is relative to a window that is itself being moved: nudge the
+ * window right and a pointer that has not moved at all reports itself further
+ * left, so a drag driven by client deltas argues with itself — which is the
+ * shaking. `screenX` and `screenY` do not move when the window does.
+ *
+ * And the window is put somewhere rather than nudged. Each message carries the
+ * whole distance travelled since the drag began, so a message that arrives
+ * late lands the window where the pointer already is instead of adding a step
+ * that has been taken twice.
  */
 export function trackWindowDrag() {
   const bar = document.getElementById('dragbar');
   if (!bar) return;
 
-  /** The pointer's last viewport position, or null while not dragging. */
-  let last = null;
+  /** Where on the desk the drag began, or null while not dragging. */
+  let from = null;
 
   bar.addEventListener('pointerdown', (event) => {
     if (event.button !== 0) return;
     // The minimize button is a control, not a handle.
     if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
-    last = { x: event.clientX, y: event.clientY };
+    from = { x: event.screenX, y: event.screenY };
     bar.setPointerCapture(event.pointerId);
+    void windowControl.beginDrag();
   });
 
   bar.addEventListener('pointermove', (event) => {
-    if (!last) return;
-    // Viewport coordinates ride with the window, so the delta between moves
-    // is exactly how far the mouse travelled on the desk.
-    const dx = event.clientX - last.x;
-    const dy = event.clientY - last.y;
-    last = { x: event.clientX, y: event.clientY };
-    windowControl.moveBy(dx, dy);
+    if (!from) return;
+    void windowControl.dragTo(event.screenX - from.x, event.screenY - from.y);
   });
 
   const release = (event) => {
-    if (!last) return;
-    last = null;
+    if (!from) return;
+    from = null;
     if (event.type === 'pointerup' && bar.hasPointerCapture(event.pointerId)) {
       bar.releasePointerCapture(event.pointerId);
     }
-    windowControl.rememberPosition();
+    void windowControl.endDrag();
   };
   bar.addEventListener('pointerup', release);
   bar.addEventListener('pointercancel', release);

@@ -325,5 +325,8 @@
   "battle.failed": "하지만 실패했다!",
   "battle.cannotMove": "{name}은(는) 움직일 수 없다!",
   "battle.statusHurt": "{name}은(는) 데미지를 입었다!",
-  "battle.cannotLearnMore": "{name}은(는) {move}을(를) 배우고 싶은 것 같다! 하지만 기술은 4개까지만 배울 수 있다!"
+  "battle.cannotLearnMore": "{name}은(는) {move}을(를) 배우고 싶은 것 같다! 하지만 기술은 4개까지만 배울 수 있다!",
+  "settings.saveAndExit": "저장 후 메인 화면으로",
+  "settings.saveAndExitConfirm": "저장하고 메인 화면으로 나가시겠습니까?",
+  "settings.saveAndQuitConfirm": "저장하고 게임을 종료하시겠습니까?"
 }

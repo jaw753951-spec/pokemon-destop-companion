@@ -1325,6 +1325,14 @@ canvas {
   color: var(--accent-dark);
 }
 
+/* The two ways out of a run, stacked so the quieter one reads first. */
+.settings-exits {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0 12px 12px;
+}
+
 /* ------------------------------------------------------------- move card */
 
 .move-detail {

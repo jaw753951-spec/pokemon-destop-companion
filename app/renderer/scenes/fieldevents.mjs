@@ -25,6 +25,31 @@ const SHOW_ITEM_MS = 3000;
 const SPAWN_MARGIN = 24;
 
 /**
+ * The bob a gathering companion makes, in field pixels and milliseconds.
+ *
+ * Ten seconds of a Pokémon standing perfectly still in front of a berry tree
+ * reads as the game having frozen. A small rise and fall on the spot — up
+ * only, since it cannot sink into the road — is the whole of what says it is
+ * busy with something.
+ */
+const GATHER_BOB_PX = 2;
+const GATHER_BOB_MS = 460;
+
+/** The phases the companion is working through something rather than waiting. */
+const GATHERING = new Set(['gather']);
+
+/**
+ * How far off the ground the companion is at this point in a gather.
+ * @param {any} active
+ * @returns {number} field pixels
+ */
+export function gatherBob(active) {
+  if (!active || !GATHERING.has(active.phase)) return 0;
+  const elapsed = active.elapsed ?? 0;
+  return Math.round(Math.abs(Math.sin((elapsed / GATHER_BOB_MS) * Math.PI)) * GATHER_BOB_PX);
+}
+
+/**
  * How far to the companion's right the prop ends up. Without a gap the two
  * sprites land on the same spot and the companion hides whatever it met.
  * Field pixels, so about a tile and a bit at the size they are drawn.
@@ -32,7 +57,15 @@ const SPAWN_MARGIN = 24;
 const MEET_GAP = 20;
 
 /** How wide a ball lying on the path is drawn, in field pixels — under a tile. */
-const BALL_SIZE = 12;
+export const BALL_SIZE = 12;
+
+/**
+ * How far the opened lid tips forward, as a share of the ball's width.
+ *
+ * The lid is hinged at its back edge and curls over, so it leaves the ball's
+ * own footprint on that side — by this much and no more.
+ */
+export const BALL_LID_TIP = 0.38;
 
 /**
  * @param {{
@@ -60,6 +93,11 @@ export function createEventRunner({ session, onBattle }) {
     /** Whether the companion is out of sight — inside the Pokémon Center. */
     get hidesActor() {
       return Boolean(active?.hidesActor);
+    },
+
+    /** How far the companion is bobbing as it gathers, in field pixels. */
+    get actorLift() {
+      return gatherBob(active);
     },
 
     /**
@@ -111,6 +149,7 @@ export function createEventRunner({ session, onBattle }) {
       active.timer -= deltaMs;
       active.elapsed = (active.elapsed ?? 0) + deltaMs;
       if (active.timer > 0) return;
+
 
       // An event with a script of its own drives it one beat at a time; the
       // rest of them have only the three phases below.
@@ -648,43 +687,61 @@ function drawCenter(context, prop, screenX) {
  */
 export function drawBall(context, prop, screenX) {
   const { image } = prop.sprite;
-  const size = image.naturalHeight;
+  // The icon's own width and height, separately. The pipeline trims each icon
+  // to its opaque pixels, so they are not square — reading one number off the
+  // height and using it for both meant every source rectangle here was the
+  // wrong shape, and the opened ball came out as a smear.
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  if (!sourceWidth || !sourceHeight) return;
+
   // Item icons are drawn for a bag list, where they are the only thing on the
   // row; on the ground one at its own size is a boulder, so it is brought down
-  // to something a Pokémon could pick up.
-  const drawn = BALL_SIZE;
-  const left = Math.round(screenX - drawn / 2);
-  const top = Math.round(groundY() - drawn);
+  // to something a Pokémon could pick up — keeping its own proportions.
+  const drawnWidth = BALL_SIZE;
+  const drawnHeight = Math.max(1, Math.round((BALL_SIZE * sourceHeight) / sourceWidth));
+  const left = Math.round(screenX - drawnWidth / 2);
+  const top = Math.round(groundY() - drawnHeight);
 
   if (prop.frame === 'closed') {
-    context.drawImage(image, left, top, drawn, drawn);
+    context.drawImage(image, left, top, drawnWidth, drawnHeight);
     return;
   }
 
-  const half = Math.floor(size / 2);
+  const half = Math.max(1, Math.floor(sourceHeight / 2));
+  const lidHeight = Math.round(drawnHeight / 2);
   // The base keeps its place on the ground.
-  context.drawImage(image, 0, half, size, size - half, left, top + drawn / 2, drawn, drawn / 2);
+  context.drawImage(
+    image,
+    0,
+    half,
+    sourceWidth,
+    sourceHeight - half,
+    left,
+    top + lidHeight,
+    drawnWidth,
+    drawnHeight - lidHeight,
+  );
   // The lid: one blit per source row, hinged at its back (right) edge and
   // curling forward — the further up the lid a row sits, the further right
   // and the thinner it is drawn, so the lid reads as tipped over rather than
   // rotated into a square-shaped hole. `imageSmoothingEnabled` is already off
   // in field space, so the squash stays as crisp as the rest of the field.
-  const lidHeight = drawn / 2;
   const rowHeight = lidHeight / half;
   for (let row = 0; row < half; row++) {
     // 0 at the hinge (bottom of the lid), 1 at its rim (top).
     const lifted = 1 - row / half;
-    const shift = lifted * drawn * 0.38;
+    const shift = lifted * drawnWidth * BALL_LID_TIP;
     const height = rowHeight * (1 - lifted * 0.45);
     context.drawImage(
       image,
       0,
       row,
-      size,
+      sourceWidth,
       1,
       Math.round(left + shift),
       Math.round(top + row * rowHeight),
-      drawn,
+      drawnWidth,
       Math.max(1, height),
     );
   }

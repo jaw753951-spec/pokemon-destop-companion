@@ -196,10 +196,18 @@ function moveDetail(app, session, refresh, state) {
   const entry = session.active.moves[slot];
   if (!entry || !moveOf(entry.move)) return null;
 
-  return el('div.move-detail', {}, [
+  const card = el('div.move-detail', {}, [
     moveCard(entry.move),
     button(t('pokemon.replaceMove'), () => openReplace(app, session, slot, refresh), { className: 'small' }),
   ]);
+
+  // The slots sit low enough on a short window that the card opens below the
+  // fold. `nearest` brings it up only when it is actually out of sight, so a
+  // card already on screen does not make the page jump.
+  requestAnimationFrame(() => {
+    if (card.isConnected) card.scrollIntoView({ block: 'nearest' });
+  });
+  return card;
 }
 
 /**

@@ -31,9 +31,16 @@ export const saves = {
 };
 
 export const windowControl = {
-  rememberPosition: () => api().window.rememberPosition(),
-  /** @param {number} dx @param {number} dy */
-  moveBy: (dx, dy) => api().window.moveBy(dx, dy),
+  /** Take hold of the window; the main process remembers where it stands. */
+  beginDrag: () => api().window.beginDrag(),
+  /**
+   * Put the window where the pointer has carried it, measured from where the
+   * drag began rather than from the last message.
+   * @param {number} dx @param {number} dy
+   */
+  dragTo: (dx, dy) => api().window.dragTo(dx, dy),
+  /** Let go, and keep where it ended up. */
+  endDrag: () => api().window.endDrag(),
   minimize: () => api().window.minimize(),
 };
 

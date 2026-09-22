@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { ASSET_DIR, AUTHORED_DIR, DATA_DIR } from './paths.mjs';
 import { deleteSlot, listSlots, readSlot, writeSlot } from './save.mjs';
 import { loadSettings, saveSettings, SCALE_STEPS } from './settings.mjs';
-import { applyScale, getWindow } from './window.mjs';
+import { applyScale, beginDrag, dragTo, endDrag, getWindow } from './window.mjs';
 
 /** Roots the `pdc://` protocol will serve, by host name. */
 const ROOTS = { assets: ASSET_DIR, data: DATA_DIR, authored: AUTHORED_DIR };
@@ -72,25 +72,17 @@ export function registerHandlers() {
   handle('saves:write', ({ slot, save }) => writeSlot(slot, save));
   handle('saves:delete', (slot) => deleteSlot(slot));
 
-  handle('window:position', async () => {
-    const window = getWindow();
-    if (!window) return null;
-    const [x, y] = window.getPosition();
-    await saveSettings({ windowX: x, windowY: y });
-    return { x, y };
-  });
-
   // One message per pointer move rather than a throttled timer: the moves
   // arrive at the frame rate the pointer itself does, and a timer coarse
   // enough to batch them makes the drag feel like it is being pulled through
-  // sand. `setPosition` takes whole pixels, so the fractional drift a 1.25×
-  // window carries is rounded away, never accumulated.
-  handle('window:moveBy', ({ dx, dy }) => {
-    const window = getWindow();
-    if (!window || window.isDestroyed()) return false;
-    const [x, y] = window.getPosition();
-    window.setPosition(Math.round(x + Number(dx) || 0), Math.round(y + Number(dy) || 0));
-    return true;
+  // sand. Each one carries the whole distance from where the drag began, so
+  // an out-of-order or late message is harmless rather than a step too many.
+  handle('window:dragStart', () => beginDrag());
+  handle('window:dragTo', ({ dx, dy }) => dragTo(Number(dx), Number(dy)));
+  handle('window:dragEnd', async () => {
+    const at = endDrag();
+    if (at) await saveSettings({ windowX: at.x, windowY: at.y });
+    return at;
   });
 
   handle('window:minimize', () => {

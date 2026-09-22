@@ -325,5 +325,8 @@
   "battle.failed": "But it failed!",
   "battle.cannotMove": "{name} cannot move!",
   "battle.statusHurt": "{name} took damage from its condition!",
-  "battle.cannotLearnMore": "{name} wants to learn {move}, but it already knows four moves!"
+  "battle.cannotLearnMore": "{name} wants to learn {move}, but it already knows four moves!",
+  "settings.saveAndExit": "Save and return to title",
+  "settings.saveAndExitConfirm": "Save and return to the title screen?",
+  "settings.saveAndQuitConfirm": "Save and quit the game?"
 }

@@ -35,7 +35,21 @@ export function inventoryScene({ session, onClose }) {
       const tabs = el('div.tab-strip');
       const body = el('div.screen-body.tabbed');
 
-      const rebuild = () => {
+      /**
+       * Rebuild the open tab.
+       *
+       * The body is replaced wholesale, which threw the reader back to the top
+       * of the page every time anything was touched — reading a move's
+       * description meant scrolling down to the slots, clicking, and being
+       * carried back up above the sprite. So where each scroller stood is
+       * carried across, except when the tab itself changes and the top is
+       * where you want to be.
+       *
+       * @param {{keepScroll?: boolean}} [options]
+       */
+      const rebuild = (options = {}) => {
+        const keep = options?.keepScroll === false ? [] : scrollOffsets(body);
+
         setChildren(tabs, [
           ...TABS.map((name) =>
             el('button.tab', {
@@ -47,13 +61,15 @@ export function inventoryScene({ session, onClose }) {
                 app.audio.blip('select');
                 state.tab = name;
                 state.moving = null;
-                rebuild();
+                state.moveSlot = null;
+                rebuild({ keepScroll: false });
               },
             }),
           ),
         ]);
 
         body.replaceChildren(render(app, session, state, rebuild));
+        restoreScroll(body, keep);
       };
       rebuild();
 
@@ -70,6 +86,27 @@ export function inventoryScene({ session, onClose }) {
       ]);
     },
   };
+}
+
+/**
+ * Where every scroller inside a node stands, in the order they appear.
+ * @param {HTMLElement} node
+ * @returns {number[]}
+ */
+function scrollOffsets(node) {
+  return [...node.querySelectorAll('.scroll')].map((element) => element.scrollTop);
+}
+
+/**
+ * Put them back, as far as the rebuilt page allows.
+ * @param {HTMLElement} node
+ * @param {number[]} offsets
+ */
+function restoreScroll(node, offsets) {
+  [...node.querySelectorAll('.scroll')].forEach((element, index) => {
+    const wanted = offsets[index];
+    if (typeof wanted === 'number') element.scrollTop = wanted;
+  });
 }
 
 /**

@@ -32,7 +32,7 @@ import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
-import { saveAndQuit, settingsScene } from '../ui/settings.mjs';
+import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
 
 /**
  * Start or resume a run, replacing whatever is on screen.
@@ -295,6 +295,7 @@ export function fieldScene(session) {
           app.push(
             settingsScene({
               onClose: () => closeMenu(app),
+              onSaveAndExit: () => saveAndExit(app),
               onSaveAndQuit: () => saveAndQuit(app),
             }),
           );
@@ -326,8 +327,19 @@ export function fieldScene(session) {
       // here: it only has to say "the player asked for the next event",
       // wherever on the view it landed. Menu clicks are filtered out by the
       // paused flag they set — a settled pause is not a poke at the road.
-      onClick = () => {
-        if (!paused) clicks += 1;
+      onClick = (event) => {
+        if (paused) return;
+        // A click on a control is not a poke at the road, however it reaches
+        // this listener on its way up: the tray and the dialogs it opens sit
+        // in the same overlay, and a menu button answers for itself.
+        const target = event.target;
+        if (target instanceof Element && target.closest('button, .modal, .panel')) return;
+
+        clicks += 1;
+        // A ring where the pointer landed. Half a second off a minute's wait
+        // is not something a player can see happening, so the click answers
+        // for itself — without it the poke reads as having done nothing.
+        app.clickRipple(event);
       };
       document.getElementById('overlay')?.addEventListener('click', onClick);
 
@@ -396,7 +408,15 @@ export function fieldScene(session) {
 
         if (companion && showActor && !events?.hidesActor) {
           const moving = !paused && (events?.walking ?? true);
-          const walk = { x: COMPANION_X, y: groundY(), distance: offset, moving };
+          const walk = {
+            x: COMPANION_X,
+            y: groundY(),
+            distance: offset,
+            moving,
+            // Standing still in front of a berry tree for ten seconds reads as
+            // a frozen game; the bob says it is picking.
+            lift: events?.actorLift ?? 0,
+          };
           drawStepDust(field, walk);
           drawWalker(field, companion, walk);
         }

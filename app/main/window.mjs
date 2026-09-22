@@ -17,6 +17,19 @@ import { VIEW_HEIGHT, VIEW_WIDTH } from '../shared/constants.mjs';
 let current = null;
 
 /**
+ * Where the window stood when the drag now in progress began.
+ *
+ * A drag moves the window to an absolute place rather than nudging it by a
+ * step: the renderer sends how far the pointer has travelled since it took
+ * hold, and that is added to this. A message that arrives late then lands the
+ * window where the pointer already is, instead of adding a step that has
+ * been taken twice — which is what made the companion shake.
+ *
+ * @type {{x: number, y: number}|null}
+ */
+let dragFrom = null;
+
+/**
  * @param {import('./settings.mjs').Settings} settings
  * @returns {BrowserWindow}
  */
@@ -64,6 +77,39 @@ export function createWindow(settings) {
 /** @returns {BrowserWindow|null} */
 export function getWindow() {
   return current && !current.isDestroyed() ? current : null;
+}
+
+/** Take hold of the window: remember where it is now. */
+export function beginDrag() {
+  const window = getWindow();
+  if (!window) return false;
+  const [x, y] = window.getPosition();
+  dragFrom = { x, y };
+  return true;
+}
+
+/**
+ * Put the window where the pointer has carried it.
+ *
+ * @param {number} dx how far the pointer has moved since the drag began
+ * @param {number} dy
+ */
+export function dragTo(dx, dy) {
+  const window = getWindow();
+  if (!window || !dragFrom) return false;
+  const x = dragFrom.x + (Number.isFinite(dx) ? dx : 0);
+  const y = dragFrom.y + (Number.isFinite(dy) ? dy : 0);
+  window.setPosition(Math.round(x), Math.round(y));
+  return true;
+}
+
+/** Let go, and report where the window ended up so the setting can keep it. */
+export function endDrag() {
+  dragFrom = null;
+  const window = getWindow();
+  if (!window) return null;
+  const [x, y] = window.getPosition();
+  return { x, y };
 }
 
 /**
