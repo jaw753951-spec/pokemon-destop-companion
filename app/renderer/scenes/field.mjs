@@ -360,7 +360,7 @@ export function fieldScene(session) {
       if (paused) return;
 
       // A click anywhere on the travelling view pulls the next event in: a
-      // click per half a second trimmed, which is what a player poking at the
+      // click per second trimmed, which is what a player poking at the
       // companion is asking for. Menus and battles sit above this scene, so a
       // click on those never reaches here.
       while (clicks > 0) {

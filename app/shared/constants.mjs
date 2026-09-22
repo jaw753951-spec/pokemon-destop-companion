@@ -38,10 +38,10 @@ export const EVENT_INTERVAL_MS = 60 * 1000;
  * How much a click on the travelling view pulls the next event in.
  *
  * One event a minute is the idle pace; a player poking at the companion is
- * asking it to get on with it, so each click shoulders half a second off the
- * wait — a handful of clicks visibly matters without ever emptying it.
+ * asking it to get on with it, so each click shoulders a second off the wait
+ * — a handful of clicks visibly matters without ever emptying it.
  */
-export const CLICK_EVENT_BONUS_MS = 500;
+export const CLICK_EVENT_BONUS_MS = 1000;
 
 /**
  * How long to wait before trying again when a roll came due while an event was
