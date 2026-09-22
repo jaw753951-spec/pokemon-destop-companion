@@ -12,6 +12,7 @@ import {
   FIELD_HEIGHT,
   HURRY_MAX_MS,
   HURRY_PER_CLICK_MS,
+  CROSSING_MS,
   HURRY_SPEED,
   timeOfDay,
   VICTORY_CUE_SECONDS,
@@ -33,6 +34,10 @@ import {
   WALK_SPEED,
 } from '../render/field.mjs';
 import { backdropForArea } from '../render/backdrop.mjs';
+import { drawWeather } from '../render/weather.mjs';
+import { closeDaylightLayer, openDaylightLayer } from '../render/daylight.mjs';
+import { weatherForArea } from '../../shared/area-tags.mjs';
+import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -91,6 +96,12 @@ export function fieldScene(session) {
    * actually see.
    */
   let hurry = 0;
+  /** How far into the walk to the next area, in milliseconds; 0 when settled. */
+  let crossing = 0;
+  /** Whether the area has already changed behind the shut screen. */
+  let crossed = false;
+  /** An area change waiting for the road to be clear of an event. */
+  let pendingCrossing = false;
   /**
    * Cleared while a battle or the capture screen is up: those draw their own
    * version of the companion, and two of it at once reads as a bug.
@@ -269,6 +280,52 @@ export function fieldScene(session) {
   }
 
   /**
+   * The walk from one area to the next.
+   *
+   * The road used to change under the companion's feet between one frame and
+   * the next. The games never do that: they close the screen, change what is
+   * behind it, and open it again, and the few hundred milliseconds of dark is
+   * what makes somewhere else read as somewhere else rather than as a glitch.
+   *
+   * The companion keeps walking the whole way through — it is going
+   * somewhere, not waiting — and the area is swapped at the darkest point.
+   *
+   * @param {number} deltaMs
+   * @param {import('../core/app.mjs').App} app
+   */
+  function tickCrossing(deltaMs, app) {
+    // One starts as soon as the road is clear of whatever was happening on it.
+    if (pendingCrossing && crossing === 0 && !events?.busy && !menuOpen) {
+      pendingCrossing = false;
+      crossing = 1;
+      crossed = false;
+    }
+    if (crossing === 0) return;
+
+    crossing += deltaMs;
+    // Halfway, with the screen shut: the road behind it becomes another road.
+    if (!crossed && crossing >= CROSSING_MS / 2) {
+      crossed = true;
+      session.rotateArea();
+      refreshArt(app);
+      app.toast(localized(session.area?.name, session.area?.id ?? ''), 2200);
+    }
+    if (crossing >= CROSSING_MS) crossing = 0;
+  }
+
+  /**
+   * How far shut the screen is, 0 open and 1 closed.
+   *
+   * Shut and open take the same time as each other, so the swap at the middle
+   * falls where the screen is fully dark.
+   */
+  function crossingShut() {
+    if (crossing === 0) return 0;
+    const half = CROSSING_MS / 2;
+    return crossing <= half ? crossing / half : Math.max(0, 1 - (crossing - half) / half);
+  }
+
+  /**
    * Put the area's own music back on.
    *
    * Everything that opens over the road — a battle, the capture screen, the
@@ -394,21 +451,24 @@ export function fieldScene(session) {
       if (hurry > 0) hurry = Math.max(0, hurry - deltaMs);
       if (walking) offset += (WALK_SPEED * (hurry > 0 ? HURRY_SPEED : 1) * deltaMs) / 1000;
 
-      const { rotateArea, autosave, event } = session.tick(deltaMs);
+      const { autosave, event } = session.tick(deltaMs);
+
+      tickCrossing(deltaMs, app);
 
       // A turn that came due mid-event is held rather than dropped: the timer
       // goes back to a few seconds instead of its whole period, so the walk
       // picks it up as soon as the road is clear again.
-      if (rotateArea) {
-        if (events?.busy || menuOpen) session.areaTimer = EVENT_RETRY_MS;
-        else {
-          session.rotateArea();
-          refreshArt(app);
-        }
-      }
       if (event) {
-        if (events?.busy || menuOpen) session.eventTimer = EVENT_RETRY_MS;
-        else events?.start(session.events.roll(session.rng), offset, app);
+        if (events?.busy || menuOpen || crossing > 0) session.eventTimer = EVENT_RETRY_MS;
+        else {
+          // Whatever the clicks had bought is spent getting here; carrying it
+          // through the event would have the companion sprinting afterwards
+          // for no reason the player can see.
+          hurry = 0;
+          events?.start(session.events.roll(session.rng), offset, app);
+          // Ten things happen in a place, and then somewhere else.
+          if (session.countEvent()) pendingCrossing = true;
+        }
       }
       if (autosave) {
         session
@@ -426,11 +486,32 @@ export function fieldScene(session) {
     },
 
     render(context) {
-      inFieldSpace(context, (field) => {
-        drawBackground(field, background, Math.round(offset));
+      drawField(context);
+      drawCrossing(context);
+    },
+
+    setPaused(value) {
+      paused = value;
+    },
+
+    get offset() {
+      return offset;
+    },
+  };
+
+  /** @param {CanvasRenderingContext2D} context */
+  function drawField(context) {
+    inFieldSpace(context, (field) => {
+      // The road, already graded for the hour by the pipeline.
+      drawBackground(field, background, Math.round(offset));
+
+      // Everything standing on it is one picture for every hour, so it is
+      // drawn apart and lit before it lands.
+      const lit = openDaylightLayer();
+      if (lit) {
         // The height the companion is actually drawn at, so a carried item
         // clears the head of a Wailord as surely as that of a Wurmple.
-        events?.render(field, offset, Math.round((companion?.height ?? 24) * ACTOR_SCALE));
+        events?.render(lit, offset, Math.round((companion?.height ?? 24) * ACTOR_SCALE));
 
         if (companion && showActor && !events?.hidesActor) {
           const moving = !paused && (events?.walking ?? true);
@@ -443,20 +524,37 @@ export function fieldScene(session) {
             // a frozen game; the bob says it is picking.
             lift: events?.actorLift ?? 0,
           };
-          drawStepDust(field, walk);
-          drawWalker(field, companion, walk);
+          drawStepDust(lit, walk);
+          drawWalker(lit, companion, walk);
         }
-      });
-    },
+        closeDaylightLayer(field, timeOfDay());
+      }
 
-    setPaused(value) {
-      paused = value;
-    },
+      // The sky the place is under, in front of everything standing in it —
+      // the companion walks in the rain rather than into it at the battle
+      // screen.
+      drawWeather(field, weatherForArea(session.area), session.playtime);
+    });
+  }
 
-    get offset() {
-      return offset;
-    },
-  };
+  /**
+   * The dark the road is changed behind, drawn over everything in the window's
+   * own pixels rather than the field's so the edges land on whole ones.
+   *
+   * @param {CanvasRenderingContext2D} context
+   */
+  function drawCrossing(context) {
+    const shut = crossingShut();
+    if (shut <= 0) return;
+
+    // Closing in from above and below, the way a door shuts on a room.
+    const reach = Math.ceil((VIEW_HEIGHT / 2) * Math.min(1, shut * 1.15));
+    context.save();
+    context.fillStyle = '#05070c';
+    context.fillRect(0, 0, VIEW_WIDTH, reach);
+    context.fillRect(0, VIEW_HEIGHT - reach, VIEW_WIDTH, reach);
+    context.restore();
+  }
 
   /** @param {import('../core/app.mjs').App} app */
   function closeMenu(app) {

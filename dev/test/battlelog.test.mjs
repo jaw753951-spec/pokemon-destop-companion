@@ -228,3 +228,36 @@ test('an attack the other side cannot take is not the move it reaches for', () =
     gameData().types.normal.effectiveness = {};
   }
 });
+
+test('every line of a turn carries what the bars stood at when it was written', () => {
+  const battle = makeBattle();
+  const log = battle.takeTurn();
+
+  // The screen plays this back after the engine has finished the turn, so a
+  // bar reading the Pokémon's own hit points reads the end of the turn — both
+  // bars falling together on whichever blow happened to land first.
+  assert.ok(log.length > 0);
+  for (const entry of log) {
+    assert.equal(typeof entry.hp?.player, 'number', `${entry.kind} carries no player hp`);
+    assert.equal(typeof entry.hp?.foe, 'number', `${entry.kind} carries no foe hp`);
+  }
+
+  // The first damage of the turn shows the side it landed on already down and
+  // the other side still whole.
+  const hit = log.find((entry) => entry.kind === 'damage');
+  assert.ok(hit, 'the fixture should land a hit');
+  const before = log[log.indexOf(hit) - 1];
+  const hurt = hit.side === 'player' ? 'player' : 'foe';
+  const other = hit.side === 'player' ? 'foe' : 'player';
+  assert.ok(hit.hp[hurt] < before.hp[hurt], 'the side that was hit should have dropped');
+  assert.equal(hit.hp[other], before.hp[other], 'the other side should not have moved yet');
+});
+
+test('a stamp is never rewritten by a later line', () => {
+  const battle = makeBattle();
+  const log = battle.takeTurn();
+  const stamps = log.map((entry) => entry.hp.player);
+  // Hit points only fall or hold across a turn in this fixture; what matters
+  // is that the sequence is a history rather than the same number repeated.
+  assert.ok(new Set(stamps).size > 1, `every line read ${stamps[0]}`);
+});

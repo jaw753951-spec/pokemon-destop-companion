@@ -72,6 +72,8 @@ import { stageMultiplier } from './stats.mjs';
  *   `noEffect`, `failed`, `end`
  * @property {'player'|'foe'} [side]
  * @property {Record<string, any>} [data]
+ * @property {{player: number, foe: number}} [hp] what both sides stood at when
+ *   this line was written, so a bar can follow the turn rather than its end
  */
 
 /** The stats a Starf Berry can land on. */
@@ -589,12 +591,48 @@ export class Battle {
   }
 
   /**
+   * A turn's log: an ordinary array that stamps each entry with the hit points
+   * on both sides at the moment it was written.
+   *
+   * The screen plays a turn back after the engine has finished working it out,
+   * so a bar that reads the Pokémon's own `hp` while playing reads the value
+   * at the *end* of the turn. Both bars therefore fell together on the first
+   * blow of the turn, whoever it landed on — the opponent's attack appearing
+   * to take effect only when the companion next swung. The stamp is what the
+   * bar stood at on that line.
+   *
+   * @returns {LogEntry[]}
+   */
+  makeLog() {
+    /** @type {LogEntry[]} */
+    const log = [];
+    const push = Array.prototype.push.bind(log);
+    Object.defineProperty(log, 'push', {
+      configurable: true,
+      value: (...entries) => {
+        for (const entry of entries) {
+          if (entry && !entry.hp) entry.hp = this.hitPoints();
+        }
+        return push(...entries);
+      },
+    });
+    return log;
+  }
+
+  /** What both sides are on right now. */
+  hitPoints() {
+    return {
+      player: this.player.pokemon.hp,
+      foe: this.foe ? this.foe.pokemon.hp : 0,
+    };
+  }
+
+  /**
    * Play one turn and return everything that happened in it.
    * @returns {LogEntry[]}
    */
   takeTurn() {
-    /** @type {LogEntry[]} */
-    const log = [];
+    const log = this.makeLog();
     if (!this.running || !this.foe) return log;
 
     this.turn++;

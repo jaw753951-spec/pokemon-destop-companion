@@ -155,7 +155,13 @@ export function itemActions(session, slug) {
 
   return {
     use: Boolean(pendingEvolution(session.active, { item: slug })),
-    equip: item.attributes.includes('holdable'),
+    // A berry is a held item by definition — the whole pocket is things a
+    // Pokémon carries — so it is offered whatever its attributes happen to
+    // say, and anything with a held effect goes the same way.
+    equip:
+      item.pocket === 'berries' ||
+      Boolean(item.held) ||
+      item.attributes.includes('holdable'),
   };
 }
 

@@ -66,6 +66,20 @@ canvas {
  * and the pointer keeps its ordinary arrow rather than turning into a move
  * cursor over what looks like empty desktop.
  */
+/*
+ * Everything behind the stage. Whatever of the window the picture does not
+ * cover is not the game, so it is a handle — which is what the navy border
+ * around the companion was crying out to be.
+ */
+#dragframe {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  background: none;
+  -webkit-app-region: no-drag;
+  cursor: default;
+}
+
 #dragbar {
   position: fixed;
   inset: 0 0 auto 0;
@@ -116,6 +130,8 @@ canvas {
   position: absolute;
   top: 0;
   left: 0;
+  /* Over the frame behind it, so a click on the game is a click on the game. */
+  z-index: 1;
   width: 480px;
   height: 270px;
   transform-origin: top left;

@@ -14,14 +14,11 @@ test('every event starts equally likely', () => {
   close(sum(weights), 100);
 });
 
-test('a repeated event is damped 20 → 10 → 1 → 0', () => {
+test('a repeated event is damped 20 → 5 → 0', () => {
   const scheduler = new EventScheduler({ last: 'berry', streak: 1 });
-  close(scheduler.weights().berry, 10);
+  close(scheduler.weights().berry, 5);
 
   scheduler.streak = 2;
-  close(scheduler.weights().berry, 1);
-
-  scheduler.streak = 3;
   close(scheduler.weights().berry, 0);
 
   // A longer run stays at zero rather than going negative.
@@ -41,15 +38,15 @@ test('the damped share is split equally among the others', () => {
 
 test('firing a different event restores the previous one', () => {
   const scheduler = new EventScheduler({ last: 'heal', streak: 2 });
-  close(scheduler.weights().heal, 1);
+  close(scheduler.weights().heal, 0);
 
   // Simulate the roll landing on something else.
   scheduler.last = 'ball';
   scheduler.streak = 1;
-  close(scheduler.weights().heal, BASE_WEIGHT + (BASE_WEIGHT - 10) / 4);
+  close(scheduler.weights().heal, BASE_WEIGHT + (BASE_WEIGHT - 5) / 4);
 });
 
-test('an event can never fire four times in a row', () => {
+test('an event can never fire three times in a row', () => {
   const scheduler = new EventScheduler();
   const rng = new Rng(1234);
   let longestRun = 0;
@@ -63,7 +60,7 @@ test('an event can never fire four times in a row', () => {
     longestRun = Math.max(longestRun, run);
   }
 
-  assert.equal(longestRun, 3, 'three in a row is reachable, four is not');
+  assert.equal(longestRun, 2, 'twice in a row is reachable, three times is not');
 });
 
 test('the long-run distribution stays close to even', () => {
@@ -95,9 +92,10 @@ test('repeats are rarer than an even roll would make them', () => {
   }
 
   const share = repeats / rolls;
-  // An even roll would repeat 20% of the time; damping should roughly halve it.
-  assert.ok(share < 0.12, `repeat share was ${(share * 100).toFixed(2)}%`);
-  assert.ok(share > 0.05, `repeats should still happen, got ${(share * 100).toFixed(2)}%`);
+  // An even roll would repeat 20% of the time; the damping cuts that to the
+  // five per cent the weights name.
+  assert.ok(share < 0.07, `repeat share was ${(share * 100).toFixed(2)}%`);
+  assert.ok(share > 0.03, `repeats should still happen, got ${(share * 100).toFixed(2)}%`);
 });
 
 test('scheduler state round-trips through a save', () => {
@@ -113,7 +111,7 @@ const sum = (weights) => Object.values(weights).reduce((total, value) => total +
 
 test('a forced event fires next whatever the weights say', () => {
   const scheduler = new EventScheduler({ last: 'heal', streak: 3 });
-  // Three rest stops in a row have damped heal out of the running entirely.
+  // A run of rest stops has damped heal out of the running entirely.
   close(scheduler.weights().heal, 0);
 
   scheduler.force('heal');

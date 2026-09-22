@@ -171,7 +171,7 @@
   "battle.endured": "{name} hung on with its {item}!",
   "battle.won": "You won!",
   "battle.lost": "You blacked out!",
-  "battle.lostWild": "Blacked out — the wild Pokémon got away!",
+  "battle.lostWild": "The wild {name} ran away!",
   "battle.expGained": "{name} gained {amount} Exp. Points!",
   "battle.levelUp": "{name} grew to Lv. {level}!",
   "battle.learned": "{name} learned {move}!",

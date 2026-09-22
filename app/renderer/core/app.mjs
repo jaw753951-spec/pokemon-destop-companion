@@ -6,7 +6,7 @@
  * are pushed and popped rather than swapped so a menu can return to whatever
  * was underneath it.
  */
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { clear, el } from './dom.mjs';
 import { settings as settingsApi, windowControl } from './bridge.mjs';
 import { setLanguage } from './i18n.mjs';
@@ -209,8 +209,7 @@ export class App {
  */
 export function fitStage() {
   const stage = /** @type {HTMLElement} */ (document.getElementById('stage'));
-  const scale = Math.min(window.innerWidth / VIEW_WIDTH, window.innerHeight / VIEW_HEIGHT);
-  const snapped = scale >= 1 ? Math.floor(scale * 4) / 4 : scale;
+  const snapped = snapZoom(Math.min(window.innerWidth / VIEW_WIDTH, window.innerHeight / VIEW_HEIGHT));
   stage.style.transform = `scale(${snapped})`;
   stage.style.left = `${Math.round((window.innerWidth - VIEW_WIDTH * snapped) / 2)}px`;
   stage.style.top = `${Math.round((window.innerHeight - VIEW_HEIGHT * snapped) / 2)}px`;
@@ -262,34 +261,36 @@ export function runLoop(app) {
  * that has been taken twice.
  */
 export function trackWindowDrag() {
-  const bar = document.getElementById('dragbar');
-  if (!bar) return;
+  const handles = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('[data-drag]')]);
+  if (handles.length === 0) return;
 
   /** Where on the desk the drag began, or null while not dragging. */
   let from = null;
 
-  bar.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    // The minimize button is a control, not a handle.
-    if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
-    from = { x: event.screenX, y: event.screenY };
-    bar.setPointerCapture(event.pointerId);
-    void windowControl.beginDrag();
-  });
+  for (const handle of handles) {
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      // The minimize button is a control, not a handle.
+      if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
+      from = { x: event.screenX, y: event.screenY };
+      handle.setPointerCapture(event.pointerId);
+      void windowControl.beginDrag();
+    });
 
-  bar.addEventListener('pointermove', (event) => {
-    if (!from) return;
-    void windowControl.dragTo(event.screenX - from.x, event.screenY - from.y);
-  });
+    handle.addEventListener('pointermove', (event) => {
+      if (!from) return;
+      void windowControl.dragTo(event.screenX - from.x, event.screenY - from.y);
+    });
 
-  const release = (event) => {
-    if (!from) return;
-    from = null;
-    if (event.type === 'pointerup' && bar.hasPointerCapture(event.pointerId)) {
-      bar.releasePointerCapture(event.pointerId);
-    }
-    void windowControl.endDrag();
-  };
-  bar.addEventListener('pointerup', release);
-  bar.addEventListener('pointercancel', release);
+    const release = (event) => {
+      if (!from) return;
+      from = null;
+      if (event.type === 'pointerup' && handle.hasPointerCapture(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+      void windowControl.endDrag();
+    };
+    handle.addEventListener('pointerup', release);
+    handle.addEventListener('pointercancel', release);
+  }
 }

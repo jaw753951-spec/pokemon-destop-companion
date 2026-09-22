@@ -18,6 +18,18 @@ export const VIEW_HEIGHT = 270;
  */
 export const FIELD_ZOOM = 2;
 
+/**
+ * The zoom the stage is drawn at for a window of a given width.
+ *
+ * Whole quarter steps once a source pixel is worth at least a screen pixel,
+ * and free below that, where snapping would mean throwing away most of a tiny
+ * window. Both the window sizer and the renderer read this, so a window is
+ * never a size the picture inside it cannot fill.
+ *
+ * @param {number} zoom
+ */
+export const snapZoom = (zoom) => (zoom >= 1 ? Math.floor(zoom * 4) / 4 : zoom);
+
 /** The field's own coordinate space, which the zoom scales up to the window. */
 export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
 export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
@@ -38,10 +50,10 @@ export const EVENT_INTERVAL_MS = 60 * 1000;
  * How much a click on the travelling view pulls the next event in.
  *
  * One event a minute is the idle pace; a player poking at the companion is
- * asking it to get on with it, so each click shoulders a second off the wait
- * — a handful of clicks visibly matters without ever emptying it.
+ * asking it to get on with it, so each click shoulders half a second off the
+ * wait — a handful of clicks visibly matters without ever emptying it.
  */
-export const CLICK_EVENT_BONUS_MS = 1000;
+export const CLICK_EVENT_BONUS_MS = 500;
 
 /**
  * How much of a victory fanfare is played, in seconds.
@@ -80,11 +92,25 @@ export const HURRY_SPEED = 2.6;
 export const EVENT_RETRY_MS = 5 * 1000;
 
 /**
- * How long the companion stays in one area before moving on: ten minutes,
- * fixed. The range that used to sit here made the interval something the
- * player could only guess at; a fixed figure is one you can set a clock by.
+ * How long the walk from one area to the next takes, in milliseconds.
+ *
+ * Half of it is the screen shutting and half is it opening again, with the
+ * road changed at the darkest point — which is how the games move you from
+ * one place to another, and the reason somewhere else reads as somewhere else
+ * rather than as the ground glitching under the companion's feet.
  */
-export const AREA_ROTATION_MS = 10 * 60 * 1000;
+export const CROSSING_MS = 900;
+
+/**
+ * How many events the companion sees in one area before moving on.
+ *
+ * It used to be ten minutes on a clock, which took no notice of the player at
+ * all: a run being hurried along by clicking went through a dozen events
+ * without the scenery ever changing. Counting events instead means the road
+ * moves at the pace the run is actually being played at — ten things happen,
+ * and then somewhere else.
+ */
+export const EVENTS_PER_AREA = 10;
 
 /** The five daylight bands, and the hour each one starts at. */
 export const TIME_BANDS = [

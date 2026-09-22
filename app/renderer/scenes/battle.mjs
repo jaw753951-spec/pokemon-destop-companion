@@ -33,6 +33,25 @@ const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, 
 const CLICK_SPEEDUP = 0.5;
 
 /**
+ * The way into a battle, in milliseconds.
+ *
+ * The games never cut from the road to the fight: the screen flashes, goes
+ * dark, and opens on the battle. A cut is the one thing that reads as a
+ * mistake rather than as a transition, and this is a game whose battles
+ * arrive on their own while the player is looking at something else — so the
+ * moment it happens has to announce itself.
+ *
+ * Three phases: the road flashing white, the dark closing over it, and the
+ * dark opening on the battle.
+ */
+const ENTRY_MS = 780;
+const ENTRY_FLASHES = 3;
+/** Where the flashing ends and the dark begins, as a share of the whole. */
+const ENTRY_SHUT = 0.42;
+/** Where the dark is complete and starts opening again. */
+const ENTRY_OPEN = 0.62;
+
+/**
  * The lines a condition reads, for the conditions that have one of their own.
  *
  * Only a burn and a poison bite at the end of a turn, and only sleep, freeze
@@ -123,6 +142,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   let queue = [];
   let beat = 0;
   let finished = false;
+  /** How far into the way in, in milliseconds; past `ENTRY_MS` it is over. */
+  let entering = 0;
+  /** The battle's own controls, hidden until the screen has opened on them. */
+  let screenRoot = /** @type {HTMLElement|null} */ (null);
   /** @type {import('../engine/pokemon.mjs').Pokemon[]} */
   const defeated = [];
 
@@ -135,9 +158,22 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   let loadedFoeId = '';
   /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
   let loadedPlayerId = '';
+  /**
+   * The foe whose name and bar are on screen.
+   *
+   * Not `battle.foe`: the engine has finished the turn before any of it is
+   * played back, so by then the next Pokémon is already out — or the fight is
+   * over and there is none. This is the one the player is looking at.
+   * @type {import('../engine/pokemon.mjs').Pokemon|null}
+   */
+  let shownFoe = battle.foe?.pokemon ?? null;
+  /** The entry being played, so the bars can read what it stood at. */
+  let playing = /** @type {import('../engine/battle.mjs').LogEntry|null} */ (null);
 
   const message = el('div.battle-message');
   const conditions = el('div.battle-field');
+  const playerPlate = nameplate(session.active);
+  const foePlate = nameplate(shownFoe);
   const playerBar = healthBar();
   const foeBar = healthBar();
   /** The trainer's remaining party, drawn as the balls still on their belt. */
@@ -223,7 +259,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    * @param {MouseEvent} event
    */
   function hurryBeat(app, event) {
-    if (finished) return;
+    if (finished || entering < ENTRY_MS) return;
     // Half of the beat that is still to run, floored so a late click does not
     // revive a beat that had already finished.
     beat = Math.min(beat, Math.max(beat * (1 - CLICK_SPEEDUP), 16));
@@ -259,10 +295,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       const screenNode = el('div.battle-clickcatch');
       screenNode.addEventListener('pointerdown', (event) => hurryBeat(app, event));
 
-      return el('div.screen.battle-screen', {}, [
+      screenRoot = el('div.screen.battle-screen', {}, [
         screenNode,
-        el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
-        el('div.battle-bar.player', {}, [nameplate(session.active), playerBar.root]),
+        el('div.battle-bar.foe', {}, [foePlate.root, foeBar.root]),
+        el('div.battle-bar.player', {}, [playerPlate.root, playerBar.root]),
         el('div.battle-actions', {}, [
           foeBalls,
           button(t('battle.bag'), () => openBag(app), { className: 'small' }),
@@ -270,9 +306,22 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         conditions,
         message,
       ]);
+      // Nothing of the battle shows until the dark opens on it.
+      screenRoot.style.visibility = 'hidden';
+      return screenRoot;
     },
 
     update(deltaMs, app) {
+      // The way in runs before anything is said, so the first line of the
+      // fight is not read out over a road the player is still looking at.
+      if (entering < ENTRY_MS) {
+        entering += deltaMs;
+        if (screenRoot) {
+          screenRoot.style.visibility = entering / ENTRY_MS >= ENTRY_OPEN ? 'visible' : 'hidden';
+        }
+        return;
+      }
+
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
       playerBar.update(deltaMs);
@@ -304,6 +353,15 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     },
 
     render(context) {
+      const step = entering / ENTRY_MS;
+
+      // The road is still on the canvas underneath; it flashes rather than
+      // being covered, which is the first half of the way in.
+      if (step < ENTRY_SHUT) {
+        drawEntryFlash(context, step / ENTRY_SHUT);
+        return;
+      }
+
       // Until the backdrop has decoded, dim whatever the field left on the
       // canvas rather than flashing the map at full brightness for a frame.
       if (!backdropImage) {
@@ -316,8 +374,43 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         foeBattler?.draw(field);
         playerBattler?.draw(field);
       });
+
+      if (step < 1) drawEntryShutters(context, step);
     },
   };
+
+  /**
+   * The road going white, three times, on the way into a fight.
+   * @param {CanvasRenderingContext2D} context
+   * @param {number} step 0 to 1 across the flashing phase
+   */
+  function drawEntryFlash(context, step) {
+    const pulse = Math.abs(Math.sin(step * Math.PI * ENTRY_FLASHES));
+    context.save();
+    context.globalAlpha = Math.min(1, pulse * (0.4 + step * 0.8));
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    context.restore();
+  }
+
+  /**
+   * The dark closing over the road and opening on the battle.
+   * @param {CanvasRenderingContext2D} context
+   * @param {number} step 0 to 1 across the whole way in
+   */
+  function drawEntryShutters(context, step) {
+    const shut = step < ENTRY_OPEN
+      ? (step - ENTRY_SHUT) / (ENTRY_OPEN - ENTRY_SHUT)
+      : 1 - (step - ENTRY_OPEN) / (1 - ENTRY_OPEN);
+    const reach = Math.ceil((VIEW_HEIGHT / 2) * Math.max(0, Math.min(1, shut * 1.1)));
+    if (reach <= 0) return;
+
+    context.save();
+    context.fillStyle = '#05070c';
+    context.fillRect(0, 0, VIEW_WIDTH, reach);
+    context.fillRect(0, VIEW_HEIGHT - reach, VIEW_WIDTH, reach);
+    context.restore();
+  }
 
   /**
    * Open the bag mid-battle.
@@ -356,8 +449,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    * @returns {number}
    */
   function play(entry, app) {
+    playing = entry;
     const player = session.active;
-    const foe = battle.foe?.pokemon;
+    const foe = shownFoe ?? battle.foe?.pokemon;
 
     switch (entry.kind) {
       case 'intro':
@@ -738,7 +832,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         updateBars();
         // A trainer sends the next one out; only a wild Pokémon appears of its
         // own accord, so only a wild battle reads the encounter line here.
-        const sent = entry.data?.pokemon ?? battle.foe?.pokemon;
+        const sent = entry.data?.pokemon ?? battle.foe?.pokemon ?? null;
+        shownFoe = sent;
+        foePlate.set(sent);
+        updateBars();
         say(trainer
           ? t('battle.foeSentOut', { trainer: localized(trainer.name, ''), name: nameOf(sent) })
           : t('event.wild', { name: nameOf(sent) }));
@@ -819,10 +916,16 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     message.textContent = text;
   }
 
-  /** Point both bars at whatever the two Pokémon are now on. */
+  /**
+   * Point both bars at what the line being played says they stood at.
+   *
+   * Falling back to the Pokémon's own hit points covers the first paint, and
+   * any entry written before the stamp existed.
+   */
   function updateBars() {
-    playerBar.set(session.active);
-    foeBar.set(battle.foe?.pokemon ?? null);
+    playerBar.set(session.active, playing?.hp?.player);
+    foeBar.set(shownFoe, playing?.hp?.foe);
+    playerPlate.set(session.active);
   }
 
   /**
@@ -853,17 +956,30 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
 }
 
-/** A name and level caption over a health bar. */
+/**
+ * A name and level caption over a health bar.
+ *
+ * It can be pointed at somebody else: a trainer sends out a second Pokémon and
+ * the plate over the bar was still naming the one that fainted.
+ */
 function nameplate(pokemon) {
   const node = el('span.battle-name');
-  if (pokemon) {
-    const species = speciesOf(pokemon.speciesId);
-    const gender = pokemon.gender ? t(`pokemon.gender.${pokemon.gender}`) : '';
-    const shiny = pokemon.shiny ? SHINY_MARK : '';
-    const name = pokemon.nickname || localized(species?.name, '');
-    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(pokemon) })}`;
-  }
-  return node;
+
+  /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next */
+  const set = (next) => {
+    if (!next) {
+      node.textContent = '';
+      return;
+    }
+    const species = speciesOf(next.speciesId);
+    const gender = next.gender ? t(`pokemon.gender.${next.gender}`) : '';
+    const shiny = next.shiny ? SHINY_MARK : '';
+    const name = next.nickname || localized(species?.name, '');
+    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(next) })}`;
+  };
+
+  set(pokemon);
+  return { root: node, set };
 }
 
 /**
@@ -904,8 +1020,11 @@ export function healthBar() {
 
     /**
      * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+     * @param {number} [at] the hit points to show, where the caller knows them
+     *   better than the Pokémon does — which is any moment during the playback
+     *   of a turn the engine has already finished
      */
-    set(pokemon) {
+    set(pokemon, at) {
       if (!pokemon) {
         shown = null;
         rate = 0;
@@ -914,7 +1033,7 @@ export function healthBar() {
       }
 
       const max = maxHp(pokemon);
-      const hp = Math.max(0, Math.min(max, pokemon.hp));
+      const hp = Math.max(0, Math.min(max, typeof at === 'number' ? at : pokemon.hp));
 
       // A bar arriving for the first time, or one whose Pokémon has just
       // changed shape under it, is simply drawn where it stands.

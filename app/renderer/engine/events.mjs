@@ -18,10 +18,14 @@ export const EVENT_KINDS = ['berry', 'ball', 'wild', 'trainer', 'heal'];
 export const BASE_WEIGHT = 100 / EVENT_KINDS.length;
 
 /**
- * What the most recent event's weight drops to after firing it once, twice,
- * and three or more times in a row.
+ * What the most recent event's weight drops to after firing it once, and
+ * after firing it twice.
+ *
+ * Twenty, then five, then nothing: an event that has just happened is a
+ * quarter as likely to happen again, and one that has happened twice running
+ * is out of the draw until something else breaks the run.
  */
-export const REPEAT_WEIGHTS = [10, 1, 0];
+export const REPEAT_WEIGHTS = [5, 0];
 
 export class EventScheduler {
   /**

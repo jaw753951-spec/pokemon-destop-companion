@@ -171,7 +171,7 @@
   "battle.endured": "{name}은(는) {item} 덕분에 버텨냈다!",
   "battle.won": "승리했다!",
   "battle.lost": "눈앞이 캄캄해졌다…",
-  "battle.lostWild": "눈앞이 캄캄해졌다… 그 포켓몬은 떠나버렸다!",
+  "battle.lostWild": "야생 {name}은(는) 도망쳤다!",
   "battle.expGained": "{name}은(는) {amount}의 경험치를 얻었다!",
   "battle.levelUp": "{name}은(는) 레벨 {level}(으)로 올랐다!",
   "battle.learned": "{name}은(는) {move}을(를) 배웠다!",

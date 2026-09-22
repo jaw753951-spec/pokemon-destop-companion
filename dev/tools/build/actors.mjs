@@ -242,16 +242,7 @@ function cropFrame(sheet, layout, index) {
 /** How many blocks square the Center is cut out as. */
 const CENTER_BLOCKS = 5;
 
-/**
- * How many times a metatile has to appear across a town before it counts as
- * the ground rather than as part of a building.
- *
- * A town's grass and paving are laid down dozens of times over. A building is
- * built once, out of blocks that appear once — there is one Pokémon Center in
- * Oldale, so the blocks that make up its roof and its walls appear exactly as
- * often as there are of it.
- */
-const SCENERY_REPEATS = 8;
+
 
 /**
  * Rub the town off the building.
@@ -262,32 +253,43 @@ const SCENERY_REPEATS = 8;
  * standing in a square of somebody else's lawn.
  *
  * There is no list saying which blocks are the building, and there does not
- * need to be: the ground is *repeated* and a building is not. So the blocks
- * whose metatile the town uses over and over are scenery, and the ones that
- * are also reachable from the edge of the crop — which the building's own
- * blocks are not, being surrounded by itself — are cleared away.
+ * need to be. A Pokémon Center stands in one place: the metatiles that make up
+ * its roof and its walls are used *there and nowhere else in the town*, while
+ * the grass and the paving it stands on are laid down all over. So a block
+ * that also appears outside the crop is scenery — and one that only appears
+ * inside it is the building, however ordinary it looks.
  *
- * Reaching in from the edge matters. A wall block that happened to be common
- * would otherwise be punched out of the middle of the building; enclosed by
- * the rest of it, it is never reached.
+ * Reaching in from the edge matters too. A wall block the town happens to use
+ * elsewhere — a shadow, a step — would otherwise be punched out of the middle
+ * of the building; enclosed by the rest of it, the flood never reaches it.
  *
  * @param {import('../lib/image.mjs').Raster} building the cropped picture
  * @param {{blockdata: Buffer, widthInBlocks: number, fromX: number, fromY: number, blocks: number}} where
  */
 export function clearScenery(building, { blockdata, widthInBlocks, fromX, fromY, blocks }) {
-  /** How often each metatile is used across the whole town. */
-  const uses = new Map();
-  for (let offset = 0; offset + 1 < blockdata.length; offset += 2) {
-    const id = blockdata.readUInt16LE(offset) & 0x3ff;
-    uses.set(id, (uses.get(id) ?? 0) + 1);
+  /** The metatile at a place on the town's own grid. */
+  const at = (bx, by) => {
+    const offset = (by * widthInBlocks + bx) * 2;
+    if (bx < 0 || by < 0 || offset < 0 || offset + 1 >= blockdata.length) return null;
+    return blockdata.readUInt16LE(offset) & 0x3ff;
+  };
+
+  /** Every metatile the town uses anywhere outside the crop. */
+  const elsewhere = new Set();
+  const height = Math.floor(blockdata.length / 2 / widthInBlocks);
+  for (let by = 0; by < height; by++) {
+    for (let bx = 0; bx < widthInBlocks; bx++) {
+      const inside = bx >= fromX && bx < fromX + blocks && by >= fromY && by < fromY + blocks;
+      if (inside) continue;
+      const id = at(bx, by);
+      if (id !== null) elsewhere.add(id);
+    }
   }
 
-  /** Whether the block at this place in the crop is one the town repeats. */
+  /** Whether the block at this place in the crop is part of the town at large. */
   const isScenery = (bx, by) => {
-    const offset = ((fromY + by) * widthInBlocks + (fromX + bx)) * 2;
-    if (offset < 0 || offset + 1 >= blockdata.length) return true;
-    const id = blockdata.readUInt16LE(offset) & 0x3ff;
-    return (uses.get(id) ?? 0) >= SCENERY_REPEATS;
+    const id = at(fromX + bx, fromY + by);
+    return id === null || elsewhere.has(id);
   };
 
   // Flood in from every edge of the crop, across scenery only.

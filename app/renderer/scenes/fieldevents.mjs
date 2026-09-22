@@ -307,7 +307,7 @@ function startBall(session, spawnAt) {
  * Which potion is the one the level has any use for: five Potions are a
  * kindness at level ten and a rounding error at fifty.
  */
-const SUPPLY_COUNT = 5;
+const SUPPLY_COUNT = 8;
 
 /** @type {Array<{level: number, item: string}>} highest level last */
 const SUPPLIES = [
@@ -551,7 +551,9 @@ function pickLeader(session) {
  * @param {any} leader
  */
 export function leaderParty(session, leader) {
-  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 3));
+  // A badge should be worth working for, not a brick wall: a leader is a
+  // level or two up rather than most of a gym's worth.
+  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 1));
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
@@ -559,7 +561,7 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, 3);
 
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
   return giveTrainerItems(session.rng, party, 'leader');
 }
 

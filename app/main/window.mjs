@@ -11,7 +11,7 @@ import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 
 import { RENDERER_DIR } from './paths.mjs';
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../shared/constants.mjs';
+import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH } from '../shared/constants.mjs';
 
 /** @type {BrowserWindow|null} */
 let current = null;
@@ -142,14 +142,23 @@ export function applyScale(scale) {
 /**
  * The companion occupies about 1/16 of the screen's area at scale 1, so a
  * quarter of each dimension, held to the renderer's 16:9 aspect.
+ *
+ * The size is worked out from a *snapped* zoom rather than snapped afterwards.
+ * The renderer draws 480x270 and scales it by whole quarter steps at or above
+ * 1:1, so a window sized to anything else left the picture sitting in a band
+ * of window it did not fill — the dark border the companion appeared to be
+ * wearing. Deriving the window from the zoom the renderer is going to use
+ * means the two agree and there is no band.
+ *
  * @param {number} scale
  */
 export function windowSize(scale) {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
   const target = Math.min(screenWidth / 4, (screenHeight / 4) * (VIEW_WIDTH / VIEW_HEIGHT));
-  const width = Math.max(VIEW_WIDTH / 2, Math.round((target * scale) / 2) * 2);
-  return { width, height: Math.round((width * VIEW_HEIGHT) / VIEW_WIDTH) };
+  const zoom = snapZoom(Math.max(0.5, (target * scale) / VIEW_WIDTH));
+  return { width: Math.round(VIEW_WIDTH * zoom), height: Math.round(VIEW_HEIGHT * zoom) };
 }
+
 
 /**
  * Keep the window on a real display. Defaults to the top centre of the primary
