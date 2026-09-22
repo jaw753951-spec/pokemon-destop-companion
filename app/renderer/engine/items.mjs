@@ -58,9 +58,17 @@ export function useItem(session, slug) {
     // A berry is both: something that can be eaten now and something that is
     // usually meant to be carried until it is needed. Using one on a Pokémon
     // at full health used to stop dead at "that cannot be used right now",
-    // with no way to hand it over at all — so an item that can be held falls
-    // through to being held instead of failing.
-    if (!canHold(slug)) return { used: false, ok: false, message: t('items.cannotUse') };
+    // with no way to hand it over at all — so where the bag would offer to
+    // hand the item over, a use that had nothing to do does that instead.
+    //
+    // Asked through `itemActions` rather than `canHold`, because the question
+    // is what the bag offers for this item, not what could physically be
+    // carried: PokeAPI marks a PP Max holdable, and holding one is not what
+    // the medicine pocket is for. A PP Max with nothing left to buy has to go
+    // on saying so.
+    if (!itemActions(session, slug).equip) {
+      return { used: false, ok: false, message: t('items.cannotUse') };
+    }
   }
 
   // An evolution stone, if this Pokémon is waiting on one.
