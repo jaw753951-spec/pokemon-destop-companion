@@ -27,13 +27,53 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
+const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100 };
 
 /** How much of a beat a click skips, as a share of the full wait. */
 const CLICK_SPEEDUP = 0.5;
 
-/** How long the red damage ghost holds before draining to the real bar. */
-const GHOST_DELAY_MS = 240;
+/**
+ * The way into a battle, in milliseconds.
+ *
+ * The games never cut from the road to the fight: the screen flashes, goes
+ * dark, and opens on the battle. A cut is the one thing that reads as a
+ * mistake rather than as a transition, and this is a game whose battles
+ * arrive on their own while the player is looking at something else — so the
+ * moment it happens has to announce itself.
+ *
+ * Three phases: the road flashing white, the dark closing over it, and the
+ * dark opening on the battle.
+ */
+const ENTRY_MS = 780;
+const ENTRY_FLASHES = 3;
+/** Where the flashing ends and the dark begins, as a share of the whole. */
+const ENTRY_SHUT = 0.42;
+/** Where the dark is complete and starts opening again. */
+const ENTRY_OPEN = 0.62;
+
+/**
+ * The lines a condition reads, for the conditions that have one of their own.
+ *
+ * Only a burn and a poison bite at the end of a turn, and only sleep, freeze
+ * and paralysis keep a Pokémon from moving — so those are the ones with
+ * wording in the games. Anything else falls back to a plain line rather than
+ * inventing a sentence the cartridge never says.
+ */
+const STATUS_HURT = { brn: 'status.brn.hurt', psn: 'status.psn.hurt' };
+const STATUS_BLOCKED = { slp: 'status.slp.blocked', frz: 'status.frz.blocked', par: 'status.par.blocked' };
+
+/**
+ * How fast a health bar moves: the time a *whole* bar takes to drain, and the
+ * least time any change takes.
+ *
+ * The games drain at a constant rate, so a scratch is over in a moment and a
+ * heavy hit takes a visible while — which is how a player reads how much it
+ * cost without looking at the number. A fixed duration for every change, which
+ * is what a CSS transition gives, makes the two look the same and the bar look
+ * as though it is guessing.
+ */
+const DRAIN_FULL_MS = 1100;
+const DRAIN_MIN_MS = 110;
 
 /**
  * The message box's top edge, in field pixels: it is 34 tall and sits 8 from
@@ -74,6 +114,7 @@ const PLAYER_ROOM = {
  *   session: import('../engine/session.mjs').Session,
  *   foes: import('../engine/pokemon.mjs').Pokemon[],
  *   trainer?: {name: {ko: string, en: string}, portrait?: string|null, kind?: string}|null,
+ *   leader?: boolean,
  *   backdrop?: string|null,
  *   music?: string|null,
  *   weather?: string|null,
@@ -81,7 +122,7 @@ const PLAYER_ROOM = {
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, weather = undefined, onFinish }) {
+export function battleScene({ session, foes, trainer = null, leader = false, backdrop = null, music = null, weather = undefined, onFinish }) {
   const battle = new Battle({
     rng: session.rng,
     player: session.active,
@@ -101,6 +142,10 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   let queue = [];
   let beat = 0;
   let finished = false;
+  /** How far into the way in, in milliseconds; past `ENTRY_MS` it is over. */
+  let entering = 0;
+  /** The battle's own controls, hidden until the screen has opened on them. */
+  let screenRoot = /** @type {HTMLElement|null} */ (null);
   /** @type {import('../engine/pokemon.mjs').Pokemon[]} */
   const defeated = [];
 
@@ -113,20 +158,26 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   let loadedFoeId = '';
   /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
   let loadedPlayerId = '';
+  /**
+   * The foe whose name and bar are on screen.
+   *
+   * Not `battle.foe`: the engine has finished the turn before any of it is
+   * played back, so by then the next Pokémon is already out — or the fight is
+   * over and there is none. This is the one the player is looking at.
+   * @type {import('../engine/pokemon.mjs').Pokemon|null}
+   */
+  let shownFoe = battle.foe?.pokemon ?? null;
+  /** The entry being played, so the bars can read what it stood at. */
+  let playing = /** @type {import('../engine/battle.mjs').LogEntry|null} */ (null);
 
   const message = el('div.battle-message');
   const conditions = el('div.battle-field');
+  const playerPlate = nameplate(session.active);
+  const foePlate = nameplate(shownFoe);
   const playerBar = healthBar();
   const foeBar = healthBar();
   /** The trainer's remaining party, drawn as the balls still on their belt. */
   const foeBalls = el('div.battle-balls');
-  /**
-   * How long until each side's damage ghost settles: one beat after the hit
-   * that opened the gap, so the red shows where the bar was before it drains.
-   * @type {{player: number, foe: number}}
-   */
-  const ghostTimers = { player: 0, foe: 0 };
-
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
@@ -204,7 +255,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
    * @param {MouseEvent} event
    */
   function hurryBeat(app, event) {
-    if (finished) return;
+    if (finished || entering < ENTRY_MS) return;
     // Half of the beat that is still to run, floored so a late click does not
     // revive a beat that had already finished.
     beat = Math.min(beat, Math.max(beat * (1 - CLICK_SPEEDUP), 16));
@@ -228,6 +279,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       queue = [
         { kind: 'intro', data: {} },
         ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
+        { kind: 'go', data: {} },
       ];
       updateBars();
       updateField();
@@ -239,10 +291,10 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       const screenNode = el('div.battle-clickcatch');
       screenNode.addEventListener('pointerdown', (event) => hurryBeat(app, event));
 
-      return el('div.screen.battle-screen', {}, [
+      screenRoot = el('div.screen.battle-screen', {}, [
         screenNode,
-        el('div.battle-bar.foe', {}, [nameplate(battle.foe?.pokemon), foeBar.root]),
-        el('div.battle-bar.player', {}, [nameplate(session.active), playerBar.root]),
+        el('div.battle-bar.foe', {}, [foePlate.root, foeBar.root]),
+        el('div.battle-bar.player', {}, [playerPlate.root, playerBar.root]),
         el('div.battle-actions', {}, [
           foeBalls,
           button(t('battle.bag'), () => openBag(app), { className: 'small' }),
@@ -250,12 +302,26 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         conditions,
         message,
       ]);
+      // Nothing of the battle shows until the dark opens on it.
+      screenRoot.style.visibility = 'hidden';
+      return screenRoot;
     },
 
     update(deltaMs, app) {
+      // The way in runs before anything is said, so the first line of the
+      // fight is not read out over a road the player is still looking at.
+      if (entering < ENTRY_MS) {
+        entering += deltaMs;
+        if (screenRoot) {
+          screenRoot.style.visibility = entering / ENTRY_MS >= ENTRY_OPEN ? 'visible' : 'hidden';
+        }
+        return;
+      }
+
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
-      tickBarGhosts(deltaMs);
+      playerBar.update(deltaMs);
+      foeBar.update(deltaMs);
 
       if (finished) return;
       beat -= deltaMs;
@@ -283,6 +349,15 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     },
 
     render(context) {
+      const step = entering / ENTRY_MS;
+
+      // The road is still on the canvas underneath; it flashes rather than
+      // being covered, which is the first half of the way in.
+      if (step < ENTRY_SHUT) {
+        drawEntryFlash(context, step / ENTRY_SHUT);
+        return;
+      }
+
       // Until the backdrop has decoded, dim whatever the field left on the
       // canvas rather than flashing the map at full brightness for a frame.
       if (!backdropImage) {
@@ -295,8 +370,43 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         foeBattler?.draw(field);
         playerBattler?.draw(field);
       });
+
+      if (step < 1) drawEntryShutters(context, step);
     },
   };
+
+  /**
+   * The road going white, three times, on the way into a fight.
+   * @param {CanvasRenderingContext2D} context
+   * @param {number} step 0 to 1 across the flashing phase
+   */
+  function drawEntryFlash(context, step) {
+    const pulse = Math.abs(Math.sin(step * Math.PI * ENTRY_FLASHES));
+    context.save();
+    context.globalAlpha = Math.min(1, pulse * (0.4 + step * 0.8));
+    context.fillStyle = '#ffffff';
+    context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
+    context.restore();
+  }
+
+  /**
+   * The dark closing over the road and opening on the battle.
+   * @param {CanvasRenderingContext2D} context
+   * @param {number} step 0 to 1 across the whole way in
+   */
+  function drawEntryShutters(context, step) {
+    const shut = step < ENTRY_OPEN
+      ? (step - ENTRY_SHUT) / (ENTRY_OPEN - ENTRY_SHUT)
+      : 1 - (step - ENTRY_OPEN) / (1 - ENTRY_OPEN);
+    const reach = Math.ceil((VIEW_HEIGHT / 2) * Math.max(0, Math.min(1, shut * 1.1)));
+    if (reach <= 0) return;
+
+    context.save();
+    context.fillStyle = '#05070c';
+    context.fillRect(0, 0, VIEW_WIDTH, reach);
+    context.fillRect(0, VIEW_HEIGHT - reach, VIEW_WIDTH, reach);
+    context.restore();
+  }
 
   /**
    * Open the bag mid-battle.
@@ -335,14 +445,24 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
    * @returns {number}
    */
   function play(entry, app) {
+    playing = entry;
     const player = session.active;
-    const foe = battle.foe?.pokemon;
+    const foe = shownFoe ?? battle.foe?.pokemon;
 
     switch (entry.kind) {
       case 'intro':
+        // The field used to toast this line and the battle repeat it a beat
+        // later; the announcement lives here now, where the fight is.
         say(trainer
-          ? t('event.trainer', { trainer: localized(trainer.name, '') })
+          ? t(leader ? 'event.leader' : 'event.trainer', { trainer: localized(trainer.name, '') })
           : t('event.wild', { name: nameOf(foe) }));
+        return BEAT_MS.intro;
+
+      // The companion is sent out after whatever it is being sent out against
+      // has been named, which is the order the games read in.
+      case 'go':
+        say(t('battle.go', { name: nameOf(player) }));
+        playerBattler?.setPose('win');
         break;
 
       case 'move': {
@@ -359,7 +479,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       case 'damage': {
         battlerFor(entry.side)?.setPose('hit');
         app.audio.blip('hit');
-        updateBars({ hurt: entry.side });
+        updateBars();
         return BEAT_MS.damage;
       }
 
@@ -369,7 +489,8 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
       case 'effectiveness': {
         const value = entry.data?.effectiveness ?? 1;
-        if (value === 0) say(t('battle.noEffect'));
+        const name = nameOf(entry.side === 'player' ? player : foe);
+        if (value === 0) say(t('battle.noEffect', { name }));
         else if (value > 1) say(t('battle.superEffective'));
         else say(t('battle.notVeryEffective'));
         break;
@@ -380,28 +501,59 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         break;
 
       case 'status': {
+        const name = nameOf(entry.side === 'player' ? player : foe);
         const status = entry.data?.status;
-        if (status) say(`${nameOf(entry.side === 'player' ? player : foe)} — ${t(`status.${status}`)}`);
+        // A null status is one that has just lifted: woken, thawed, or cured
+        // by an ability. Each says so in its own words rather than leaving
+        // whatever was on the screen before it standing.
+        if (status) say(t(`status.${status}.gained`, { name }));
+        else if (entry.data?.woke) say(t('status.slp.ended', { name }));
+        else if (entry.data?.thawed) say(t('status.frz.ended', { name }));
+        else say(t('status.cured', { name }));
         updateBars();
         break;
       }
 
       case 'statusBlocked':
-        say(`${nameOf(entry.side === 'player' ? player : foe)} — ${t(`status.${entry.data?.status}`)}`);
+        say(t(STATUS_BLOCKED[entry.data?.status] ?? 'battle.cannotMove', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
         break;
 
       case 'statusDamage':
+        say(t(STATUS_HURT[entry.data?.status] ?? 'battle.statusHurt', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
         battlerFor(entry.side)?.setPose('hit');
         updateBars();
-        break;
+        return BEAT_MS.damage;
 
       case 'stat': {
-        const stat = t(`stat.${entry.data?.stat}`) ?? entry.data?.stat;
-        say(`${nameOf(entry.side === 'player' ? player : foe)} — ${stat} ${entry.data?.change > 0 ? '▲' : '▼'}`);
+        // How far it moved decides the wording, as in the games: one stage
+        // rises, two rise sharply, three or more drastically.
+        const change = entry.data?.change ?? 0;
+        const steps = Math.min(3, Math.max(1, Math.abs(change)));
+        say(t(`battle.stat.${change < 0 ? 'fell' : 'rose'}${steps}`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          stat: t(`stat.${entry.data?.stat}`),
+        }));
+        battlerFor(entry.side)?.showStatChange(change > 0 ? 1 : -1);
+        app.audio.blip(change > 0 ? 'confirm' : 'cancel');
+        return BEAT_MS.stat;
+      }
+
+      case 'statFailed': {
+        // Already as high or as low as the stage goes.
+        const change = entry.data?.change ?? 0;
+        say(t(`battle.stat.${change < 0 ? 'bottomed' : 'maxed'}`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          stat: t(`stat.${entry.data?.stat}`),
+        }));
         break;
       }
 
       case 'heal':
+        say(t('battle.healed', { name: nameOf(entry.side === 'player' ? player : foe) }));
         updateBars();
         break;
 
@@ -525,7 +677,13 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         return BEAT_MS.damage;
 
       case 'noEffect':
-        say(t('battle.noEffect'));
+        say(t('battle.noEffect', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      // A move that went off and achieved nothing — not one the target was
+      // immune to, which is the line above.
+      case 'failed':
+        say(t('battle.failed'));
         break;
 
       case 'flinch':
@@ -650,23 +808,36 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       }
 
       case 'faint': {
-        const fainter = entry.side === 'player' ? player : foe;
+        // From the entry rather than from `battle.foe`: by the time the log is
+        // played back the engine has already moved on, and the last foe to
+        // fall leaves `battle.foe` empty — which is why the line read
+        // "은(는) 쓰러졌다!" with no name, and why nothing reached the tray.
+        const fainter = entry.data?.pokemon ?? (entry.side === 'player' ? player : foe);
         say(t('battle.fainted', { name: nameOf(fainter) }));
         battlerFor(entry.side)?.setPose('lose');
         app.audio.blip('faint');
-        if (entry.side === 'foe' && foe) defeated.push(foe);
+        if (entry.side === 'foe' && fainter) defeated.push(fainter);
         return BEAT_MS.faint;
       }
 
-      case 'sendOut':
+      case 'sendOut': {
         loadedFoeId = '';
         loadedPlayerId = '';
         loadFoeSprite();
         loadBattler('player', player);
         updateBars();
-        say(t('event.wild', { name: nameOf(battle.foe?.pokemon) }));
-        if (battle.foe?.pokemon.shiny) queue.unshift({ kind: 'shiny', data: {} });
+        // A trainer sends the next one out; only a wild Pokémon appears of its
+        // own accord, so only a wild battle reads the encounter line here.
+        const sent = entry.data?.pokemon ?? battle.foe?.pokemon ?? null;
+        shownFoe = sent;
+        foePlate.set(sent);
+        updateBars();
+        say(trainer
+          ? t('battle.foeSentOut', { trainer: localized(trainer.name, ''), name: nameOf(sent) })
+          : t('event.wild', { name: nameOf(sent) }));
+        if (sent?.shiny) queue.unshift({ kind: 'shiny', data: {} });
         return BEAT_MS.faint;
+      }
 
       case 'experience':
         say(t('battle.expGained', { name: nameOf(player), amount: entry.data?.amount ?? 0 }));
@@ -682,10 +853,18 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         // A free slot means the move is simply learned, as in the games; with
         // four moves already the player swaps it in from the Pokémon screen.
         const move = entry.data?.move;
-        if (player.moves.length < 4 && move) {
+        if (!move) break;
+        const moveName = localized(moveOf(move)?.name, move);
+        if (player.moves.length < 4) {
           setMove(player, player.moves.length, move);
-          say(t('battle.learned', { name: nameOf(player), move: localized(moveOf(move)?.name, move) }));
+          say(t('battle.learned', { name: nameOf(player), move: moveName }));
+          break;
         }
+        // Four already. The games say so rather than dropping the move
+        // silently, which left no sign anywhere that there was something new
+        // waiting in the Pokémon screen's move list.
+        say(t('battle.cannotLearnMore', { name: nameOf(player), move: moveName }));
+        app.toast(t('battle.cannotLearnMore', { name: nameOf(player), move: moveName }), 3200);
         break;
       }
 
@@ -734,16 +913,15 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   }
 
   /**
-   * @param {{hurt?: 'player'|'foe'}} [just] the side a hit just landed on, so
-   *   its ghost holds a beat before draining while the other's settles at once
+   * Point both bars at what the line being played says they stood at.
+   *
+   * Falling back to the Pokémon's own hit points covers the first paint, and
+   * any entry written before the stamp existed.
    */
-  function updateBars(just) {
-    playerBar.set(session.active);
-    foeBar.set(battle.foe?.pokemon ?? null);
-    ghostTimers.player = just?.hurt === 'player' ? GHOST_DELAY_MS : 0;
-    ghostTimers.foe = just?.hurt === 'foe' ? GHOST_DELAY_MS : 0;
-    if (ghostTimers.player <= 0) playerBar.settle();
-    if (ghostTimers.foe <= 0) foeBar.settle();
+  function updateBars() {
+    playerBar.set(session.active, playing?.hp?.player);
+    foeBar.set(shownFoe, playing?.hp?.foe);
+    playerPlate.set(session.active);
   }
 
   /**
@@ -764,16 +942,6 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   }
 
   /**
-   * @param {number} deltaMs
-   */
-  function tickBarGhosts(deltaMs) {
-    ghostTimers.player -= deltaMs;
-    ghostTimers.foe -= deltaMs;
-    if (ghostTimers.player <= 0) playerBar.settle();
-    if (ghostTimers.foe <= 0) foeBar.settle();
-  }
-
-  /**
    * @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} pokemon
    * @returns {string}
    */
@@ -784,68 +952,109 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
 }
 
-/** A name and level caption over a health bar. */
+/**
+ * A name and level caption over a health bar.
+ *
+ * It can be pointed at somebody else: a trainer sends out a second Pokémon and
+ * the plate over the bar was still naming the one that fainted.
+ */
 function nameplate(pokemon) {
   const node = el('span.battle-name');
-  if (pokemon) {
-    const species = speciesOf(pokemon.speciesId);
-    const gender = pokemon.gender ? t(`pokemon.gender.${pokemon.gender}`) : '';
-    const shiny = pokemon.shiny ? SHINY_MARK : '';
-    const name = pokemon.nickname || localized(species?.name, '');
-    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(pokemon) })}`;
-  }
-  return node;
+
+  /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next */
+  const set = (next) => {
+    if (!next) {
+      node.textContent = '';
+      return;
+    }
+    const species = speciesOf(next.speciesId);
+    const gender = next.gender ? t(`pokemon.gender.${next.gender}`) : '';
+    const shiny = next.shiny ? SHINY_MARK : '';
+    const name = next.nickname || localized(species?.name, '');
+    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(next) })}`;
+  };
+
+  set(pokemon);
+  return { root: node, set };
 }
 
-function healthBar() {
+/**
+ * One bar, moving at one speed — which is what the games have.
+ *
+ * The bar is animated here rather than by a CSS transition: a transition runs
+ * for the time it is given whatever distance it has to cover, so a two-point
+ * scratch and a bar-emptying hit took exactly as long as each other. The
+ * number counts along with it, as it does on the cartridge, so the two never
+ * disagree about how much is left.
+ */
+export function healthBar() {
   const fill = el('i');
-  // The ghost trails the real bar down in red wherever damage just landed, the
-  // way the handheld games show what was taken before it settles.
-  const ghost = el('i.ghost');
   const text = el('span.battle-hp');
-  const track = el('div.battle-track', {}, [fill, ghost, text]);
+  const track = el('div.battle-track', {}, [fill, text]);
+
+  /** What the bar is showing, what it is heading for, and how fast. */
+  let shown = /** @type {{hp: number, max: number}|null} */ (null);
+  let goal = 0;
+  /** Hit points a millisecond, signed. */
+  let rate = 0;
+
+  function paint() {
+    if (!shown) {
+      fill.style.width = '0%';
+      text.textContent = '';
+      return;
+    }
+    const ratio = shown.max > 0 ? Math.max(0, Math.min(1, shown.hp / shown.max)) : 0;
+    fill.style.width = `${ratio * 100}%`;
+    // The thresholds the games change colour at: half, and a fifth.
+    fill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
+    text.textContent = `${Math.round(shown.hp)}/${shown.max}`;
+  }
 
   return {
     root: track,
+
     /**
      * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+     * @param {number} [at] the hit points to show, where the caller knows them
+     *   better than the Pokémon does — which is any moment during the playback
+     *   of a turn the engine has already finished
      */
-    set(pokemon) {
+    set(pokemon, at) {
       if (!pokemon) {
-        fill.style.width = '0%';
-        ghost.style.width = '0%';
-        ghost.dataset.pending = 'false';
-        text.textContent = '';
+        shown = null;
+        rate = 0;
+        paint();
         return;
       }
-      const max = maxHp(pokemon);
-      const ratio = max > 0 ? Math.max(0, pokemon.hp) / max : 0;
-      const width = `${ratio * 100}%`;
-      fill.style.width = width;
-      fill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
 
-      // The ghost shows where the bar stood before whatever just happened. A
-      // heal pulls it up at once — showing damage backwards reads wrong — and
-      // a hit leaves it where it was, red, until `settle` drains it to here.
-      const previous = Number.parseFloat(ghost.style.width) || 0;
-      if (ratio * 100 >= previous) {
-        ghost.style.width = width;
-        ghost.dataset.pending = 'false';
-      } else if (ghost.dataset.pending !== 'true') {
-        ghost.dataset.pending = 'true';
+      const max = maxHp(pokemon);
+      const hp = Math.max(0, Math.min(max, typeof at === 'number' ? at : pokemon.hp));
+
+      // A bar arriving for the first time, or one whose Pokémon has just
+      // changed shape under it, is simply drawn where it stands.
+      if (!shown || shown.max !== max) {
+        shown = { hp, max };
+        goal = hp;
+        rate = 0;
+        paint();
+        return;
       }
-      text.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
+
+      goal = hp;
+      const distance = Math.abs(goal - shown.hp) / max;
+      const duration = Math.max(DRAIN_MIN_MS, distance * DRAIN_FULL_MS);
+      rate = (goal - shown.hp) / duration;
+      paint();
     },
-    /**
-     * Drain the ghost down to the real bar, once the hit has been seen.
-     * The `.drain` class swaps the transition from the fill's easing to a
-     * slower fall, and is removed again the moment it has done its work.
-     */
-    settle() {
-      if (ghost.dataset.pending !== 'true') return;
-      ghost.dataset.pending = 'false';
-      ghost.classList.add('drain');
-      ghost.style.width = fill.style.width;
+
+    /** @param {number} deltaMs */
+    update(deltaMs) {
+      if (!shown || rate === 0 || shown.hp === goal) return;
+      const next = shown.hp + rate * deltaMs;
+      shown.hp = rate > 0 ? Math.min(goal, next) : Math.max(goal, next);
+      if (shown.hp === goal) rate = 0;
+      paint();
     },
   };
 }

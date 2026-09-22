@@ -184,6 +184,45 @@ export function chooseFromList(app, title, entries, options = {}) {
 }
 
 /**
+ * A card that says what something is, with an optional button under it.
+ *
+ * The bag and the Pokémon screen both had text stacked into a row that had no
+ * room for it — an ability's whole description under its name, a held item
+ * with nothing to say about itself. Asking for it opens this instead.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {{title: string, subtitle?: string|null, body?: string|null, extra?: HTMLElement|null,
+ *   action?: {label: string, danger?: boolean}|null}} content
+ * @returns {Promise<boolean>} whether the action was taken
+ */
+export function describe(app, content) {
+  return new Promise((resolve) => {
+    mountModal(app, (dismiss) =>
+      el('div.panel.describe', {}, [
+        el('span.describe-title', { text: content.title }),
+        content.subtitle ? el('span.meta', { text: content.subtitle }) : null,
+        content.body ? el('p.describe-body', { text: content.body }) : null,
+        content.extra ?? null,
+        el('div.actions', {}, [
+          content.action
+            ? button(content.action.label, () => {
+                app.audio.blip(content.action?.danger ? 'cancel' : 'confirm');
+                dismiss();
+                resolve(true);
+              }, { className: content.action.danger ? 'ghost' : 'primary' })
+            : null,
+          button(t('common.close'), () => {
+            app.audio.blip('cancel');
+            dismiss();
+            resolve(false);
+          }, { className: 'small' }),
+        ]),
+      ]),
+    );
+  });
+}
+
+/**
  * Mount a modal layer and hand the builder a function that removes it.
  * @param {import('../core/app.mjs').App} app
  * @param {(dismiss: () => void) => HTMLElement} build

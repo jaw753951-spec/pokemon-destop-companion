@@ -249,9 +249,22 @@ export function walkFrame(distance) {
  *
  * @param {CanvasRenderingContext2D} context
  * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{x: number, y: number, distance: number, moving: boolean, flip?: boolean, scale?: number}} options
+ * @param {{
+ *   x: number,
+ *   y: number,
+ *   distance: number,
+ *   moving: boolean,
+ *   flip?: boolean,
+ *   scale?: number,
+ *   lift?: number,
+ * }} options `lift` raises the sprite off the ground without its shadow, for
+ *   a companion busy with something where it stands
  */
-export function drawWalker(context, sprite, { x, y, distance, moving, flip = true, scale = ACTOR_SCALE }) {
+export function drawWalker(
+  context,
+  sprite,
+  { x, y, distance, moving, flip = true, scale = ACTOR_SCALE, lift: raised = 0 },
+) {
   const { lift, lean } = moving ? walkFrame(distance) : WALK_CYCLE[0];
 
   // Whole pixels in the field's own space: a sprite whose scale leaves it half
@@ -259,10 +272,13 @@ export function drawWalker(context, sprite, { x, y, distance, moving, flip = tru
   // other, and the walk cycle then makes that edge shimmer.
   const width = Math.round(sprite.width * scale);
   const height = Math.round(sprite.height * scale);
+  // The shadow stays on the ground whatever the sprite is doing above it,
+  // which is what makes a bob read as leaving the ground rather than as the
+  // whole thing sliding up the screen.
   drawShadow(context, x, y, width);
 
   const left = Math.round(x - width / 2);
-  const top = Math.round(y - height - lift);
+  const top = Math.round(y - height - lift - raised);
 
   context.save();
   if (flip) {

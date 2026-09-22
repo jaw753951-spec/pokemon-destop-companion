@@ -25,6 +25,31 @@ const SHOW_ITEM_MS = 3000;
 const SPAWN_MARGIN = 24;
 
 /**
+ * The bob a gathering companion makes, in field pixels and milliseconds.
+ *
+ * Ten seconds of a Pokémon standing perfectly still in front of a berry tree
+ * reads as the game having frozen. A small rise and fall on the spot — up
+ * only, since it cannot sink into the road — is the whole of what says it is
+ * busy with something.
+ */
+const GATHER_BOB_PX = 2;
+const GATHER_BOB_MS = 460;
+
+/** The phases the companion is working through something rather than waiting. */
+const GATHERING = new Set(['gather']);
+
+/**
+ * How far off the ground the companion is at this point in a gather.
+ * @param {any} active
+ * @returns {number} field pixels
+ */
+export function gatherBob(active) {
+  if (!active || !GATHERING.has(active.phase)) return 0;
+  const elapsed = active.elapsed ?? 0;
+  return Math.round(Math.abs(Math.sin((elapsed / GATHER_BOB_MS) * Math.PI)) * GATHER_BOB_PX);
+}
+
+/**
  * How far to the companion's right the prop ends up. Without a gap the two
  * sprites land on the same spot and the companion hides whatever it met.
  * Field pixels, so about a tile and a bit at the size they are drawn.
@@ -32,7 +57,19 @@ const SPAWN_MARGIN = 24;
 const MEET_GAP = 20;
 
 /** How wide a ball lying on the path is drawn, in field pixels — under a tile. */
-const BALL_SIZE = 12;
+export const BALL_SIZE = 12;
+
+/**
+ * How long a collected ball takes to go, in milliseconds.
+ *
+ * The games have no picture of an opened item ball: the ball is one frame, and
+ * the moment its contents are yours the object is simply gone from the map.
+ * The lid this used to tip forward — half the icon squashed and slid sideways
+ * over the other half — was an invention, and it looked like one. So the ball
+ * opens by leaving: a short lift and fade while the companion holds up what
+ * was inside it.
+ */
+export const BALL_FADE_MS = 520;
 
 /**
  * @param {{
@@ -60,6 +97,11 @@ export function createEventRunner({ session, onBattle }) {
     /** Whether the companion is out of sight — inside the Pokémon Center. */
     get hidesActor() {
       return Boolean(active?.hidesActor);
+    },
+
+    /** How far the companion is bobbing as it gathers, in field pixels. */
+    get actorLift() {
+      return gatherBob(active);
     },
 
     /**
@@ -111,6 +153,7 @@ export function createEventRunner({ session, onBattle }) {
       active.timer -= deltaMs;
       active.elapsed = (active.elapsed ?? 0) + deltaMs;
       if (active.timer > 0) return;
+
 
       // An event with a script of its own drives it one beat at a time; the
       // rest of them have only the three phases below.
@@ -267,6 +310,8 @@ function startBall(session, spawnAt) {
     onGathered: (app) => {
       session.addItem(item);
       state.prop.frame = 'open';
+      // When it was opened, so the fade knows how far along it is.
+      state.prop.openedAt = state.elapsed ?? 0;
       state.carried = { icon: `items/${item}.png`, sprite: null };
       loadImage(`items/${item}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
@@ -291,7 +336,7 @@ function startBall(session, spawnAt) {
  * Which potion is the one the level has any use for: five Potions are a
  * kindness at level ten and a rounding error at fifty.
  */
-const SUPPLY_COUNT = 5;
+const SUPPLY_COUNT = 8;
 
 /** @type {Array<{level: number, item: string}>} highest level last */
 const SUPPLIES = [
@@ -343,7 +388,7 @@ const CENTER_PASS_MS = 6500;
  * it are the games' own door animation, played forwards to open and backwards
  * to close, which is exactly how the cartridge does it.
  */
-const CENTER_STEPS = [
+export const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 2, ms: 90 },
   { frame: 3, ms: 240 },
@@ -359,6 +404,28 @@ const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 0, ms: 300 },
 ];
+
+/**
+ * The next beat of a Center visit: a door frame, the walk past afterwards, or
+ * nothing left to do.
+ *
+ * Pulled out of the event so the end of the visit can be checked without a
+ * window: the walk-past used to be returned for every beat after the door
+ * script ran out, which meant the event never finished, the runner stayed
+ * busy for the rest of the session, and no event — or area change — could
+ * ever happen again after a rest stop.
+ *
+ * @param {number} step how many beats have been asked for, from zero
+ * @param {boolean} passing whether the walk past the Center has already begun
+ * @returns {{phase: string, duration: number, beat?: any}|null}
+ */
+export function centerBeat(step, passing) {
+  const beat = CENTER_STEPS[step];
+  if (beat) return { phase: 'visit', duration: beat.ms, beat };
+  // One walk past the building, and then the event is over.
+  if (!passing) return { phase: 'passing', duration: CENTER_PASS_MS };
+  return null;
+}
 
 /**
  * A Pokémon Center on the road ahead.
@@ -389,20 +456,21 @@ function startHeal(session, spawnAt) {
     /** One beat of the visit; null once there are none left. */
     onTimer: (app) => {
       step += 1;
-      const beat = CENTER_STEPS[step];
-      if (beat) {
-        state.prop.frame = beat.frame;
-        state.hidesActor = Boolean(beat.inside);
-        if (beat.heal) restAndResupply(session, app);
-        return { phase: 'visit', duration: beat.ms };
-      }
+      const next = centerBeat(step, state.phase === 'passing');
+      if (!next) return null;
 
-      // The visit is over, but the building is not: the companion walks on
-      // past the Center and the map carries it off the left edge like any
-      // other roadside scenery, instead of the place vanishing on the spot.
-      state.phase = 'passing';
-      state.hidesActor = false;
-      return { phase: 'passing', duration: CENTER_PASS_MS };
+      if (next.beat) {
+        state.prop.frame = next.beat.frame;
+        state.hidesActor = Boolean(next.beat.inside);
+        if (next.beat.heal) restAndResupply(session, app);
+      } else {
+        // The visit is over, but the building is not: the companion walks on
+        // past the Center and the map carries it off the left edge like any
+        // other roadside scenery, instead of the place vanishing on the spot.
+        state.hidesActor = false;
+      }
+      state.phase = next.phase;
+      return { phase: next.phase, duration: next.duration };
     },
   };
 
@@ -461,7 +529,8 @@ function startWild(session, spawnAt) {
     setup: { foes: [wild], trainer: null, leader: null },
     onArrive: (app) => {
       app.audio.playCry(wild.speciesId);
-      app.toast(t('event.wild', { name: localized(speciesOf(wild.speciesId)?.name, '') }));
+      // No toast: the battle opens on the same line a beat later, and the two
+      // of them on screen at once read as the encounter happening twice.
       return 'battle';
     },
   };
@@ -498,11 +567,7 @@ function startTrainer(session, spawnAt) {
     prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
     carried: null,
     setup: { foes: roster, trainer: leader ?? trainerClass, leader },
-    onArrive: (app) => {
-      const name = localized((leader ?? trainerClass).name, '');
-      app.toast(leader ? t('event.leader', { trainer: name }) : t('event.trainer', { trainer: name }));
-      return 'battle';
-    },
+    onArrive: () => 'battle',
   };
 
   const fieldSprite = leader?.field ?? trainerClass?.field;
@@ -548,7 +613,9 @@ function pickLeader(session) {
  * @param {any} leader
  */
 export function leaderParty(session, leader) {
-  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 3));
+  // A badge should be worth working for, not a brick wall: a leader is a
+  // level or two up rather than most of a gym's worth.
+  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 1));
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
@@ -556,7 +623,7 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, 3);
 
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
   return giveTrainerItems(session.rng, party, 'leader');
 }
 
@@ -595,7 +662,7 @@ function drawProp(context, state, screenX) {
     return;
   }
   if (prop.kind === 'ball') {
-    drawBall(context, prop, screenX);
+    drawBall(context, prop, screenX, (state.elapsed ?? 0) - (prop.openedAt ?? 0));
     return;
   }
   if (prop.kind === 'center') {
@@ -718,48 +785,38 @@ function drawCenter(context, prop, screenX) {
  * thinner, so the lid reads as hinged at its back edge and curled over, and
  * every drawn pixel stays inside the sprite's own footprint.
  */
-export function drawBall(context, prop, screenX) {
+export function drawBall(context, prop, screenX, sinceOpened = 0) {
   const { image } = prop.sprite;
-  const size = image.naturalHeight;
+  // The icon's own width and height, separately. The pipeline trims each icon
+  // to its opaque pixels, so they are not square, and one number read off the
+  // height cannot stand for both.
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  if (!sourceWidth || !sourceHeight) return;
+
   // Item icons are drawn for a bag list, where they are the only thing on the
   // row; on the ground one at its own size is a boulder, so it is brought down
-  // to something a Pokémon could pick up.
-  const drawn = BALL_SIZE;
-  const left = Math.round(screenX - drawn / 2);
-  const top = Math.round(groundY() - drawn);
+  // to something a Pokémon could pick up — keeping its own proportions.
+  const drawnWidth = BALL_SIZE;
+  const drawnHeight = Math.max(1, Math.round((BALL_SIZE * sourceHeight) / sourceWidth));
+  const left = Math.round(screenX - drawnWidth / 2);
+  const top = Math.round(groundY() - drawnHeight);
 
   if (prop.frame === 'closed') {
-    context.drawImage(image, left, top, drawn, drawn);
+    context.drawImage(image, left, top, drawnWidth, drawnHeight);
     return;
   }
 
-  const half = Math.floor(size / 2);
-  // The base keeps its place on the ground.
-  context.drawImage(image, 0, half, size, size - half, left, top + drawn / 2, drawn, drawn / 2);
-  // The lid: one blit per source row, hinged at its back (right) edge and
-  // curling forward — the further up the lid a row sits, the further right
-  // and the thinner it is drawn, so the lid reads as tipped over rather than
-  // rotated into a square-shaped hole. `imageSmoothingEnabled` is already off
-  // in field space, so the squash stays as crisp as the rest of the field.
-  const lidHeight = drawn / 2;
-  const rowHeight = lidHeight / half;
-  for (let row = 0; row < half; row++) {
-    // 0 at the hinge (bottom of the lid), 1 at its rim (top).
-    const lifted = 1 - row / half;
-    const shift = lifted * drawn * 0.38;
-    const height = rowHeight * (1 - lifted * 0.45);
-    context.drawImage(
-      image,
-      0,
-      row,
-      size,
-      1,
-      Math.round(left + shift),
-      Math.round(top + row * rowHeight),
-      drawn,
-      Math.max(1, height),
-    );
-  }
+  // Opened: the same ball, rising and fading out of the picture. There is
+  // nothing left on the ground once it has gone, which is what the map shows
+  // after an item ball is collected.
+  const step = Math.max(0, Math.min(1, sinceOpened / BALL_FADE_MS));
+  if (step >= 1) return;
+
+  context.save();
+  context.globalAlpha = 1 - step;
+  context.drawImage(image, left, Math.round(top - step * drawnHeight * 0.8), drawnWidth, drawnHeight);
+  context.restore();
 }
 
 /**

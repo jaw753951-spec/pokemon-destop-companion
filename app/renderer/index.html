@@ -10,9 +10,14 @@
     <link rel="stylesheet" href="styles.css" />
   </head>
   <body>
-    <!-- The companion is a frameless window, so it carries its own drag strip.
-         It stays invisible until the pointer is near the top edge. -->
-    <div id="dragbar">
+    <!-- The companion is a frameless window, so it carries its own handles.
+         The frame is everything behind the stage: the margin around the
+         picture, which is window rather than game and is therefore somewhere
+         to pick the companion up by. The strip is the top edge of the picture
+         itself, for the sizes where there is no margin at all. Neither draws
+         anything; only the minimize button is ever visible. -->
+    <div id="dragframe" data-drag></div>
+    <div id="dragbar" data-drag>
       <button id="minimize" type="button" title="Minimize">–</button>
     </div>
 

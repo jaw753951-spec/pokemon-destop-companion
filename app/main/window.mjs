@@ -11,10 +11,23 @@ import { BrowserWindow, screen } from 'electron';
 import { join } from 'node:path';
 
 import { RENDERER_DIR } from './paths.mjs';
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../shared/constants.mjs';
+import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH } from '../shared/constants.mjs';
 
 /** @type {BrowserWindow|null} */
 let current = null;
+
+/**
+ * Where the window stood when the drag now in progress began.
+ *
+ * A drag moves the window to an absolute place rather than nudging it by a
+ * step: the renderer sends how far the pointer has travelled since it took
+ * hold, and that is added to this. A message that arrives late then lands the
+ * window where the pointer already is, instead of adding a step that has
+ * been taken twice — which is what made the companion shake.
+ *
+ * @type {{x: number, y: number}|null}
+ */
+let dragFrom = null;
 
 /**
  * @param {import('./settings.mjs').Settings} settings
@@ -66,6 +79,39 @@ export function getWindow() {
   return current && !current.isDestroyed() ? current : null;
 }
 
+/** Take hold of the window: remember where it is now. */
+export function beginDrag() {
+  const window = getWindow();
+  if (!window) return false;
+  const [x, y] = window.getPosition();
+  dragFrom = { x, y };
+  return true;
+}
+
+/**
+ * Put the window where the pointer has carried it.
+ *
+ * @param {number} dx how far the pointer has moved since the drag began
+ * @param {number} dy
+ */
+export function dragTo(dx, dy) {
+  const window = getWindow();
+  if (!window || !dragFrom) return false;
+  const x = dragFrom.x + (Number.isFinite(dx) ? dx : 0);
+  const y = dragFrom.y + (Number.isFinite(dy) ? dy : 0);
+  window.setPosition(Math.round(x), Math.round(y));
+  return true;
+}
+
+/** Let go, and report where the window ended up so the setting can keep it. */
+export function endDrag() {
+  dragFrom = null;
+  const window = getWindow();
+  if (!window) return null;
+  const [x, y] = window.getPosition();
+  return { x, y };
+}
+
 /**
  * Resize around the window's current centre, so changing the scale does not
  * throw the companion into a corner.
@@ -96,14 +142,23 @@ export function applyScale(scale) {
 /**
  * The companion occupies about 1/16 of the screen's area at scale 1, so a
  * quarter of each dimension, held to the renderer's 16:9 aspect.
+ *
+ * The size is worked out from a *snapped* zoom rather than snapped afterwards.
+ * The renderer draws 480x270 and scales it by whole quarter steps at or above
+ * 1:1, so a window sized to anything else left the picture sitting in a band
+ * of window it did not fill — the dark border the companion appeared to be
+ * wearing. Deriving the window from the zoom the renderer is going to use
+ * means the two agree and there is no band.
+ *
  * @param {number} scale
  */
 export function windowSize(scale) {
   const { width: screenWidth, height: screenHeight } = screen.getPrimaryDisplay().workAreaSize;
   const target = Math.min(screenWidth / 4, (screenHeight / 4) * (VIEW_WIDTH / VIEW_HEIGHT));
-  const width = Math.max(VIEW_WIDTH / 2, Math.round((target * scale) / 2) * 2);
-  return { width, height: Math.round((width * VIEW_HEIGHT) / VIEW_WIDTH) };
+  const zoom = snapZoom(Math.max(0.5, (target * scale) / VIEW_WIDTH));
+  return { width: Math.round(VIEW_WIDTH * zoom), height: Math.round(VIEW_HEIGHT * zoom) };
 }
+
 
 /**
  * Keep the window on a real display. Defaults to the top centre of the primary

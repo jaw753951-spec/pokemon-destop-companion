@@ -12,7 +12,7 @@ import assert from 'node:assert/strict';
 
 import { setGameData } from '../../app/renderer/core/data.mjs';
 import { DEFAULT_ATTACK, defaultMoves, ensureAttack, isAttack, maxHp } from '../../app/renderer/engine/pokemon.mjs';
-import { holdItem, isHoldable, useItem } from '../../app/renderer/engine/items.mjs';
+import { canHold, equipItem, itemActions, useItem } from '../../app/renderer/engine/items.mjs';
 
 const moves = {
   tackle: { name: { en: 'Tackle' }, type: 'normal', damageClass: 'physical', power: 40, pp: 35 },
@@ -164,12 +164,41 @@ test('a berry can be handed over to be carried', () => {
   const mon = pokemon(11, ['tackle']);
   const run = /** @type {any} */ (session(mon, { 'oran-berry': 2 }));
 
-  assert.equal(isHoldable('oran-berry'), true);
-  const result = holdItem(run, 'oran-berry');
+  assert.equal(canHold('oran-berry'), true);
+  const result = equipItem(run, 'oran-berry');
 
   assert.equal(result.ok, true);
   assert.equal(mon.heldItem, 'oran-berry');
   assert.equal(run.countOf('oran-berry'), 1, 'one came out of the bag');
+});
+
+test('the bag never offers to hand over something the engine would refuse', () => {
+  const mon = pokemon(11, ['tackle']);
+  const run = /** @type {any} */ (session(mon, { 'oran-berry': 1, 'escape-rope': 1 }));
+
+  // The berry pocket is holdable by definition, whatever the record's own
+  // `attributes` happen to spell — the menu offering "give to hold" and the
+  // engine then answering "that cannot be held" was the reported bug.
+  for (const slug of ['oran-berry', 'escape-rope']) {
+    const offered = itemActions(run, slug).equip;
+    assert.equal(offered, canHold(slug), `${slug}: the menu and the engine disagree`);
+    if (offered) assert.notEqual(equipItem(run, slug).ok, false, `${slug} was offered and refused`);
+  }
+});
+
+test('a berry whose record forgot to say it is holdable is still held', () => {
+  // PokeAPI does not spell every berry's attributes the same way; the pocket
+  // is what makes it a held item.
+  const plain = { ...items['oran-berry'], attributes: [] };
+  setGameData(/** @type {any} */ ({ species, moves, items: { ...items, 'plain-berry': plain }, natures, abilities: {}, types: {} }));
+
+  const mon = pokemon(11, ['tackle']);
+  const run = /** @type {any} */ (session(mon, { 'plain-berry': 1 }));
+  assert.equal(canHold('plain-berry'), true);
+  assert.equal(equipItem(run, 'plain-berry').ok, true);
+  assert.equal(mon.heldItem, 'plain-berry');
+
+  setGameData(/** @type {any} */ ({ species, moves, items, natures, abilities: {}, types: {} }));
 });
 
 test('what it was already carrying goes back in the bag', () => {
@@ -177,7 +206,7 @@ test('what it was already carrying goes back in the bag', () => {
   mon.heldItem = 'escape-rope';
   const run = /** @type {any} */ (session(mon, { 'oran-berry': 1 }));
 
-  holdItem(run, 'oran-berry');
+  equipItem(run, 'oran-berry');
   assert.equal(mon.heldItem, 'oran-berry');
   assert.equal(run.countOf('escape-rope'), 1);
 });
@@ -186,7 +215,7 @@ test('an item nothing can carry says so, rather than being lost', () => {
   const mon = pokemon(11, ['tackle']);
   const run = /** @type {any} */ (session(mon, { 'escape-rope': 1 }));
 
-  const result = holdItem(run, 'escape-rope');
+  const result = equipItem(run, 'escape-rope');
   assert.equal(result.ok, false);
   assert.equal(result.used, false);
   assert.equal(mon.heldItem, null);

@@ -19,8 +19,14 @@ import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdr
 import { inFieldSpace } from '../render/field.mjs';
 import { battleScene } from './battle.mjs';
 
-/** How far above the challenger each round is pitched. */
-const LEVEL_STEP = [2, 4, 6, 8, 12];
+/**
+ * How far above the challenger each round is pitched.
+ *
+ * A league is meant to be the end of a journey rather than a wall at the end
+ * of one. The champion used to open twelve levels up, which on a single
+ * Pokémon against a full team is not a climb — it is a stop.
+ */
+const LEVEL_STEP = [0, 1, 2, 3, 5];
 
 /**
  * @param {{
@@ -124,6 +130,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         onFinish: (result) => {
           app.pop();
           busy = false;
+          // Back to the hall's own music; without this the round's battle
+          // theme carried on looping over the challenge screen.
+          app.audio.playMusic(gameData().bgm.cues.league ?? null);
 
           if (result.outcome === 'lost') {
             // A loss ends the challenge rather than the run: the companion is
@@ -271,7 +280,7 @@ export function buildParty(session, trainer, levelBonus) {
   const roster = (trainer.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length ? roster : strongestOfType(session, trainer.type, 3);
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 24 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 14 }));
   // The Elite Four and the champion save the berry for the Pokémon they lead
   // with last, as every one of them does in Emerald.
   return giveTrainerItems(session.rng, party, 'champion');

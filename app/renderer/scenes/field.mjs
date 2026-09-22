@@ -6,7 +6,14 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { FIELD_HEIGHT, HOLD_BOOST_RATE, HOLD_BOOST_WALK, timeOfDay } from '../../shared/constants.mjs';
+import {
+  EVENT_RETRY_MS,
+  FIELD_HEIGHT,
+  HOLD_BOOST_RATE,
+  HOLD_BOOST_WALK,
+  CROSSING_MS,
+  timeOfDay,
+} from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -25,7 +32,10 @@ import {
   WALK_SPEED,
 } from '../render/field.mjs';
 import { backdropForArea } from '../render/backdrop.mjs';
-import { createWeather, weatherLayerFor } from '../render/weather.mjs';
+import { drawWeather } from '../render/weather.mjs';
+import { closeDaylightLayer, openDaylightLayer } from '../render/daylight.mjs';
+import { weatherForArea } from '../../shared/area-tags.mjs';
+import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -34,7 +44,7 @@ import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
-import { saveAndQuit, settingsScene } from '../ui/settings.mjs';
+import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
 
 /**
  * Start or resume a run, replacing whatever is on screen.
@@ -61,35 +71,47 @@ export function fieldScene(session) {
   /** Which art is on screen: the species, and which of its two palettes. */
   let loadedSpriteId = '';
   let offset = 0;
-  /** Set while a menu or battle is on top; the walk and its timers stop. */
+  /**
+   * Set while a battle, the capture screen or the league is on top: those
+   * replace the view, so the walk and its timers stop with it.
+   */
   let paused = false;
+  /**
+   * Set while the bag, the Pokédex or the settings are open.
+   *
+   * The companion keeps walking under them — a menu is the player stopping to
+   * read, not the Pokémon stopping to wait — but nothing new is *started*
+   * while one is up: a battle erupting underneath an open bag would leave the
+   * two screens stacked on each other. The turn is held rather than dropped,
+   * so it comes round again a few seconds after the menu closes.
+   */
+  let menuOpen = false;
+  /**
+   * Whether the pointer is being held on the travelling view.
+   *
+   * A press on the companion makes it get on with it: the road scrolls faster
+   * and the event clock runs fast while this is true, which is the part of it
+   * a player can actually see. It is a live state rather than a stock of
+   * clicks, so it ends the frame the pointer goes up.
+   */
+  let boosting = false;
+  /** How far into the walk to the next area, in milliseconds; 0 when settled. */
+  let crossing = 0;
+  /** Whether the area has already changed behind the shut screen. */
+  let crossed = false;
+  /** An area change waiting for the road to be clear of an event. */
+  let pendingCrossing = false;
   /**
    * Cleared while a battle or the capture screen is up: those draw their own
    * version of the companion, and two of it at once reads as a bug.
    */
   let showActor = true;
 
-  /**
-   * The rain, snow or ash over this area, made fresh when the area changes so
-   * one place's sky never drifts into the next one's.
-   * @type {ReturnType<typeof createWeather>|null}
-   */
-  let weather = null;
-  let loadedWeather = /** @type {string|null|undefined} */ (undefined);
-
   let hud = /** @type {ReturnType<typeof createHud>|null} */ (null);
   /** @type {ReturnType<typeof createEventRunner>|null} */
   let events = null;
   /** @type {import('../core/app.mjs').App|null} */
   let host = null;
-  /**
-   * Whether the pointer is being held on the travelling view.
-   *
-   * The hurry-up is a live state rather than a bank of clicks: while it is
-   * true the walk and the event clock run fast, and the frame it goes false
-   * they are back to their ordinary pace with nothing carried over.
-   */
-  let boosting = false;
   /** The overlay listeners this scene registered, removed on unmount. */
   let onPointerDown = null;
   let onPointerUp = null;
@@ -110,13 +132,7 @@ export function fieldScene(session) {
         .catch(() => {
           background = null;
         });
-      app.audio.playMusic(session.area.music);
-    }
-
-    const sky = weatherLayerFor(session.area);
-    if (sky !== loadedWeather) {
-      loadedWeather = sky;
-      weather = sky ? createWeather(sky) : null;
+      resumeMusic(app);
     }
 
     const speciesId = spriteKey(session.active);
@@ -154,20 +170,7 @@ export function fieldScene(session) {
 
     if (choice === 'capture') {
       session.tray.splice(index, 1);
-      paused = true;
-      showActor = false;
-      app.push(
-        captureScene({
-          session,
-          target: pokemon,
-          onFinish: () => {
-            app.pop();
-            paused = false;
-            showActor = true;
-            refreshArt(app);
-          },
-        }),
-      );
+      openCapture(app, pokemon);
       return;
     }
 
@@ -176,6 +179,34 @@ export function fieldScene(session) {
       session.tray.splice(index, 1);
       app.toast(t('tray.released', { name: label }));
     }
+  }
+
+  /**
+   * Open the capture screen on a Pokémon that has been knocked down.
+   *
+   * One that is neither caught nor scared off goes back to the tray, so
+   * closing the screen by mistake does not throw the catch away.
+   *
+   * @param {import('../core/app.mjs').App} app
+   * @param {import('../engine/pokemon.mjs').Pokemon} target
+   */
+  function openCapture(app, target) {
+    paused = true;
+    showActor = false;
+    app.push(
+      captureScene({
+        session,
+        target,
+        onFinish: ({ caught, fled }) => {
+          app.pop();
+          paused = false;
+          showActor = true;
+          if (!caught && !fled) session.addToTray(target);
+          resumeMusic(app);
+          refreshArt(app);
+        },
+      }),
+    );
   }
 
   /**
@@ -190,6 +221,7 @@ export function fieldScene(session) {
         session,
         foes: setup.foes,
         trainer: setup.trainer,
+        leader: Boolean(setup.leader),
         // A gym leader is fought in their gym, everyone else where they stand.
         backdrop: setup.leader ? 'leader' : backdropForArea(session.area),
         music: setup.leader ? gameData().bgm.cues.battleLeader : undefined,
@@ -197,6 +229,10 @@ export function fieldScene(session) {
           app.pop();
           paused = false;
           showActor = true;
+          // Before the fanfares: the audio engine holds this as the track to
+          // come back to once a cue has finished, so the area's music is what
+          // returns rather than the battle theme.
+          resumeMusic(app);
           finishBattle(app, setup, result);
         },
       }),
@@ -242,6 +278,67 @@ export function fieldScene(session) {
   }
 
   /**
+   * The walk from one area to the next.
+   *
+   * The road used to change under the companion's feet between one frame and
+   * the next. The games never do that: they close the screen, change what is
+   * behind it, and open it again, and the few hundred milliseconds of dark is
+   * what makes somewhere else read as somewhere else rather than as a glitch.
+   *
+   * The companion keeps walking the whole way through — it is going
+   * somewhere, not waiting — and the area is swapped at the darkest point.
+   *
+   * @param {number} deltaMs
+   * @param {import('../core/app.mjs').App} app
+   */
+  function tickCrossing(deltaMs, app) {
+    // One starts as soon as the road is clear of whatever was happening on it.
+    if (pendingCrossing && crossing === 0 && !events?.busy && !menuOpen) {
+      pendingCrossing = false;
+      crossing = 1;
+      crossed = false;
+    }
+    if (crossing === 0) return;
+
+    crossing += deltaMs;
+    // Halfway, with the screen shut: the road behind it becomes another road.
+    if (!crossed && crossing >= CROSSING_MS / 2) {
+      crossed = true;
+      session.rotateArea();
+      refreshArt(app);
+      app.toast(localized(session.area?.name, session.area?.id ?? ''), 2200);
+    }
+    if (crossing >= CROSSING_MS) crossing = 0;
+  }
+
+  /**
+   * How far shut the screen is, 0 open and 1 closed.
+   *
+   * Shut and open take the same time as each other, so the swap at the middle
+   * falls where the screen is fully dark.
+   */
+  function crossingShut() {
+    if (crossing === 0) return 0;
+    const half = CROSSING_MS / 2;
+    return crossing <= half ? crossing / half : Math.max(0, 1 - (crossing - half) / half);
+  }
+
+  /**
+   * Put the area's own music back on.
+   *
+   * Everything that opens over the road — a battle, the capture screen, the
+   * league — plays music of its own, and nothing brought the area's back
+   * afterwards: a fight left the battle theme looping over the walk until the
+   * area happened to rotate. The audio engine ignores a track that is already
+   * playing, so this is safe to call on every return.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function resumeMusic(app) {
+    app.audio.playMusic(session.area?.music ?? null);
+  }
+
+  /**
    * Put a berry back in the companion's hand if the fight emptied it, which is
    * what the bag's restock setting is for.
    *
@@ -258,20 +355,21 @@ export function fieldScene(session) {
       hud = createHud({
         onInventory: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(inventoryScene({ session, onClose: () => closeMenu(app) }));
         },
         onPokedex: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(pokedexScene({ session, onClose: () => closeMenu(app) }));
         },
         onSettings: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(
             settingsScene({
               onClose: () => closeMenu(app),
+              onSaveAndExit: () => saveAndExit(app),
               onSaveAndQuit: () => saveAndQuit(app),
             }),
           );
@@ -300,20 +398,31 @@ export function fieldScene(session) {
       });
 
       // The stage is scaled, so the pointer's own coordinates are of no use
-      // here: holding it anywhere on the view says "get on with it", wherever
-      // on the view it landed. Menu presses are filtered out by the paused
-      // flag they set — a settled pause is not a poke at the road.
+      // here: holding it anywhere on the road says "get on with it", wherever
+      // on the view it landed.
       //
-      // Held rather than counted, and released rather than spent: a player
-      // who stops pressing gets the ordinary pace back on the very next frame,
-      // instead of the game still working through clicks banked a minute ago.
+      // Held rather than counted, and released rather than spent: the road
+      // runs fast while the pointer is down and is back to its own pace on the
+      // very next frame after it comes up. A stock of clicks that drained
+      // afterwards had the companion sprinting for seconds after the player
+      // had stopped asking it to.
       onPointerDown = (event) => {
-        if (paused) return;
+        // Not while something else owns the screen: a press on an open bag is
+        // aimed at the bag, wherever in it the pointer landed.
+        if (paused || menuOpen) return;
         if (/** @type {PointerEvent} */ (event).button !== 0) return;
+        // A press on a control is not a poke at the road, however it reaches
+        // this listener on its way up: the tray and the dialogs it opens sit
+        // in the same overlay, and a menu button answers for itself.
+        const target = event.target;
+        if (target instanceof Element && target.closest('button, .modal, .panel')) return;
+
         boosting = true;
+        // A ring marks where the pointer landed, as it does everywhere else.
+        app.clickRipple(event);
       };
       // Every way a press can end, including the pointer leaving the window
-      // mid-press — a button released off-screen must not leave the walk
+      // mid-press — a button released off-screen must not leave the road
       // running fast with nothing holding it.
       onPointerUp = () => {
         boosting = false;
@@ -343,8 +452,6 @@ export function fieldScene(session) {
       onPointerDown = null;
       onPointerUp = null;
       boosting = false;
-      weather = null;
-      loadedWeather = undefined;
       hud = null;
       events = null;
       host = null;
@@ -353,25 +460,30 @@ export function fieldScene(session) {
     update(deltaMs, app) {
       if (paused) return;
 
-      // Holding the pointer on the travelling view runs the clock fast, so the
-      // next event comes round sooner; the frame the pointer goes up this is 1
-      // again and the pace is back to normal, with nothing owed either way.
-      // Menus and battles sit above this scene, so a press on those never
-      // reaches here.
-      const boost = boosting ? HOLD_BOOST_RATE : 1;
-
+      // Holding the pointer on the travelling view runs the event clock fast,
+      // so the next one comes round sooner, and the road past with it. The
+      // frame the pointer goes up both are back to normal with nothing owed
+      // either way. Menus and battles sit above this scene, so a press on
+      // those never reaches here.
       const walking = events?.walking ?? true;
-      const pace = boosting ? HOLD_BOOST_WALK : 1;
-      if (walking) offset += (WALK_SPEED * pace * deltaMs) / 1000;
+      if (walking) offset += (WALK_SPEED * (boosting ? HOLD_BOOST_WALK : 1) * deltaMs) / 1000;
 
-      const { rotateArea, autosave, event } = session.tick(deltaMs, { eventRate: boost });
+      const { autosave, event } = session.tick(deltaMs, {
+        eventRate: boosting ? HOLD_BOOST_RATE : 1,
+      });
 
-      if (rotateArea && !events?.busy) {
-        session.rotateArea();
-        refreshArt(app);
-      }
-      if (event && !events?.busy) {
-        events?.start(session.events.roll(session.rng), offset, app);
+      tickCrossing(deltaMs, app);
+
+      // A turn that came due mid-event is held rather than dropped: the timer
+      // goes back to a few seconds instead of its whole period, so the walk
+      // picks it up as soon as the road is clear again.
+      if (event) {
+        if (events?.busy || menuOpen || crossing > 0) session.eventTimer = EVENT_RETRY_MS;
+        else {
+          events?.start(session.events.roll(session.rng), offset, app);
+          // Ten things happen in a place, and then somewhere else.
+          if (session.countEvent()) pendingCrossing = true;
+        }
       }
       if (autosave) {
         session
@@ -380,41 +492,23 @@ export function fieldScene(session) {
           .catch(() => {});
       }
 
-      events?.update(deltaMs, offset, app);
-      weather?.update(deltaMs);
+      // Held while a menu is open: the walk and the clocks carry on under one,
+      // but an event part way through does not get to reach its battle and
+      // push a fight on top of the bag the player is reading.
+      if (!menuOpen) events?.update(deltaMs, offset, app);
       refreshArt(app);
       hud?.update(session);
     },
 
     render(context) {
-      inFieldSpace(context, (field) => {
-        drawBackground(field, background, Math.round(offset));
-        // The height the companion is actually drawn at, so a carried item
-        // clears the head of a Wailord as surely as that of a Wurmple.
-        events?.render(field, offset, actorHeight(companion, session.active));
-
-        if (companion && showActor && !events?.hidesActor) {
-          const moving = !paused && (events?.walking ?? true);
-          const walk = {
-            x: COMPANION_X,
-            y: groundY(),
-            distance: offset,
-            moving,
-            scale: actorScale(companion, session.active),
-          };
-          drawStepDust(field, walk);
-          drawWalker(field, companion, walk);
-        }
-
-        // Over everything, because it is between the player and the place.
-        weather?.draw(field);
-      });
+      drawField(context);
+      drawCrossing(context);
     },
 
     setPaused(value) {
       paused = value;
-      // Whatever was holding the walk fast is not holding it any more: a menu
-      // opening over the road ends the hurry-up along with everything else.
+      // Whatever was holding the road fast is not holding it any more: a menu
+      // opening over it ends the hurry along with everything else.
       if (value) boosting = false;
     },
 
@@ -423,11 +517,71 @@ export function fieldScene(session) {
     },
   };
 
+  /** @param {CanvasRenderingContext2D} context */
+  function drawField(context) {
+    inFieldSpace(context, (field) => {
+      // The road, already graded for the hour by the pipeline.
+      drawBackground(field, background, Math.round(offset));
+
+      // Everything standing on it is one picture for every hour, so it is
+      // drawn apart and lit before it lands.
+      const lit = openDaylightLayer();
+      if (lit) {
+        // The height the companion is actually drawn at, so a carried item
+        // clears the head of a Wailord as surely as that of a Wurmple.
+        events?.render(lit, offset, actorHeight(companion, session.active));
+
+        if (companion && showActor && !events?.hidesActor) {
+          const moving = !paused && (events?.walking ?? true);
+          const walk = {
+            x: COMPANION_X,
+            y: groundY(),
+            distance: offset,
+            moving,
+            // Standing still in front of a berry tree for ten seconds reads as
+            // a frozen game; the bob says it is picking.
+            lift: events?.actorLift ?? 0,
+            scale: actorScale(companion, session.active),
+          };
+          drawStepDust(lit, walk);
+          drawWalker(lit, companion, walk);
+        }
+        closeDaylightLayer(field, timeOfDay());
+      }
+
+      // The sky the place is under, in front of everything standing in it —
+      // the companion walks in the rain rather than into it at the battle
+      // screen.
+      drawWeather(field, weatherForArea(session.area), session.playtime);
+    });
+  }
+
+  /**
+   * The dark the road is changed behind, drawn over everything in the window's
+   * own pixels rather than the field's so the edges land on whole ones.
+   *
+   * @param {CanvasRenderingContext2D} context
+   */
+  function drawCrossing(context) {
+    const shut = crossingShut();
+    if (shut <= 0) return;
+
+    // Closing in from above and below, the way a door shuts on a room.
+    const reach = Math.ceil((VIEW_HEIGHT / 2) * Math.min(1, shut * 1.15));
+    context.save();
+    context.fillStyle = '#05070c';
+    context.fillRect(0, 0, VIEW_WIDTH, reach);
+    context.fillRect(0, VIEW_HEIGHT - reach, VIEW_WIDTH, reach);
+    context.restore();
+  }
+
   /** @param {import('../core/app.mjs').App} app */
   function closeMenu(app) {
     app.pop();
     paused = false;
+    menuOpen = false;
     showActor = true;
+    resumeMusic(app);
     refreshArt(app);
     void host;
   }

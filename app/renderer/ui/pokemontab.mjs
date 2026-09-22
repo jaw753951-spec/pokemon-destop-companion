@@ -3,8 +3,9 @@
  *
  * Left is the sprite as it appears on the field, with the stat hexagon the
  * main series uses; right is the level, typing and the four move slots. A slot
- * opens the list of moves this Pokémon could hold instead — its level-up moves
- * so far, plus anything a TM has unlocked.
+ * shows what the move actually does, and offers the list of moves this Pokémon
+ * could hold instead — its level-up moves so far, plus anything a TM has
+ * unlocked.
  */
 import { MOVE_FLAG_SET } from '../../shared/move-flags.mjs';
 import { url } from '../core/bridge.mjs';
@@ -12,10 +13,13 @@ import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs'
 import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilityWorks } from '../engine/abilities.mjs';
+import { unequipItem } from '../engine/items.mjs';
+import { itemOf } from '../core/data.mjs';
 import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
-import { chooseFromList } from './dialog.mjs';
+import { chooseFromList, describe } from './dialog.mjs';
+import { moveCard, moveSummary } from './movecard.mjs';
 import { statHexagon, statTable } from './statgraph.mjs';
 import { typeChip } from './typechip.mjs';
 
@@ -23,9 +27,11 @@ import { typeChip } from './typechip.mjs';
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} refresh
+ * @param {{moveSlot?: number|null}} [state] which slot's description is open,
+ *   carried across the rebuilds that reading and changing a move cause
  * @returns {HTMLElement}
  */
-export function pokemonTab(app, session, refresh) {
+export function pokemonTab(app, session, refresh, state = {}) {
   const pokemon = session.active;
   const species = speciesOf(pokemon.speciesId);
   const stats = statsOf(pokemon);
@@ -60,18 +66,16 @@ export function pokemonTab(app, session, refresh) {
           el('span.label', { text: t('pokemon.exp') }),
           el('span', { text: progress.needed ? `${progress.into}/${progress.needed}` : '—' }),
         ]),
-        abilityLine(pokemon),
-        el('div.pokemon-line', {}, [
-          el('span.label', { text: t('pokemon.held') }),
-          el('span', {
-            text: pokemon.heldItem
-              ? localized(gameData().items[pokemon.heldItem]?.name, pokemon.heldItem)
-              : '—',
-          }),
-        ]),
+        abilityLine(app, pokemon),
+        heldLine(app, session, refresh),
 
         el('div.section-title', { text: t('pokemon.moves') }),
-        el('div.move-grid', {}, [0, 1, 2, 3].map((slot) => moveSlot(app, session, slot, refresh))),
+        el('div.move-grid', {}, [0, 1, 2, 3].map((slot) => moveSlot(app, session, slot, refresh, state))),
+        // What the selected slot does. A move's name and its numbers say
+        // nothing about what it is for — which of two Water moves puts the
+        // other side to sleep — so the description is on the screen where the
+        // choice is made rather than only in the bag.
+        moveDetail(app, session, refresh, state),
 
         button(t('pokemon.autoBattle'), () => {
           app.audio.blip('select');
@@ -79,6 +83,47 @@ export function pokemonTab(app, session, refresh) {
         }, { className: 'small' }),
       ]),
     ),
+  ]);
+}
+
+/**
+ * What the companion is carrying, and the way to take it back.
+ *
+ * The bag hands an item over; this is the other half of that, so a held item
+ * is not something the player can only swap and never simply remove.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {() => void} refresh
+ */
+function heldLine(app, session, refresh) {
+  const pokemon = session.active;
+  const held = pokemon.heldItem;
+
+  return el('div.pokemon-line', {}, [
+    el('span.label', { text: t('pokemon.held') }),
+    held
+      ? el('button.chip', {
+          type: 'button',
+          text: localized(gameData().items[held]?.name, held),
+          title: t('items.inspect'),
+          onClick: async () => {
+            app.audio.blip('select');
+            const item = itemOf(held);
+            const off = await describe(app, {
+              title: localized(item?.name, held),
+              subtitle: item?.pocket ? t(`items.pocket.${item.pocket}`) : null,
+              body: localized(item?.text, '') || (item?.works ? '' : t('items.noEffectYet')),
+              action: { label: t('items.takeBack'), danger: true },
+            });
+            if (!off) return;
+            const result = unequipItem(session);
+            app.audio.blip(result.ok ? 'confirm' : 'error');
+            app.toast(result.message);
+            if (result.used) refresh();
+          },
+        })
+      : el('span', { text: '—' }),
   ]);
 }
 
@@ -142,16 +187,52 @@ function animatedPortrait(art, label) {
 }
 
 /**
+ * The panel under the four slots: what the chosen move does, and the way to
+ * swap it out.
+ *
+ * Clicking a slot used to go straight to the replacement list, which meant
+ * there was nowhere in the game that said what a move the companion already
+ * knows actually does. Reading is the click now, and changing it is the button
+ * on what you have read.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {() => void} refresh
+ * @param {{moveSlot?: number|null}} state
+ */
+function moveDetail(app, session, refresh, state) {
+  const slot = state.moveSlot;
+  if (slot === null || slot === undefined) return null;
+  const entry = session.active.moves[slot];
+  if (!entry || !moveOf(entry.move)) return null;
+
+  const card = el('div.move-detail', {}, [
+    moveCard(entry.move),
+    button(t('pokemon.replaceMove'), () => openReplace(app, session, slot, refresh), { className: 'small' }),
+  ]);
+
+  // The slots sit low enough on a short window that the card opens below the
+  // fold. `nearest` brings it up only when it is actually out of sight, so a
+  // card already on screen does not make the page jump.
+  requestAnimationFrame(() => {
+    if (card.isConnected) card.scrollIntoView({ block: 'nearest' });
+  });
+  return card;
+}
+
+/**
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {number} slot
  * @param {() => void} refresh
+ * @param {{moveSlot?: number|null}} state which slot's description is open
  */
-function moveSlot(app, session, slot, refresh) {
+function moveSlot(app, session, slot, refresh, state) {
   const pokemon = session.active;
   const entry = pokemon.moves[slot];
   const move = entry ? moveOf(entry.move) : null;
 
+  // An empty slot has nothing to describe, so it goes straight to the list.
   if (!move) {
     return el('button.move-slot.empty', {
       type: 'button',
@@ -162,7 +243,12 @@ function moveSlot(app, session, slot, refresh) {
 
   return el('button.move-slot', {
     type: 'button',
-    onClick: () => openReplace(app, session, slot, refresh),
+    'aria-pressed': String(state.moveSlot === slot),
+    onClick: () => {
+      app.audio.blip('select');
+      state.moveSlot = state.moveSlot === slot ? null : slot;
+      refresh();
+    },
   }, [
     el('span.move-name', { text: localized(move.name, entry.move) }),
     el('span.move-meta', {}, [
@@ -205,33 +291,40 @@ function moveClasses(move) {
 }
 
 /**
- * The ability, and what it does.
+ * The ability, as a name that can be asked about.
  *
- * An ability the engine has not been taught yet says so, in the same words the
- * bag uses for an item it cannot act on — a player should not have to fight a
- * battle to find out that nothing was going to happen.
+ * An ability the engine has not been taught yet says so when asked, in the
+ * same words the bag uses for an item it cannot act on — a player should not
+ * have to fight a battle to find out that nothing was going to happen.
  *
+ * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  */
-function abilityLine(pokemon) {
+function abilityLine(app, pokemon) {
   const ability = abilityOf(pokemon.ability);
   const hidden = (speciesOf(pokemon.speciesId)?.abilities ?? []).some(
     (entry) => entry.name === pokemon.ability && entry.hidden,
   );
 
-  return el('div.pokemon-line.pokemon-ability', {}, [
+  return el('div.pokemon-line', {}, [
     el('span.label', { text: t('pokemon.ability') }),
-    el('span.ability-body', {}, [
-      el('span.ability-name', {}, [
-        el('span', { text: localized(ability?.name, pokemon.ability) }),
-        hidden ? el('span.ability-hidden', { text: t('pokemon.hiddenAbility') }) : null,
-      ]),
-      el('span.ability-text', {
-        text: abilityWorks(pokemon.ability)
-          ? localized(ability?.text, ability?.effect ?? '')
-          : t('items.noEffectYet'),
-      }),
-    ]),
+    // The name only. What it does is a paragraph, and a paragraph in a row on
+    // a 270-pixel screen pushed the move slots off the bottom of the page.
+    el('button.chip', {
+      type: 'button',
+      text: localized(ability?.name, pokemon.ability),
+      title: t('items.inspect'),
+      onClick: () => {
+        app.audio.blip('select');
+        void describe(app, {
+          title: localized(ability?.name, pokemon.ability),
+          subtitle: hidden ? t('pokemon.hiddenAbility') : null,
+          body: abilityWorks(pokemon.ability)
+            ? localized(ability?.text, ability?.effect ?? '')
+            : t('items.noEffectYet'),
+        });
+      },
+    }),
   ]);
 }
 
@@ -246,15 +339,11 @@ async function openReplace(app, session, slot, refresh) {
   const known = new Set(pokemon.moves.map((entry) => entry.move));
   const choices = availableMoves(pokemon, session.machines)
     .filter((move) => !known.has(move) || move === pokemon.moves[slot]?.move)
-    .map((move) => {
-      const record = moveOf(move);
-      const power = record?.power ? `${record.power}` : '—';
-      return {
-        value: move,
-        label: localized(record?.name, move),
-        detail: `${localized(gameData().types[record?.type]?.name, record?.type ?? '')}  ·  ${power}  ·  PP ${record?.pp ?? '—'}`,
-      };
-    });
+    .map((move) => ({
+      value: move,
+      label: localized(moveOf(move)?.name, move),
+      detail: moveSummary(move),
+    }));
 
   const chosen = await chooseFromList(app, t('pokemon.replaceMove'), choices);
   if (!chosen) return;

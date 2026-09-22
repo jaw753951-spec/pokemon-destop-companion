@@ -5,7 +5,7 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, AREA_ROTATION_MS, BOX_LIMIT, EVENT_INTERVAL_MS, TRAY_LIMIT } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, BOX_LIMIT, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
@@ -59,7 +59,8 @@ export class Session {
     this.leagueRegion = save.progress?.leagueRegion ?? null;
 
     this.area = this.findArea(save.progress?.areaId) ?? gameData().areas[0];
-    this.areaTimer = this.rollAreaTimer();
+    /** How many events are left before the road moves on to somewhere else. */
+    this.eventsHere = save.progress?.eventsHere ?? EVENTS_PER_AREA;
     this.autosaveTimer = AUTOSAVE_INTERVAL_MS;
     this.eventTimer = EVENT_INTERVAL_MS;
     this.events = new EventScheduler(save.progress?.events ?? {});
@@ -77,33 +78,24 @@ export class Session {
     return gameData().areas.find((area) => area.id === id) ?? null;
   }
 
-  rollAreaTimer() {
-    // The rotation is a fixed ten minutes now; the indirection survives so a
-    // spread of gaps can come back without touching the session's callers.
-    return typeof AREA_ROTATION_MS === 'number' ? AREA_ROTATION_MS : AREA_ROTATION_MS[0];
-  }
-
   /**
    * Advance the timers that run while the companion is travelling.
    *
    * `eventRate` is how fast the event clock runs compared with everything
    * else: the field passes the hurry-up the player is holding down, and
    * passes 1 again the moment they let go. Only the event clock answers it —
-   * the area rotation, the autosave and the playtime are the run's own pace
-   * and are not something a held pointer should be able to wind on.
+   * the autosave and the playtime are the run's own pace and are not
+   * something a held pointer should be able to wind on. The area rotation is
+   * not here at all any more: it is counted in events rather than minutes.
    *
    * @param {number} deltaMs
    * @param {{eventRate?: number}} [options]
-   * @returns {{rotateArea: boolean, autosave: boolean, event: boolean}}
+   * @returns {{autosave: boolean, event: boolean}}
    */
   tick(deltaMs, { eventRate = 1 } = {}) {
     this.playtime += deltaMs;
-    this.areaTimer -= deltaMs;
     this.autosaveTimer -= deltaMs;
     this.eventTimer -= deltaMs * Math.max(1, eventRate);
-
-    const rotateArea = this.areaTimer <= 0;
-    if (rotateArea) this.areaTimer = this.rollAreaTimer();
 
     const autosave = this.autosaveTimer <= 0;
     if (autosave) this.autosaveTimer = AUTOSAVE_INTERVAL_MS;
@@ -111,7 +103,23 @@ export class Session {
     const event = this.eventTimer <= 0;
     if (event) this.eventTimer = EVENT_INTERVAL_MS;
 
-    return { rotateArea, autosave, event };
+    return { autosave, event };
+  }
+
+  /**
+   * Count off an event that actually happened, and say whether that was the
+   * last one this area gets.
+   *
+   * The road used to move on after ten minutes on a clock, which took no
+   * notice of the player: a run being clicked along went through a dozen
+   * events in one place. Counting the events themselves means the scenery
+   * changes at the pace the run is being played at.
+   *
+   * @returns {boolean} whether it is time to move on
+   */
+  countEvent() {
+    this.eventsHere = Math.max(0, (this.eventsHere ?? EVENTS_PER_AREA) - 1);
+    return this.eventsHere <= 0;
   }
 
   /**
@@ -128,6 +136,7 @@ export class Session {
   rotateArea() {
     const options = gameData().areas.filter((area) => area.id !== this.area.id);
     if (options.length) this.area = this.rng.pick(options);
+    this.eventsHere = EVENTS_PER_AREA;
     return this.area;
   }
 
@@ -242,6 +251,7 @@ export class Session {
         trainerWins: this.trainerWins,
         playtime: Math.round(this.playtime),
         areaId: this.area?.id ?? null,
+        eventsHere: this.eventsHere,
         machines: this.machines,
         leagueRegion: this.leagueRegion,
         events: this.events.toJSON(),

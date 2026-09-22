@@ -1,241 +1,142 @@
 /**
- * The weather over the road.
+ * The sky a place is under, drawn over the map.
  *
- * Every Hoenn map carries a weather field, and the area build has always
- * copied it into `areas.json`; nothing had ever drawn it, so Route 119 rained
- * in the battle engine and nowhere else. This is the missing half: a thin
- * layer of falling weather over the field, from the map's own setting.
+ * A battle fought on Route 119 opens in rain and one in the desert opens in a
+ * sandstorm, because the area's own tags say so — but the road the companion
+ * walked in on was bright and still either way, so the weather arrived out of
+ * nowhere the moment a fight started. This draws the same sky on the field.
  *
- * Two things are deliberate, because a weather layer is very easy to overdo in
- * a window this small.
- *
- * **Position is random, not patterned.** Every drop, flake and cinder picks a
- * fresh x anywhere across the view each time it starts a fall, along with its
- * own speed, length and drift. Nothing is spaced on a grid or seeded off the
- * scroll, so the layer never shows the seams or columns that give away a few
- * sprites being reused.
- *
- * **It is sparse, and it waits.** A handful of particles is on screen at once,
- * and a particle that has fallen off the bottom does not come straight back —
- * it sits out a random pause first, so only a fraction of the pool is ever
- * falling. Weather here is meant to say what the sky is doing behind whatever
- * the player was actually looking at, not to fill the window with it.
+ * Everything is procedural: there is no weather art in the asset set, and a
+ * few hundred streaks placed by arithmetic cost nothing and never need
+ * downloading.
  */
 import { FIELD_HEIGHT, FIELD_WIDTH } from '../../shared/constants.mjs';
 
 /**
- * What each kind of weather looks like.
+ * How each sky is drawn: how many marks it puts in the air, how fast they
+ * travel in field pixels a second, and the wash laid under them.
  *
- * `count` is the size of the pool, `duty` the share of it that is falling at
- * any moment — the rest are waiting out their pause — so the two together are
- * how thin the layer is. `speed` and `drift` are field pixels per second.
- *
- * @type {Record<string, {
- *   count: number, duty: number, colour: string, alpha: number,
- *   speed: [number, number], drift: [number, number],
- *   length: [number, number], width: number, round?: boolean,
- * }>}
+ * The pool is spread over a band a little larger than the view, so about
+ * three in five of it is on screen at a time. These counts came down a long
+ * way — ninety streaks on a 240x135 field was a curtain rather than weather,
+ * and it sat in front of everything the player was trying to look at. A dozen
+ * or so says the same thing about the sky and leaves the road readable.
  */
-export const WEATHER_STYLES = {
-  rain: {
-    count: 14,
-    duty: 0.55,
-    colour: '#a8c8f0',
-    alpha: 0.45,
-    speed: [150, 210],
-    drift: [-26, -14],
-    length: [5, 9],
-    width: 1,
-  },
-  downpour: {
-    count: 20,
-    duty: 0.7,
-    colour: '#9cc0ee',
-    alpha: 0.5,
-    speed: [190, 260],
-    drift: [-34, -20],
-    length: [7, 12],
-    width: 1,
-  },
-  snow: {
-    count: 12,
-    duty: 0.5,
-    colour: '#eef4ff',
-    alpha: 0.7,
-    speed: [16, 30],
-    drift: [-10, 10],
-    length: [1, 2],
-    width: 1,
-    round: true,
-  },
-  sandstorm: {
-    count: 16,
-    duty: 0.6,
-    colour: '#d8c08c',
-    alpha: 0.35,
-    speed: [22, 44],
-    drift: [-120, -70],
-    length: [4, 8],
-    width: 1,
-  },
-  ash: {
-    count: 10,
-    duty: 0.45,
-    colour: '#cfc8c2',
-    alpha: 0.4,
-    speed: [12, 26],
-    drift: [-14, 6],
-    length: [1, 2],
-    width: 1,
-    round: true,
-  },
+const SKIES = {
+  rain: { marks: 30, speed: { x: -70, y: 320 }, length: 7, colour: 'rgba(168, 202, 240, 0.55)', wash: 'rgba(28, 44, 78, 0.22)' },
+  snow: { marks: 22, speed: { x: -18, y: 46 }, length: 0, colour: 'rgba(238, 246, 255, 0.85)', wash: 'rgba(96, 122, 160, 0.18)' },
+  sandstorm: { marks: 26, speed: { x: -260, y: 24 }, length: 11, colour: 'rgba(222, 196, 138, 0.5)', wash: 'rgba(168, 140, 86, 0.26)' },
+  sun: { marks: 0, speed: { x: 0, y: 0 }, length: 0, colour: 'rgba(0, 0, 0, 0)', wash: 'rgba(255, 216, 140, 0.16)' },
+  hail: { marks: 22, speed: { x: -40, y: 210 }, length: 3, colour: 'rgba(226, 244, 255, 0.8)', wash: 'rgba(96, 122, 160, 0.18)' },
 };
 
-/**
- * Emerald's weather constants, reduced to the ones worth drawing.
- *
- * The area build lower-cases whatever `WEATHER_*` the map declares, so these
- * are those names. Anything not listed — sun, shade, fog, the underwater
- * settings — draws nothing: a tint over the whole view is the time-of-day
- * grading's job, and it already does it to the background itself.
- *
- * @type {Record<string, keyof typeof WEATHER_STYLES>}
- */
-export const MAP_WEATHER = {
-  rain: 'rain',
-  rain_thunderstorm: 'downpour',
-  downpour: 'downpour',
-  snow: 'snow',
-  sandstorm: 'sandstorm',
-  volcanic_ash: 'ash',
-};
+/** How much either way a mark's own speed differs from its sky's. */
+const SPEED_JITTER = 0.35;
+
+/** The skies this can draw, for anyone checking before asking. */
+export const WEATHER_KINDS = Object.keys(SKIES);
 
 /**
- * The weather layer an area calls for, or null where the sky is doing nothing
- * this can draw.
+ * A number in `[0, 1)` for a pair of integers: the same pair always gives the
+ * same number, and neighbouring pairs give unrelated ones.
  *
- * @param {{weather?: string|null}|null|undefined} area
- * @returns {keyof typeof WEATHER_STYLES|null}
+ * This is what makes the weather random without keeping any state. The marks
+ * used to be placed at `index * 83` across and `index * 47` down, wrapped to
+ * the view. Either one on its own looks well spread, but both are linear in
+ * the same index, so the pair of them is a lattice: the drops sat on evenly
+ * spaced parallel diagonals, and the rain read as a printed pattern sliding
+ * past rather than as weather.
+ *
+ * @param {number} a
+ * @param {number} b
  */
-export function weatherLayerFor(area) {
-  const name = String(area?.weather ?? '').toLowerCase();
-  return MAP_WEATHER[name] ?? null;
-}
-
-/** A number somewhere in `[low, high)`. */
-const between = ([low, high]) => low + Math.random() * (high - low);
-
-/**
- * How long a particle sits out between falls, in milliseconds.
- *
- * Derived from the duty cycle rather than tuned separately: if a particle
- * spends `duty` of its life falling, the pause is the rest of that life, so a
- * style can be made thinner by changing one number instead of two.
- *
- * @param {{duty: number, speed: [number, number]}} style
- */
-function pauseFor(style) {
-  const fallMs = (FIELD_HEIGHT / ((style.speed[0] + style.speed[1]) / 2)) * 1000;
-  const duty = Math.min(0.95, Math.max(0.05, style.duty));
-  return (fallMs * (1 - duty)) / duty;
+function noise(a, b) {
+  let hash = (Math.imul(a, 374761393) + Math.imul(b, 668265263)) >>> 0;
+  hash = (hash ^ (hash >>> 13)) >>> 0;
+  hash = Math.imul(hash, 1274126177) >>> 0;
+  return ((hash ^ (hash >>> 16)) >>> 0) / 4294967296;
 }
 
 /**
- * A weather layer for one kind of sky.
+ * One mark's place at a moment.
  *
- * Kept as an object rather than a module-level pool so the field can throw one
- * away and make another when the area changes, instead of the old weather
- * drifting into the new place.
+ * Three things are drawn from the mark's own index rather than computed from
+ * it, which is what turns a lattice into weather: **where it starts**, **how
+ * fast it goes** (a third either way, so the pool never falls in step), and
+ * **which column it comes down in on each new fall** — so a drop is somewhere
+ * new every time round instead of retracing one line for ever.
  *
- * @param {keyof typeof WEATHER_STYLES|null} kind
+ * Wrapping both axes is kept from the original, because it is what makes the
+ * marks cover the view evenly: a mark that leaves one edge is immediately owed
+ * back at the other, so there are no thin patches however the wind blows. No
+ * state is kept between frames, so the weather still costs nothing when nobody
+ * is looking at it and never drifts out of step with itself.
+ *
+ * @param {number} index
+ * @param {number} elapsed milliseconds since the run started
+ * @param {{speed: {x: number, y: number}, length: number}} sky
+ * @returns {{x: number, y: number, length: number}}
  */
-export function createWeather(kind) {
-  const style = kind ? WEATHER_STYLES[kind] : null;
+function markAt(index, elapsed, sky) {
+  const spanX = FIELD_WIDTH + 80;
+  const spanY = FIELD_HEIGHT + 40;
 
-  /**
-   * One particle. `wait` is how long it still has to sit out before it starts
-   * falling again, which is what keeps the layer thin.
-   * @type {Array<{x: number, y: number, vx: number, vy: number, length: number, wait: number}>}
-   */
-  const particles = [];
+  const pace = 1 + (noise(index, 0) - 0.5) * 2 * SPEED_JITTER;
+  const seconds = (elapsed / 1000) * pace;
 
-  /**
-   * Put a particle back at the top — at a brand new x, with brand new speeds,
-   * so nothing about where it fell last time survives.
-   * @param {any} particle
-   * @param {boolean} [anywhere] scatter it down the view rather than above it,
-   *   which is how the first frame comes up already raining
-   */
-  const respawn = (particle, anywhere = false) => {
-    if (!style) return;
-    particle.x = Math.random() * (FIELD_WIDTH + 40) - 20;
-    particle.y = anywhere ? Math.random() * FIELD_HEIGHT : -between([2, 24]);
-    particle.vy = between(style.speed);
-    particle.vx = between(style.drift);
-    particle.length = between(style.length);
-    // A fall, then a pause off screen: with `duty` of the pool falling, the
-    // pause is what the rest of the time is spent on.
-    particle.wait = anywhere ? 0 : Math.random() * pauseFor(style);
-  };
-
-  if (style) {
-    for (let index = 0; index < style.count; index++) {
-      const particle = { x: 0, y: 0, vx: 0, vy: 0, length: 0, wait: 0 };
-      // A fraction start on screen and the rest start waiting, so the layer
-      // opens at its settled density instead of arriving all at once.
-      respawn(particle, Math.random() < style.duty);
-      particles.push(particle);
-    }
-  }
+  const travelled = noise(index, 1) * spanY + sky.speed.y * seconds;
+  // A new fall — each time the mark wraps past the bottom — gets a column of
+  // its own, so nothing about where it fell last time survives.
+  const fall = Math.floor(travelled / spanY);
+  const column = noise(index, 2) * spanX + noise(index, fall * 2 + 3) * spanX;
 
   return {
-    /** Whether this layer draws anything at all. */
-    get active() {
-      return Boolean(style);
-    },
-
-    /** @param {number} deltaMs */
-    update(deltaMs) {
-      if (!style) return;
-      const seconds = deltaMs / 1000;
-
-      for (const particle of particles) {
-        if (particle.wait > 0) {
-          particle.wait -= deltaMs;
-          continue;
-        }
-        particle.x += particle.vx * seconds;
-        particle.y += particle.vy * seconds;
-        if (particle.y - particle.length > FIELD_HEIGHT || particle.x < -30 || particle.x > FIELD_WIDTH + 30) {
-          respawn(particle);
-        }
-      }
-    },
-
-    /** @param {CanvasRenderingContext2D} context in field space */
-    draw(context) {
-      if (!style) return;
-      context.save();
-      context.globalAlpha = style.alpha;
-      context.fillStyle = style.colour;
-
-      for (const particle of particles) {
-        if (particle.wait > 0) continue;
-        const x = Math.round(particle.x);
-        const y = Math.round(particle.y);
-        if (style.round) {
-          context.fillRect(x, y, style.width, Math.max(1, Math.round(particle.length)));
-          continue;
-        }
-        // A streak leaning the way it is travelling, drawn as a short run of
-        // pixels rather than a line so it stays as crisp as the field.
-        const steps = Math.max(1, Math.round(particle.length));
-        const lean = particle.vx / Math.max(1, particle.vy);
-        for (let step = 0; step < steps; step++) {
-          context.fillRect(Math.round(x - lean * step), y - step, style.width, 1);
-        }
-      }
-      context.restore();
-    },
+    x: wrap(column + sky.speed.x * seconds, spanX) - 40,
+    y: wrap(travelled, spanY) - 20,
+    length: sky.length * pace,
   };
+}
+
+const wrap = (value, span) => ((value % span) + span) % span;
+
+/**
+ * Draw the weather over the field, in the field's own coordinates.
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {string|null|undefined} weather
+ * @param {number} elapsed milliseconds, for where the marks have got to
+ */
+export function drawWeather(context, weather, elapsed) {
+  const sky = weather ? SKIES[weather] : null;
+  if (!sky) return;
+
+  context.save();
+  if (sky.wash) {
+    context.fillStyle = sky.wash;
+    context.fillRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
+  }
+
+  context.strokeStyle = sky.colour;
+  context.fillStyle = sky.colour;
+  context.lineWidth = 1;
+
+  for (let index = 0; index < sky.marks; index++) {
+    const mark = markAt(index, elapsed, sky);
+    if (sky.length === 0) {
+      // Snow falls as flakes rather than streaks, and drifts sideways as it
+      // goes so it does not read as a column of dots.
+      const drift = Math.sin(elapsed / 700 + index) * 2;
+      context.fillRect(Math.round(mark.x + drift), Math.round(mark.y), 1, 1);
+      continue;
+    }
+    // A streak lies along the direction it is travelling in.
+    const speed = Math.hypot(sky.speed.x, sky.speed.y) || 1;
+    const dx = (sky.speed.x / speed) * mark.length;
+    const dy = (sky.speed.y / speed) * mark.length;
+    context.beginPath();
+    context.moveTo(Math.round(mark.x), Math.round(mark.y));
+    context.lineTo(Math.round(mark.x + dx), Math.round(mark.y + dy));
+    context.stroke();
+  }
+  context.restore();
 }
