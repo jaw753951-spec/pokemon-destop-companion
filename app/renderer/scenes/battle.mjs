@@ -127,10 +127,6 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
    */
   const ghostTimers = { player: 0, foe: 0 };
 
-  /** The click ripples still fading, oldest first. */
-  /** @type {Array<{node: HTMLElement, life: number}>} */
-  const ripples = [];
-
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
@@ -206,15 +202,17 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
   /**
    * A click on the battle brings the next entry on at half the remaining wait
-   * — enough to hurry the fight along without skipping what is being said.
+   * — enough to hurry the fight along without skipping what is being said —
+   * and answers with a ring where the pointer landed.
    * @param {import('../core/app.mjs').App} app
+   * @param {MouseEvent} event
    */
-  function hurryBeat(app) {
+  function hurryBeat(app, event) {
     if (finished) return;
     // Half of the beat that is still to run, floored so a late click does not
     // revive a beat that had already finished.
     beat = Math.min(beat, Math.max(beat * (1 - CLICK_SPEEDUP), 16));
-    spawnClickEffect(app);
+    app.clickRipple(event);
   }
 
   return {
@@ -243,7 +241,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       // anyone mashing through a message box expects, and the scene already
       // ignores pointer events except where the bag button asks for them.
       const screenNode = el('div.battle-clickcatch');
-      screenNode.addEventListener('click', () => hurryBeat(app));
+      screenNode.addEventListener('pointerdown', (event) => hurryBeat(app, event));
 
       return el('div.screen.battle-screen', {}, [
         screenNode,
@@ -261,7 +259,6 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     update(deltaMs, app) {
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
-      updateEffects(deltaMs);
       tickBarGhosts(deltaMs);
 
       if (finished) return;
@@ -789,33 +786,6 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     return pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, '');
   }
 
-  //
-  // The click ripple: a small ring where the pointer landed, gone in a
-  // quarter-second. Feedback that a click did something is the whole point of
-  // hurrying the beat, so the effect rides along with the speed-up.
-  //
-
-  /**
-   * @param {import('../core/app.mjs').App} app
-   */
-  function spawnClickEffect(app) {
-    const ring = el('div.click-ripple');
-    // The stage is scaled; the overlay is where unscaled coordinates live.
-    app.overlay.append(ring);
-    ripples.push({ node: ring, life: 1 });
-  }
-
-  /** @param {number} deltaMs */
-  function updateEffects(deltaMs) {
-    for (let index = ripples.length - 1; index >= 0; index--) {
-      const ripple = ripples[index];
-      ripple.life -= deltaMs / 260;
-      if (ripple.life <= 0) {
-        ripple.node.remove();
-        ripples.splice(index, 1);
-      }
-    }
-  }
 }
 
 /** A name and level caption over a health bar. */

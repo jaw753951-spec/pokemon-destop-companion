@@ -7,7 +7,7 @@
  * was underneath it.
  */
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
-import { clear } from './dom.mjs';
+import { clear, el } from './dom.mjs';
 import { settings as settingsApi, windowControl } from './bridge.mjs';
 import { setLanguage } from './i18n.mjs';
 
@@ -141,6 +141,22 @@ export class App {
   }
 
   /**
+   * A small ring where the pointer landed, gone in a quarter-second.
+   *
+   * It is appended to the body rather than into the scaled stage, so it tracks
+   * the cursor in window coordinates — a click on a battle at twice the scale
+   * ripples under the pointer, not a quarter of the window away from it.
+   * @param {MouseEvent} event
+   */
+  clickRipple(event) {
+    const ring = el('div.click-ripple', {
+      style: { left: `${event.clientX}px`, top: `${event.clientY}px` },
+    });
+    document.body.append(ring);
+    ring.addEventListener('animationend', () => ring.remove());
+  }
+
+  /**
    * Apply and persist a settings change, reacting to the ones that need it.
    * @param {Partial<any>} patch
    */
@@ -207,11 +223,44 @@ export function runLoop(app) {
   requestAnimationFrame(frame);
 }
 
-/** Remember where the user dragged the window to. */
-export function trackWindowPosition() {
-  let timer = 0;
-  window.addEventListener('mouseup', () => {
-    window.clearTimeout(timer);
-    timer = window.setTimeout(() => windowControl.rememberPosition(), 200);
+/**
+ * Drag the window by its top strip with the pointer, rather than leaving it to
+ * the frameless window's own drag region — which answers on some window sizes
+ * and not others. The position is remembered once, on the drop.
+ */
+export function trackWindowDrag() {
+  const bar = document.getElementById('dragbar');
+  if (!bar) return;
+
+  /** The pointer's last viewport position, or null while not dragging. */
+  let last = null;
+
+  bar.addEventListener('pointerdown', (event) => {
+    if (event.button !== 0) return;
+    // The minimize button is a control, not a handle.
+    if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
+    last = { x: event.clientX, y: event.clientY };
+    bar.setPointerCapture(event.pointerId);
   });
+
+  bar.addEventListener('pointermove', (event) => {
+    if (!last) return;
+    // Viewport coordinates ride with the window, so the delta between moves
+    // is exactly how far the mouse travelled on the desk.
+    const dx = event.clientX - last.x;
+    const dy = event.clientY - last.y;
+    last = { x: event.clientX, y: event.clientY };
+    windowControl.moveBy(dx, dy);
+  });
+
+  const release = (event) => {
+    if (!last) return;
+    last = null;
+    if (event.type === 'pointerup' && bar.hasPointerCapture(event.pointerId)) {
+      bar.releasePointerCapture(event.pointerId);
+    }
+    windowControl.rememberPosition();
+  };
+  bar.addEventListener('pointerup', release);
+  bar.addEventListener('pointercancel', release);
 }

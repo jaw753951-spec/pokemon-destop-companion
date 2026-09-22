@@ -71,7 +71,11 @@ canvas {
   background: linear-gradient(180deg, rgba(20, 26, 38, 0.55), rgba(20, 26, 38, 0));
   opacity: 0;
   transition: opacity 120ms ease-out;
-  -webkit-app-region: drag;
+  /* The strip is dragged in JavaScript — `-webkit-app-region: drag` swallowed
+     the pointer events the drag handler listens for, which is why the window
+     would not move at some scales. It stays clickable, not drag-natively. */
+  -webkit-app-region: no-drag;
+  cursor: move;
 }
 
 #dragbar:hover {
@@ -629,6 +633,11 @@ canvas {
   position: absolute;
   right: 8px;
   top: 22px;
+  /* The screen itself takes no pointer events, so the bag button — the one
+     control on it — has to opt back in. Riding above the click catch, a click
+     that misses it hurries the beat on the catcher beneath. */
+  z-index: 6;
+  pointer-events: auto;
 }
 
 .battle-name {
