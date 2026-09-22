@@ -124,6 +124,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
         onFinish: (result) => {
           app.pop();
           busy = false;
+          // Back to the hall's own music; without this the round's battle
+          // theme carried on looping over the challenge screen.
+          app.audio.playMusic(gameData().bgm.cues.league ?? null);
 
           if (result.outcome === 'lost') {
             // A loss ends the challenge rather than the run: the companion is

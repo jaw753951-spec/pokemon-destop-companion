@@ -68,13 +68,25 @@ import { stageMultiplier } from './stats.mjs';
 /**
  * @typedef {Object} LogEntry
  * @property {string} kind `move`, `damage`, `effectiveness`, `critical`, `miss`,
- *   `status`, `statusDamage`, `stat`, `heal`, `faint`, `flinch`, `end`
+ *   `status`, `statusDamage`, `stat`, `statFailed`, `heal`, `faint`, `flinch`,
+ *   `end`
  * @property {'player'|'foe'} [side]
  * @property {Record<string, any>} [data]
  */
 
 /** The stats a Starf Berry can land on. */
 const STAT_KEYS = ['atk', 'def', 'spa', 'spd', 'spe'];
+
+/**
+ * The two battle-only stages, as the move data spells them.
+ *
+ * Every other stat arrives already shortened — `special-attack` is `spa` by
+ * the time it reaches here — but accuracy and evasion have no short form in
+ * the source, so they came through written out. The hit roll reads `acc` and
+ * `eva`, so a Sand Attack was filing its drop under a name nothing looked at
+ * and quietly doing nothing at all.
+ */
+const STAGE_ALIASES = { accuracy: 'acc', evasion: 'eva' };
 
 /** Status conditions the engine models. */
 export const STATUS = { BURN: 'brn', POISON: 'psn', PARALYSIS: 'par', SLEEP: 'slp', FREEZE: 'frz' };
@@ -418,10 +430,14 @@ export class Battle {
    * @param {string} stat
    * @param {number} change
    * @param {LogEntry[]} log
-   * @param {Record<string, any>} [data]
+   * @param {Record<string, any>} [data] carried onto the entry, less `quiet`:
+   *   set that where the answer decides whether an item is spent at all, so a
+   *   berry that stays in the hand does not announce a stage it never moved
    * @returns {boolean} whether anything moved
    */
   applyStage(target, stat, change, log, data = {}) {
+    stat = STAGE_ALIASES[stat] ?? stat;
+    const { quiet = false, ...detail } = data;
     const other = target === this.player ? this.foe : this.player;
     const ability = this.abilityOf(target);
 
@@ -445,11 +461,16 @@ export class Battle {
 
     const before = target.stages[stat] ?? 0;
     const after = Math.max(-6, Math.min(6, before + shift));
-    if (after === before) return false;
+    // Already as high or as low as it goes. The games say so rather than
+    // letting the move look like it did nothing at all.
+    if (after === before) {
+      if (!quiet) log.push({ kind: 'statFailed', side: target.side, data: { stat, change: shift } });
+      return false;
+    }
     target.stages[stat] = after;
     // A White Herb remembers that something was lowered so it can undo it.
     if (shift < 0) target.marks.lowered = true;
-    log.push({ kind: 'stat', side: target.side, data: { stat, change: shift, stage: after, ...data } });
+    log.push({ kind: 'stat', side: target.side, data: { stat, change: shift, stage: after, ...detail } });
 
     // An Opportunist helps itself to whatever the other side just worked for.
     if (shift > 0 && data.source !== 'copied' && other && this.abilityOf(other)?.copiesRaises) {
@@ -511,7 +532,7 @@ export class Battle {
 
       let used = false;
       for (const stat of seed.stats) {
-        if (this.applyStage(combatant, stat, seed.stages ?? 1, log)) used = true;
+        if (this.applyStage(combatant, stat, seed.stages ?? 1, log, { quiet: true })) used = true;
       }
       if (!used) continue;
       log.push({ kind: 'berry', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
@@ -1246,7 +1267,7 @@ export class Battle {
 
     let used = false;
     for (const stat of policy.stats) {
-      if (this.applyStage(attacker, stat, policy.stages ?? 1, log)) used = true;
+      if (this.applyStage(attacker, stat, policy.stages ?? 1, log, { quiet: true })) used = true;
     }
     if (!used) return;
     log.push({ kind: 'berry', side: attacker.side, data: { item: attacker.pokemon.heldItem } });
@@ -1274,7 +1295,7 @@ export class Battle {
 
     let used = false;
     for (const stat of spray.stats) {
-      if (this.applyStage(attacker, stat, spray.stages ?? 1, log)) used = true;
+      if (this.applyStage(attacker, stat, spray.stages ?? 1, log, { quiet: true })) used = true;
     }
     if (!used) return;
     log.push({ kind: 'berry', side: attacker.side, data: { item: attacker.pokemon.heldItem } });
@@ -1422,7 +1443,7 @@ export class Battle {
       // A stat berry raises a stage, which lives on the combatant rather than
       // on the Pokémon, so the battle applies that one itself.
       const stat = held.stat === 'random' ? this.rng.pick(STAT_KEYS) : held.stat;
-      if (!this.applyStage(combatant, stat, ripe.stages ?? 1, log, { source: 'self' })) return;
+      if (!this.applyStage(combatant, stat, ripe.stages ?? 1, log, { source: 'self', quiet: true })) return;
     } else if (held.crit) {
       // A Lansat sharpens the next hit rather than raising a stat.
       combatant.marks.critStages = (combatant.marks.critStages ?? 0) + held.crit;
@@ -1897,7 +1918,7 @@ export class Battle {
     let used = false;
 
     for (const stat of held.stats ?? []) {
-      if (this.applyStage(defender, stat, held.stages ?? 1, log)) used = true;
+      if (this.applyStage(defender, stat, held.stages ?? 1, log, { quiet: true })) used = true;
     }
     if (held.heal) {
       const max = maxHp(defender.pokemon);
@@ -2493,7 +2514,12 @@ export class Battle {
     if (!this.foe) return;
 
     if (this.foe.pokemon.hp <= 0) {
-      log.push({ kind: 'faint', side: 'foe', data: { speciesId: this.foe.pokemon.speciesId } });
+      // The Pokémon itself rides along with the entry. A whole turn is played
+      // back after the engine has finished it, and by then `this.foe` is the
+      // next one out — or nothing at all, the fight being over — so a screen
+      // reading the entry later has no other way to name what just fell.
+      const fallen = this.foe.pokemon;
+      log.push({ kind: 'faint', side: 'foe', data: { speciesId: fallen.speciesId, pokemon: fallen } });
       this.onFaint(this.foe, log);
       this.onKnockOut(this.player, this.foe, log);
       this.awardExperience(this.foe, log);
@@ -2501,7 +2527,11 @@ export class Battle {
       const next = this.foeQueue.shift();
       if (next) {
         this.foe = next;
-        log.push({ kind: 'sendOut', side: 'foe', data: { speciesId: next.pokemon.speciesId } });
+        log.push({
+          kind: 'sendOut',
+          side: 'foe',
+          data: { speciesId: next.pokemon.speciesId, pokemon: next.pokemon },
+        });
         // It walks onto whatever was laid down for the one before it, and
         // then does whatever its own ability does on the way in.
         this.walkOntoHazards(next, log);
@@ -2515,7 +2545,11 @@ export class Battle {
     }
 
     if (this.player.pokemon.hp <= 0) {
-      log.push({ kind: 'faint', side: 'player', data: { speciesId: this.player.pokemon.speciesId } });
+      log.push({
+        kind: 'faint',
+        side: 'player',
+        data: { speciesId: this.player.pokemon.speciesId, pokemon: this.player.pokemon },
+      });
       this.onFaint(this.player, log);
       if (this.foe) this.onKnockOut(this.foe, this.player, log);
       this.outcome = 'lost';

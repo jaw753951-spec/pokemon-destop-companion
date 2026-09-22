@@ -27,7 +27,7 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, move: 520, damage: 680, faint: 900, end: 1100 };
+const BEAT_MS = { default: 620, move: 520, damage: 680, stat: 700, faint: 900, end: 1100 };
 
 /** How much of a beat a click skips, as a share of the full wait. */
 const CLICK_SPEEDUP = 0.5;
@@ -74,6 +74,7 @@ const PLAYER_ROOM = {
  *   session: import('../engine/session.mjs').Session,
  *   foes: import('../engine/pokemon.mjs').Pokemon[],
  *   trainer?: {name: {ko: string, en: string}, portrait?: string|null, kind?: string}|null,
+ *   leader?: boolean,
  *   backdrop?: string|null,
  *   music?: string|null,
  *   weather?: string|null,
@@ -81,7 +82,7 @@ const PLAYER_ROOM = {
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function battleScene({ session, foes, trainer = null, backdrop = null, music = null, weather = undefined, onFinish }) {
+export function battleScene({ session, foes, trainer = null, leader = false, backdrop = null, music = null, weather = undefined, onFinish }) {
   const battle = new Battle({
     rng: session.rng,
     player: session.active,
@@ -232,6 +233,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       queue = [
         { kind: 'intro', data: {} },
         ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
+        { kind: 'go', data: {} },
       ];
       updateBars();
       updateField();
@@ -344,9 +346,18 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
 
     switch (entry.kind) {
       case 'intro':
+        // The field used to toast this line and the battle repeat it a beat
+        // later; the announcement lives here now, where the fight is.
         say(trainer
-          ? t('event.trainer', { trainer: localized(trainer.name, '') })
+          ? t(leader ? 'event.leader' : 'event.trainer', { trainer: localized(trainer.name, '') })
           : t('event.wild', { name: nameOf(foe) }));
+        break;
+
+      // The companion is sent out after whatever it is being sent out against
+      // has been named, which is the order the games read in.
+      case 'go':
+        say(t('battle.go', { name: nameOf(player) }));
+        playerBattler?.setPose('win');
         break;
 
       case 'move': {
@@ -384,28 +395,59 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
         break;
 
       case 'status': {
+        const name = nameOf(entry.side === 'player' ? player : foe);
         const status = entry.data?.status;
-        if (status) say(`${nameOf(entry.side === 'player' ? player : foe)} — ${t(`status.${status}`)}`);
+        // A null status is one that has just lifted: woken, thawed, or cured
+        // by an ability. Each says so in its own words rather than leaving
+        // whatever was on the screen before it standing.
+        if (status) say(t(`status.${status}.gained`, { name }));
+        else if (entry.data?.woke) say(t('status.slp.ended', { name }));
+        else if (entry.data?.thawed) say(t('status.frz.ended', { name }));
+        else say(t('status.cured', { name }));
         updateBars();
         break;
       }
 
       case 'statusBlocked':
-        say(`${nameOf(entry.side === 'player' ? player : foe)} — ${t(`status.${entry.data?.status}`)}`);
+        say(t(`status.${entry.data?.status}.blocked`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
         break;
 
       case 'statusDamage':
+        say(t(`status.${entry.data?.status}.hurt`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
         battlerFor(entry.side)?.setPose('hit');
         updateBars();
-        break;
+        return BEAT_MS.damage;
 
       case 'stat': {
-        const stat = t(`stat.${entry.data?.stat}`) ?? entry.data?.stat;
-        say(`${nameOf(entry.side === 'player' ? player : foe)} — ${stat} ${entry.data?.change > 0 ? '▲' : '▼'}`);
+        // How far it moved decides the wording, as in the games: one stage
+        // rises, two rise sharply, three or more drastically.
+        const change = entry.data?.change ?? 0;
+        const steps = Math.min(3, Math.max(1, Math.abs(change)));
+        say(t(`battle.stat.${change < 0 ? 'fell' : 'rose'}${steps}`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          stat: t(`stat.${entry.data?.stat}`),
+        }));
+        battlerFor(entry.side)?.showStatChange(change > 0 ? 1 : -1);
+        app.audio.blip(change > 0 ? 'confirm' : 'cancel');
+        return BEAT_MS.stat;
+      }
+
+      case 'statFailed': {
+        // Already as high or as low as the stage goes.
+        const change = entry.data?.change ?? 0;
+        say(t(`battle.stat.${change < 0 ? 'bottomed' : 'maxed'}`, {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          stat: t(`stat.${entry.data?.stat}`),
+        }));
         break;
       }
 
       case 'heal':
+        say(t('battle.healed', { name: nameOf(entry.side === 'player' ? player : foe) }));
         updateBars();
         break;
 
@@ -654,23 +696,33 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
       }
 
       case 'faint': {
-        const fainter = entry.side === 'player' ? player : foe;
+        // From the entry rather than from `battle.foe`: by the time the log is
+        // played back the engine has already moved on, and the last foe to
+        // fall leaves `battle.foe` empty — which is why the line read
+        // "은(는) 쓰러졌다!" with no name, and why nothing reached the tray.
+        const fainter = entry.data?.pokemon ?? (entry.side === 'player' ? player : foe);
         say(t('battle.fainted', { name: nameOf(fainter) }));
         battlerFor(entry.side)?.setPose('lose');
         app.audio.blip('faint');
-        if (entry.side === 'foe' && foe) defeated.push(foe);
+        if (entry.side === 'foe' && fainter) defeated.push(fainter);
         return BEAT_MS.faint;
       }
 
-      case 'sendOut':
+      case 'sendOut': {
         loadedFoeId = '';
         loadedPlayerId = '';
         loadFoeSprite();
         loadBattler('player', player);
         updateBars();
-        say(t('event.wild', { name: nameOf(battle.foe?.pokemon) }));
-        if (battle.foe?.pokemon.shiny) queue.unshift({ kind: 'shiny', data: {} });
+        // A trainer sends the next one out; only a wild Pokémon appears of its
+        // own accord, so only a wild battle reads the encounter line here.
+        const sent = entry.data?.pokemon ?? battle.foe?.pokemon;
+        say(trainer
+          ? t('battle.foeSentOut', { trainer: localized(trainer.name, ''), name: nameOf(sent) })
+          : t('event.wild', { name: nameOf(sent) }));
+        if (sent?.shiny) queue.unshift({ kind: 'shiny', data: {} });
         return BEAT_MS.faint;
+      }
 
       case 'experience':
         say(t('battle.expGained', { name: nameOf(player), amount: entry.data?.amount ?? 0 }));

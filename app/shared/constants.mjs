@@ -44,6 +44,18 @@ export const EVENT_INTERVAL_MS = 60 * 1000;
 export const CLICK_EVENT_BONUS_MS = 500;
 
 /**
+ * How long to wait before trying again when a roll came due while an event was
+ * still playing out.
+ *
+ * The timers run on the walk, not on what is happening on it, so a rest stop
+ * that takes a quarter of a minute can be holding the road when the next event
+ * — or the area change — falls due. Putting the timer back to its full period
+ * threw that turn away: a player watching a Pokémon Center would then go a
+ * further minute with nothing happening, or ten more in the same place.
+ */
+export const EVENT_RETRY_MS = 5 * 1000;
+
+/**
  * How long the companion stays in one area before moving on: ten minutes,
  * fixed. The range that used to sit here made the interval something the
  * player could only guess at; a fixed figure is one you can set a clock by.

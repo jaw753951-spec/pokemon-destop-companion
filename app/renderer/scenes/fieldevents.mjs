@@ -291,7 +291,7 @@ const CENTER_PASS_MS = 6500;
  * it are the games' own door animation, played forwards to open and backwards
  * to close, which is exactly how the cartridge does it.
  */
-const CENTER_STEPS = [
+export const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 2, ms: 90 },
   { frame: 3, ms: 240 },
@@ -307,6 +307,28 @@ const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 0, ms: 300 },
 ];
+
+/**
+ * The next beat of a Center visit: a door frame, the walk past afterwards, or
+ * nothing left to do.
+ *
+ * Pulled out of the event so the end of the visit can be checked without a
+ * window: the walk-past used to be returned for every beat after the door
+ * script ran out, which meant the event never finished, the runner stayed
+ * busy for the rest of the session, and no event — or area change — could
+ * ever happen again after a rest stop.
+ *
+ * @param {number} step how many beats have been asked for, from zero
+ * @param {boolean} passing whether the walk past the Center has already begun
+ * @returns {{phase: string, duration: number, beat?: any}|null}
+ */
+export function centerBeat(step, passing) {
+  const beat = CENTER_STEPS[step];
+  if (beat) return { phase: 'visit', duration: beat.ms, beat };
+  // One walk past the building, and then the event is over.
+  if (!passing) return { phase: 'passing', duration: CENTER_PASS_MS };
+  return null;
+}
 
 /**
  * A Pokémon Center on the road ahead.
@@ -337,20 +359,21 @@ function startHeal(session, spawnAt) {
     /** One beat of the visit; null once there are none left. */
     onTimer: (app) => {
       step += 1;
-      const beat = CENTER_STEPS[step];
-      if (beat) {
-        state.prop.frame = beat.frame;
-        state.hidesActor = Boolean(beat.inside);
-        if (beat.heal) restAndResupply(session, app);
-        return { phase: 'visit', duration: beat.ms };
-      }
+      const next = centerBeat(step, state.phase === 'passing');
+      if (!next) return null;
 
-      // The visit is over, but the building is not: the companion walks on
-      // past the Center and the map carries it off the left edge like any
-      // other roadside scenery, instead of the place vanishing on the spot.
-      state.phase = 'passing';
-      state.hidesActor = false;
-      return { phase: 'passing', duration: CENTER_PASS_MS };
+      if (next.beat) {
+        state.prop.frame = next.beat.frame;
+        state.hidesActor = Boolean(next.beat.inside);
+        if (next.beat.heal) restAndResupply(session, app);
+      } else {
+        // The visit is over, but the building is not: the companion walks on
+        // past the Center and the map carries it off the left edge like any
+        // other roadside scenery, instead of the place vanishing on the spot.
+        state.hidesActor = false;
+      }
+      state.phase = next.phase;
+      return { phase: next.phase, duration: next.duration };
     },
   };
 
@@ -399,7 +422,8 @@ function startWild(session, spawnAt) {
     setup: { foes: [wild], trainer: null, leader: null },
     onArrive: (app) => {
       app.audio.playCry(wild.speciesId);
-      app.toast(t('event.wild', { name: localized(speciesOf(wild.speciesId)?.name, '') }));
+      // No toast: the battle opens on the same line a beat later, and the two
+      // of them on screen at once read as the encounter happening twice.
       return 'battle';
     },
   };
@@ -436,11 +460,7 @@ function startTrainer(session, spawnAt) {
     prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
     carried: null,
     setup: { foes: roster, trainer: leader ?? trainerClass, leader },
-    onArrive: (app) => {
-      const name = localized((leader ?? trainerClass).name, '');
-      app.toast(leader ? t('event.leader', { trainer: name }) : t('event.trainer', { trainer: name }));
-      return 'battle';
-    },
+    onArrive: () => 'battle',
   };
 
   const fieldSprite = leader?.field ?? trainerClass?.field;

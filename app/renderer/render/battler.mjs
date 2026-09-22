@@ -32,6 +32,17 @@ export function fitScale(sprite, room, preferred) {
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 
+/**
+ * How long the arrows over a stat change stay up, and how many there are.
+ *
+ * The cartridges play a column of chevrons climbing the sprite for a raise and
+ * falling down it for a drop; three of them over two-thirds of a second is
+ * that animation at this size, and it is the only thing on screen that says a
+ * stat moved before the message box gets to the words.
+ */
+const STAT_EFFECT_MS = 640;
+const STAT_ARROWS = 3;
+
 export class Battler {
   /**
    * @param {{
@@ -66,6 +77,22 @@ export class Battler {
     this.poseElapsed = 0;
     this.elapsed = 0;
     this.visible = true;
+
+    /**
+     * A stat change playing over the sprite: which way it went, and how far
+     * through the animation it is. Zero means nothing is playing.
+     */
+    this.statDirection = 0;
+    this.statElapsed = 0;
+  }
+
+  /**
+   * Play the arrows for a stat that just moved.
+   * @param {1|-1} direction up for a raise, down for a drop
+   */
+  showStatChange(direction) {
+    this.statDirection = direction;
+    this.statElapsed = 0;
   }
 
   /**
@@ -79,6 +106,12 @@ export class Battler {
   /** @param {number} deltaMs */
   update(deltaMs) {
     this.elapsed += deltaMs;
+
+    if (this.statDirection !== 0) {
+      this.statElapsed += deltaMs;
+      if (this.statElapsed >= STAT_EFFECT_MS) this.statDirection = 0;
+    }
+
     if (this.pose === 'idle') return;
 
     this.poseElapsed += deltaMs;
@@ -115,6 +148,47 @@ export class Battler {
     context.restore();
 
     if (transform.flash > 0) this.drawFlash(context, transform.flash);
+    if (this.statDirection !== 0) this.drawStatChange(context);
+  }
+
+  /**
+   * The chevrons for a stat change, over the sprite it happened to.
+   *
+   * They are drawn in the field's own coordinates rather than scaled with the
+   * sprite, so a stat drop on a Diglett reads as clearly as one on a Wailord.
+   *
+   * @param {CanvasRenderingContext2D} context
+   */
+  drawStatChange(context) {
+    if (!this.sprite) return;
+    const progress = Math.min(1, this.statElapsed / STAT_EFFECT_MS);
+    const up = this.statDirection > 0;
+    const height = this.sprite.height * this.scale;
+
+    context.save();
+    // Fade out over the second half, so the arrows leave rather than vanish.
+    context.globalAlpha = progress < 0.5 ? 1 : 1 - (progress - 0.5) * 2;
+    context.strokeStyle = up ? '#7ad06d' : '#e2686a';
+    context.lineWidth = 2;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+
+    for (let index = 0; index < STAT_ARROWS; index++) {
+      // Each arrow starts a third of the way behind the one before it, so the
+      // three read as one column travelling rather than three blinking.
+      const step = Math.max(0, Math.min(1, progress * 1.6 - index * 0.2));
+      if (step <= 0) continue;
+      const travel = (up ? -1 : 1) * (height * 0.35 + step * height * 0.5);
+      const y = this.y - (up ? 0 : height * 0.8) + travel;
+      const width = 4;
+
+      context.beginPath();
+      context.moveTo(this.x - width, y + (up ? width : -width));
+      context.lineTo(this.x, y);
+      context.lineTo(this.x + width, y + (up ? width : -width));
+      context.stroke();
+    }
+    context.restore();
   }
 
   /**

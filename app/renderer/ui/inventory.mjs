@@ -20,7 +20,13 @@ const TABS = ['pokemon', 'items', 'box', 'treasures'];
  */
 export function inventoryScene({ session, onClose }) {
   /** View state that should survive a rebuild but not a reopen. */
-  const state = { tab: 'pokemon', pocket: 'medicine', moving: /** @type {number|null} */ (null) };
+  const state = {
+    tab: 'pokemon',
+    pocket: 'medicine',
+    moving: /** @type {number|null} */ (null),
+    /** Which move slot the Pokémon tab is showing the description for. */
+    moveSlot: /** @type {number|null} */ (null),
+  };
 
   return {
     keepBelow: true,
@@ -82,6 +88,6 @@ function render(app, session, state, rebuild) {
       return treasuresTab(session);
     case 'pokemon':
     default:
-      return pokemonTab(app, session, rebuild);
+      return pokemonTab(app, session, rebuild, state);
   }
 }

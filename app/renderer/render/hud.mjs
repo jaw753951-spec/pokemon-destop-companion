@@ -32,6 +32,18 @@ export function createHud(handlers) {
   leagueButton.style.top = '70%';
   leagueButton.style.transform = 'translateX(-50%)';
 
+  /**
+   * The caption over the tray.
+   *
+   * Without it the tray is a column of unlabelled icons in a corner, and a
+   * player who has just knocked something down has no way of knowing that the
+   * offer to catch it is sitting there. It is hidden while the tray is empty.
+   */
+  const trayLabel = el('div.hud-window', {
+    style: { padding: '1px 5px', fontSize: '9px', fontWeight: '700', color: 'var(--ink)' },
+    text: t('tray.title'),
+  });
+
   const tray = el('div', {
     style: {
       position: 'absolute',
@@ -127,6 +139,7 @@ export function createHud(handlers) {
      */
     updateTray(entries, onSelect) {
       setChildren(tray, [
+        entries.length ? trayLabel : null,
         ...entries.map((pokemon, index) =>
           el('button.hud-window', {
             type: 'button',

@@ -9,7 +9,8 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { useItem } from '../engine/items.mjs';
+import { equipItem, itemActions, useItem } from '../engine/items.mjs';
+import { moveSummary } from './movecard.mjs';
 import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
@@ -200,8 +201,14 @@ async function openMenu(app, session, slug, inspector, refresh) {
   const item = itemOf(slug);
   if (!item) return;
 
+  // What the item is for decides what it is offered for: a potion is used, a
+  // Leftovers is carried, and a ball is neither — it is thrown at something
+  // the companion has knocked down, from the capture screen.
+  const actions = itemActions(session, slug);
+
   const choice = await chooseAction(app, localized(item.name, slug), [
-    { value: 'use', label: t('items.use') },
+    ...(actions.use ? [{ value: 'use', label: t('items.use') }] : []),
+    ...(actions.equip ? [{ value: 'equip', label: t('items.equip') }] : []),
     { value: 'inspect', label: t('items.inspect') },
     { value: 'toss', label: t('items.toss'), danger: true },
   ]);
@@ -219,13 +226,13 @@ async function openMenu(app, session, slug, inspector, refresh) {
     return;
   }
 
-  if (choice === 'use') {
-    const result = useItem(session, slug);
+  if (choice === 'use' || choice === 'equip') {
+    const result = choice === 'equip' ? equipItem(session, slug) : useItem(session, slug);
     app.toast(result.message ?? t('items.cannotUse'));
-    if (result.used) {
-      app.audio.blip(result.ok ? 'confirm' : 'error');
-      refresh();
-    }
+    // A refusal is worth a sound too: a TM the companion cannot learn says so
+    // and nothing else happens, which used to be silent.
+    app.audio.blip(result.ok ? 'confirm' : 'error');
+    if (result.used) refresh();
   }
 }
 
@@ -241,16 +248,28 @@ function showInspector(inspector, slug) {
   const item = itemOf(slug);
   if (!item) return;
 
+  const machineMove = item.pocket === 'machines' ? item.move : null;
+  const move = machineMove ? moveOf(machineMove) : null;
+
   setChildren(inspector, [
     el('img.inspect-icon', { src: url('assets', `items/${slug}.png`), alt: '' }),
     el('span.inspect-name', { text: localized(item.name, slug) }),
-    el('p.inspect-text', { text: localized(item.text, '') }),
+    // A machine's own flavour text is a sentence about machines — the same one
+    // on every TM in some generations, a description of the move in others.
+    // What the player is choosing between is the move, so a machine shows the
+    // move: its name, what it does, and its numbers, the same way every time.
+    machineMove
+      ? el('div.inspect-machine', {}, [
+          el('span.inspect-move-name', {
+            text: localized(move?.name, machineMove),
+          }),
+          el('span.meta', { text: moveSummary(machineMove) }),
+          el('p.inspect-text', { text: localized(move?.text, '') }),
+        ])
+      : el('p.inspect-text', { text: localized(item.text, '') }),
     // The bag carries everything this game could one day act on, which is more
     // than it acts on today; an item says so itself rather than leaving the
     // player to find out by using it.
     item.works ? null : el('span.meta.inspect-inert', { text: t('items.noEffectYet') }),
-    item.pocket === 'machines' && item.move
-      ? el('span.meta', { text: localized(moveOf(item.move)?.name, item.move) })
-      : null,
   ]);
 }

@@ -20,7 +20,7 @@ import { prompt } from '../ui/dialog.mjs';
  * @param {{
  *   session: import('../engine/session.mjs').Session,
  *   target: import('../engine/pokemon.mjs').Pokemon,
- *   onFinish: (caught: boolean) => void,
+ *   onFinish: (result: {caught: boolean, fled: boolean}) => void,
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
@@ -159,7 +159,10 @@ export function captureScene({ session, target, onFinish }) {
       app.toast(stored
         ? t('capture.sentToBox', { name: target.nickname || label() })
         : t('capture.boxFull'));
-      finish(app, true);
+      // A full box has nowhere to put it. Reporting it as caught anyway threw
+      // the Pokémon away along with the ball, so it is handed back instead —
+      // the tray keeps it until room is made.
+      finish(app, stored);
       return;
     }
 
@@ -169,7 +172,7 @@ export function captureScene({ session, target, onFinish }) {
       message.textContent = t('capture.fled', { name: label() });
       app.audio.blip('cancel');
       await wait(1200);
-      finish(app, false);
+      finish(app, false, true);
       return;
     }
 
@@ -180,10 +183,12 @@ export function captureScene({ session, target, onFinish }) {
   /**
    * @param {import('../core/app.mjs').App} app
    * @param {boolean} caught
+   * @param {boolean} [fled] whether it ran rather than being let go, which is
+   *   the difference between losing the chance and keeping it for later
    */
-  function finish(app, caught) {
+  function finish(app, caught, fled = false) {
     if (!caught) app.audio.blip('cancel');
-    onFinish(caught);
+    onFinish({ caught, fled });
   }
 }
 

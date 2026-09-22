@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { CENTER_STEPS, centerBeat } from '../../app/renderer/scenes/fieldevents.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the
@@ -43,4 +44,36 @@ test('a negative distance still resolves to a real beat', () => {
   // not put the renderer into an undefined frame.
   assert.deepEqual(walkFrame(-STRIDE), walkFrame(3 * STRIDE));
   assert.ok(walkFrame(-1));
+});
+
+// ------------------------------------------------- the rest stop's own script
+
+test('the Center visit plays its door script, walks past, and then ends', () => {
+  /** Drive the visit the way the runner does: one beat at a time. */
+  const beats = [];
+  let passing = false;
+  for (let step = 0; step < 100; step++) {
+    const next = centerBeat(step, passing);
+    if (!next) break;
+    passing = next.phase === 'passing';
+    beats.push(next);
+  }
+
+  // Every door frame, then exactly one walk-past.
+  assert.equal(beats.filter((beat) => beat.phase === 'visit').length, CENTER_STEPS.length);
+  assert.equal(beats.filter((beat) => beat.phase === 'passing').length, 1);
+  assert.equal(beats[beats.length - 1].phase, 'passing');
+
+  // And the beat after the walk-past is nothing at all: an event that never
+  // returns null leaves the runner busy for good, and no event — or area
+  // change — can happen for the rest of the session.
+  assert.equal(centerBeat(CENTER_STEPS.length, true), null);
+  assert.equal(centerBeat(CENTER_STEPS.length + 5, true), null);
+});
+
+test('the companion is healed exactly once per visit', () => {
+  const heals = CENTER_STEPS.filter((beat) => beat.heal);
+  assert.equal(heals.length, 1);
+  // Behind the closed door, which is the point of going in.
+  assert.equal(heals[0].inside, true);
 });

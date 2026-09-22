@@ -6,7 +6,7 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { CLICK_EVENT_BONUS_MS, FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
+import { CLICK_EVENT_BONUS_MS, EVENT_RETRY_MS, FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -93,7 +93,7 @@ export function fieldScene(session) {
         .catch(() => {
           background = null;
         });
-      app.audio.playMusic(session.area.music);
+      resumeMusic(app);
     }
 
     const speciesId = spriteKey(session.active);
@@ -131,20 +131,7 @@ export function fieldScene(session) {
 
     if (choice === 'capture') {
       session.tray.splice(index, 1);
-      paused = true;
-      showActor = false;
-      app.push(
-        captureScene({
-          session,
-          target: pokemon,
-          onFinish: () => {
-            app.pop();
-            paused = false;
-            showActor = true;
-            refreshArt(app);
-          },
-        }),
-      );
+      openCapture(app, pokemon);
       return;
     }
 
@@ -153,6 +140,34 @@ export function fieldScene(session) {
       session.tray.splice(index, 1);
       app.toast(t('tray.released', { name: label }));
     }
+  }
+
+  /**
+   * Open the capture screen on a Pokémon that has been knocked down.
+   *
+   * One that is neither caught nor scared off goes back to the tray, so
+   * closing the screen by mistake does not throw the catch away.
+   *
+   * @param {import('../core/app.mjs').App} app
+   * @param {import('../engine/pokemon.mjs').Pokemon} target
+   */
+  function openCapture(app, target) {
+    paused = true;
+    showActor = false;
+    app.push(
+      captureScene({
+        session,
+        target,
+        onFinish: ({ caught, fled }) => {
+          app.pop();
+          paused = false;
+          showActor = true;
+          if (!caught && !fled) session.addToTray(target);
+          resumeMusic(app);
+          refreshArt(app);
+        },
+      }),
+    );
   }
 
   /**
@@ -167,6 +182,7 @@ export function fieldScene(session) {
         session,
         foes: setup.foes,
         trainer: setup.trainer,
+        leader: Boolean(setup.leader),
         // A gym leader is fought in their gym, everyone else where they stand.
         backdrop: setup.leader ? 'leader' : backdropForArea(session.area),
         music: setup.leader ? gameData().bgm.cues.battleLeader : undefined,
@@ -174,6 +190,10 @@ export function fieldScene(session) {
           app.pop();
           paused = false;
           showActor = true;
+          // Before the fanfares: the audio engine holds this as the track to
+          // come back to once a cue has finished, so the area's music is what
+          // returns rather than the battle theme.
+          resumeMusic(app);
           finishBattle(app, setup, result);
         },
       }),
@@ -216,6 +236,32 @@ export function fieldScene(session) {
 
     restock(app);
     refreshArt(app);
+
+    // Knocking a wild Pokémon down is what earns the throw, so the capture
+    // screen opens on it rather than waiting to be found in the tray. With no
+    // ball in the bag there is nothing to throw and it stays there instead.
+    if (!setup.trainer && session.balls().length > 0) {
+      const next = session.tray[session.tray.length - 1];
+      if (next && result.defeated.includes(next)) {
+        session.tray.pop();
+        openCapture(app, next);
+      }
+    }
+  }
+
+  /**
+   * Put the area's own music back on.
+   *
+   * Everything that opens over the road — a battle, the capture screen, the
+   * league — plays music of its own, and nothing brought the area's back
+   * afterwards: a fight left the battle theme looping over the walk until the
+   * area happened to rotate. The audio engine ignores a track that is already
+   * playing, so this is safe to call on every return.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function resumeMusic(app) {
+    app.audio.playMusic(session.area?.music ?? null);
   }
 
   /**
@@ -315,12 +361,19 @@ export function fieldScene(session) {
 
       const { rotateArea, autosave, event } = session.tick(deltaMs);
 
-      if (rotateArea && !events?.busy) {
-        session.rotateArea();
-        refreshArt(app);
+      // A turn that came due mid-event is held rather than dropped: the timer
+      // goes back to a few seconds instead of its whole period, so the walk
+      // picks it up as soon as the road is clear again.
+      if (rotateArea) {
+        if (events?.busy) session.areaTimer = EVENT_RETRY_MS;
+        else {
+          session.rotateArea();
+          refreshArt(app);
+        }
       }
-      if (event && !events?.busy) {
-        events?.start(session.events.roll(session.rng), offset, app);
+      if (event) {
+        if (events?.busy) session.eventTimer = EVENT_RETRY_MS;
+        else events?.start(session.events.roll(session.rng), offset, app);
       }
       if (autosave) {
         session
@@ -364,6 +417,7 @@ export function fieldScene(session) {
     app.pop();
     paused = false;
     showActor = true;
+    resumeMusic(app);
     refreshArt(app);
     void host;
   }
