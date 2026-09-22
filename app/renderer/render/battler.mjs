@@ -174,10 +174,12 @@ export class Battler {
     context.lineJoin = 'round';
 
     for (let index = 0; index < STAT_ARROWS; index++) {
-      // Each arrow starts a third of the way behind the one before it, so the
-      // three read as one column travelling rather than three blinking.
-      const step = Math.max(0, Math.min(1, progress * 1.6 - index * 0.2));
-      if (step <= 0) continue;
+      // Each arrow starts a little behind the one before it, so the three read
+      // as one column travelling rather than three blinking. The first is up
+      // from the opening frame — the stagger is for the ones behind it.
+      const raw = progress * 1.6 - index * 0.2;
+      if (index > 0 && raw <= 0) continue;
+      const step = Math.max(0, Math.min(1, raw));
       const travel = (up ? -1 : 1) * (height * 0.35 + step * height * 0.5);
       const y = this.y - (up ? 0 : height * 0.8) + travel;
       const width = 4;

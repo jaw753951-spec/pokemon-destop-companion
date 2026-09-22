@@ -32,6 +32,17 @@ const BEAT_MS = { default: 620, move: 520, damage: 680, stat: 700, faint: 900, e
 /** How much of a beat a click skips, as a share of the full wait. */
 const CLICK_SPEEDUP = 0.5;
 
+/**
+ * The lines a condition reads, for the conditions that have one of their own.
+ *
+ * Only a burn and a poison bite at the end of a turn, and only sleep, freeze
+ * and paralysis keep a Pokémon from moving — so those are the ones with
+ * wording in the games. Anything else falls back to a plain line rather than
+ * inventing a sentence the cartridge never says.
+ */
+const STATUS_HURT = { brn: 'status.brn.hurt', psn: 'status.psn.hurt' };
+const STATUS_BLOCKED = { slp: 'status.slp.blocked', frz: 'status.frz.blocked', par: 'status.par.blocked' };
+
 /** How long the red damage ghost holds before draining to the real bar. */
 const GHOST_DELAY_MS = 240;
 
@@ -384,7 +395,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       case 'effectiveness': {
         const value = entry.data?.effectiveness ?? 1;
-        if (value === 0) say(t('battle.noEffect'));
+        const name = nameOf(entry.side === 'player' ? player : foe);
+        if (value === 0) say(t('battle.noEffect', { name }));
         else if (value > 1) say(t('battle.superEffective'));
         else say(t('battle.notVeryEffective'));
         break;
@@ -409,13 +421,13 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
 
       case 'statusBlocked':
-        say(t(`status.${entry.data?.status}.blocked`, {
+        say(t(STATUS_BLOCKED[entry.data?.status] ?? 'battle.cannotMove', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
         break;
 
       case 'statusDamage':
-        say(t(`status.${entry.data?.status}.hurt`, {
+        say(t(STATUS_HURT[entry.data?.status] ?? 'battle.statusHurt', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
         battlerFor(entry.side)?.setPose('hit');
@@ -571,7 +583,13 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         return BEAT_MS.damage;
 
       case 'noEffect':
-        say(t('battle.noEffect'));
+        say(t('battle.noEffect', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        break;
+
+      // A move that went off and achieved nothing — not one the target was
+      // immune to, which is the line above.
+      case 'failed':
+        say(t('battle.failed'));
         break;
 
       case 'flinch':
@@ -738,10 +756,18 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         // A free slot means the move is simply learned, as in the games; with
         // four moves already the player swaps it in from the Pokémon screen.
         const move = entry.data?.move;
-        if (player.moves.length < 4 && move) {
+        if (!move) break;
+        const moveName = localized(moveOf(move)?.name, move);
+        if (player.moves.length < 4) {
           setMove(player, player.moves.length, move);
-          say(t('battle.learned', { name: nameOf(player), move: localized(moveOf(move)?.name, move) }));
+          say(t('battle.learned', { name: nameOf(player), move: moveName }));
+          break;
         }
+        // Four already. The games say so rather than dropping the move
+        // silently, which left no sign anywhere that there was something new
+        // waiting in the Pokémon screen's move list.
+        say(t('battle.cannotLearnMore', { name: nameOf(player), move: moveName }));
+        app.toast(t('battle.cannotLearnMore', { name: nameOf(player), move: moveName }), 3200);
         break;
       }
 

@@ -69,7 +69,7 @@ import { stageMultiplier } from './stats.mjs';
  * @typedef {Object} LogEntry
  * @property {string} kind `move`, `damage`, `effectiveness`, `critical`, `miss`,
  *   `status`, `statusDamage`, `stat`, `statFailed`, `heal`, `faint`, `flinch`,
- *   `end`
+ *   `noEffect`, `failed`, `end`
  * @property {'player'|'foe'} [side]
  * @property {Record<string, any>} [data]
  */
@@ -90,6 +90,38 @@ const STAGE_ALIASES = { accuracy: 'acc', evasion: 'eva' };
 
 /** Status conditions the engine models. */
 export const STATUS = { BURN: 'brn', POISON: 'psn', PARALYSIS: 'par', SLEEP: 'slp', FREEZE: 'frz' };
+
+/**
+ * What is left when nothing has PP.
+ *
+ * The move list has a `struggle` in it, filed as a Normal move like any other,
+ * and using that one was wrong in both directions: a Ghost was immune to it,
+ * so two Pokémon out of PP could stand there announcing Struggle at each other
+ * for ever, and it cost its user nothing. The games make it typeless — nothing
+ * resists it and nothing is immune — never miss, and take a quarter of the
+ * user's health for using it, which is what ends a fight nothing else can.
+ *
+ * The type is a name the chart does not carry, and `typeEffectiveness` answers
+ * 1 for a type it does not know, which is exactly the rule wanted here.
+ */
+export const STRUGGLE = {
+  id: 165,
+  name: { ko: '발버둥', en: 'Struggle' },
+  type: 'typeless',
+  damageClass: 'physical',
+  power: 50,
+  accuracy: null,
+  pp: 1,
+  priority: 0,
+  target: 'selected-pokemon',
+  text: { ko: '', en: '' },
+  flags: ['contact'],
+  meta: null,
+  statChanges: [],
+};
+
+/** What Struggle costs the Pokémon that had to use it. */
+const STRUGGLE_RECOIL = 1 / 4;
 
 /** Moves are capped at this many turns so a stalemate cannot run forever. */
 const TURN_LIMIT = 200;
@@ -973,7 +1005,8 @@ export class Battle {
     const chosen =
       attacker.side === 'player' && this.policy
         ? choosePolicyMove(this, attacker, defender, usable)
-        : bestDamageMove(this, attacker, defender, usable) ?? this.rng.pick(usable).move;
+        : bestDamageMove(this, attacker, defender, usable)
+          ?? this.rng.pick(movesWorthUsing(attacker, defender, usable)).move;
 
     if (restriction?.lock) attacker.lockedMove = chosen;
     return chosen;
@@ -1058,11 +1091,11 @@ export class Battle {
     if (!attacker.charging && !this.canAct(attacker, log)) return;
 
     const moveName = attacker.charging ?? this.pendingMoves?.get(attacker) ?? this.chooseMove(attacker, defender);
-    const base = moveOf(moveName);
+    const base = moveName === 'struggle' ? STRUGGLE : moveOf(moveName);
     attacker.turnsTaken++;
 
     if (!base) {
-      log.push({ kind: 'move', side: attacker.side, data: { move: 'struggle' } });
+      log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
       return;
     }
 
@@ -1141,6 +1174,14 @@ export class Battle {
       this.applyStatusMove(attacker, defender, move, log);
     } else {
       this.applyDamagingMove(attacker, defender, move, log);
+    }
+
+    // A quarter of the user's health, whatever the move did — which is the
+    // only thing that brings a fight between two empty Pokémon to an end.
+    if (moveName === 'struggle' && attacker.pokemon.hp > 0) {
+      const recoil = Math.max(1, Math.floor(maxHp(attacker.pokemon) * STRUGGLE_RECOIL));
+      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
+      log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
     this.afterUse(attacker, defender, move, log);
@@ -1662,6 +1703,10 @@ export class Battle {
       defender.marks.ateResist = null;
     }
 
+    // The hit lands first and the reasons follow it, which is the order the
+    // games read in: the bar drains, then "급소에 맞았다!", then "효과가
+    // 굉장했다!".
+    log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
     if (critical) {
       log.push({ kind: 'critical', side: defender.side });
       // An Anger Point turns a weak spot into the highest Attack there is.
@@ -1671,7 +1716,6 @@ export class Battle {
         angered.onCrit(this.abilityContext(defender, attacker, log));
       }
     }
-    log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
     if (effectiveness !== 1) {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness } });
     }
@@ -2174,6 +2218,7 @@ export class Battle {
    */
   applyStatusMove(attacker, defender, move, log) {
     const meta = move.meta;
+    const before = log.length;
     let did = false;
 
     // A move that calls the weather, lays the terrain or puts up a screen.
@@ -2238,7 +2283,11 @@ export class Battle {
       if (this.applyStatChanges(attacker, defender, move, log)) did = true;
     }
 
-    if (!did) log.push({ kind: 'noEffect', side: defender.side });
+    // "하지만 실패했다!" — which is a different thing from a type the move
+    // cannot touch, and is only worth saying when nothing else was. A Swords
+    // Dance at the ceiling has already said that its Attack will go no
+    // higher, and a Clear Body has already refused the drop in its own name.
+    if (!did && log.length === before) log.push({ kind: 'failed', side: attacker.side });
   }
 
   /**
@@ -2511,7 +2560,7 @@ export class Battle {
 
   /** @param {LogEntry[]} log */
   checkFaint(log) {
-    if (!this.foe) return;
+    if (!this.running || !this.foe) return;
 
     if (this.foe.pokemon.hp <= 0) {
       // The Pokémon itself rides along with the entry. A whole turn is played
@@ -2538,12 +2587,13 @@ export class Battle {
         this.enter(next, log);
       } else {
         this.foe = null;
-        this.outcome = 'won';
-        log.push({ kind: 'end', data: { outcome: 'won' } });
       }
-      return;
     }
 
+    // The companion can go down in the same moment as what it was fighting —
+    // to a Struggle's recoil, to a Life Orb, to an Aftermath — and being the
+    // last one standing on no hit points is not a win. Checked after the foe
+    // rather than instead of it, so the knock-out it earned still counts.
     if (this.player.pokemon.hp <= 0) {
       log.push({
         kind: 'faint',
@@ -2554,6 +2604,12 @@ export class Battle {
       if (this.foe) this.onKnockOut(this.foe, this.player, log);
       this.outcome = 'lost';
       log.push({ kind: 'end', data: { outcome: 'lost' } });
+      return;
+    }
+
+    if (!this.foe) {
+      this.outcome = 'won';
+      log.push({ kind: 'end', data: { outcome: 'won' } });
     }
   }
 
@@ -2759,6 +2815,9 @@ export function bestDamageMove(battle, attacker, defender, usable) {
   for (const slot of usable) {
     const move = moveOf(slot.move);
     if (!move || move.damageClass === 'status') continue;
+    // A type the other side simply does not take is not a choice; the games'
+    // own trainers will not throw one either.
+    if (cannotTouch(defender, move)) continue;
     const score = expectedDamage(attacker, defender, move);
     if (score > bestScore) {
       bestScore = score;
@@ -2766,6 +2825,67 @@ export function bestDamageMove(battle, attacker, defender, usable) {
     }
   }
   return best;
+}
+
+/**
+ * Whether the target's typing makes this attack unable to land at all.
+ *
+ * Only the type chart is read: an ability that drinks a type is the
+ * opponent's secret until it happens, which is how the games play it too.
+ *
+ * @param {Combatant} defender
+ * @param {any} move
+ */
+export function cannotTouch(defender, move) {
+  if (!move || move.damageClass === 'status') return false;
+  const against = defender.marks?.types ?? speciesOf(defender.pokemon.speciesId).types;
+  return typeEffectiveness(move.type, against) === 0;
+}
+
+/**
+ * The moves worth reaching for at all: everything but the attacks that cannot
+ * land. An empty answer means every move is one of those, and the caller may
+ * as well use any of them.
+ *
+ * @param {Combatant} defender
+ * @param {Array<{move: string, pp: number}>} usable
+ */
+function movesThatCanLand(defender, usable) {
+  const left = usable.filter((slot) => !cannotTouch(defender, moveOf(slot.move)));
+  return left.length ? left : usable;
+}
+
+/**
+ * The moves that would plainly do something this turn.
+ *
+ * This is the net the policy falls into when none of its own conditions hold:
+ * without it the companion reaches for whatever is left, which can be a burn
+ * aimed at something already burning or a boost at a stage that will not
+ * move. The checks are only the obvious ones — an attack the target cannot
+ * take, a stage at its limit, a condition already in place, a heal at full
+ * health — so nothing subtle is ruled out by guesswork.
+ *
+ * @param {Combatant} attacker
+ * @param {Combatant} defender
+ * @param {Array<{move: string, pp: number}>} usable
+ */
+function movesWorthUsing(attacker, defender, usable) {
+  const worth = usable.filter((slot) => {
+    const move = moveOf(slot.move);
+    if (!move) return false;
+    if (cannotTouch(defender, move)) return false;
+    switch (categoryOf(move)) {
+      case 'stat':
+        return hasRoomToChange(move, attacker, defender);
+      case 'status':
+        return !defender.pokemon.status;
+      case 'heal':
+        return attacker.pokemon.hp < maxHp(attacker.pokemon);
+      default:
+        return true;
+    }
+  });
+  return worth.length ? worth : movesThatCanLand(defender, usable);
 }
 
 /**
@@ -2843,6 +2963,7 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
     // instructions about which to use means using the one that hits hardest,
     // rather than rolling between a Flamethrower and a Tackle every turn.
     if (category === 'damage') {
+      if (cannotTouch(defender, move)) continue;
       const damage = expectedDamage(attacker, defender, move);
       if (!bestDamage || damage > bestDamage.damage) bestDamage = { value: slot.move, damage };
       continue;
@@ -2858,7 +2979,11 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
   const chosen = battle.rng.weighted(candidates);
   if (chosen) return chosen;
 
-  return bestDamageMove(battle, attacker, defender, usable) ?? battle.rng.pick(usable).move;
+  // Nothing the policy allows applies this turn. Rather than stand there
+  // repeating an attack the other side cannot take — which never ends and
+  // never even reads as a mistake — the fallback is anything that can land.
+  const worth = movesWorthUsing(attacker, defender, usable);
+  return bestDamageMove(battle, attacker, defender, worth) ?? battle.rng.pick(worth).move;
 }
 
 /**

@@ -12,6 +12,7 @@ import { artOf, gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
+import { fullyHeal } from '../engine/pokemon.mjs';
 import { Battler, fitScale } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
@@ -154,6 +155,10 @@ export function captureScene({ session, target, onFinish }) {
       });
       target.nickname = nickname;
       target.ball = ball;
+      // It was knocked down before the ball was thrown — that is how this
+      // game earns the throw — so it arrives patched up rather than at no hit
+      // points, which would have made it faint the moment it was swapped in.
+      fullyHeal(target);
       const stored = session.storeInBox(target);
 
       app.toast(stored

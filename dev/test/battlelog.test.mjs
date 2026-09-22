@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { setGameData } from '../../app/renderer/core/data.mjs';
+import { gameData, setGameData, typeEffectiveness } from '../../app/renderer/core/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 
 /** A species with nothing remarkable about it but its typing. */
@@ -82,7 +82,7 @@ setGameData(/** @type {any} */ ({
   leagues: [],
 }));
 
-const { Battle } = await import('../../app/renderer/engine/battle.mjs');
+const { Battle, STRUGGLE, bestDamageMove } = await import('../../app/renderer/engine/battle.mjs');
 const { createPokemon, maxHp, setMove } = await import('../../app/renderer/engine/pokemon.mjs');
 
 /** @param {number} id */
@@ -168,4 +168,63 @@ test('a stage an item could not move is not announced', () => {
   // nothing to say about it.
   assert.equal(battle.applyStage(battle.player, 'atk', 1, log, { quiet: true }), false);
   assert.deepEqual(log, []);
+});
+
+test('struggle is typeless, never misses, and costs a quarter of a bar', () => {
+  // The move list has a Normal-typed `struggle` in it; using that one meant a
+  // Ghost was immune to the one move that is supposed to always land, and two
+  // Pokémon out of PP could announce it at each other for ever.
+  assert.equal(STRUGGLE.accuracy, null);
+  assert.equal(typeEffectiveness(STRUGGLE.type, ['ghost']), 1);
+  assert.equal(typeEffectiveness(STRUGGLE.type, ['steel', 'rock']), 1);
+
+  const battle = makeBattle();
+  const before = battle.player.pokemon.hp;
+  battle.player.pokemon.moves.forEach((slot) => { slot.pp = 0; });
+
+  let recoil = null;
+  for (let turn = 0; turn < 4 && battle.running && recoil === null; turn++) {
+    recoil = battle.takeTurn().find((entry) => entry.side === 'player' && entry.data?.recoil) ?? null;
+  }
+  assert.ok(recoil, 'struggling should cost its user something');
+  assert.ok(battle.player.pokemon.hp < before);
+});
+
+test('a battle where both sides go down at once is not a win', () => {
+  const battle = makeBattle();
+  // Both on their last legs, and the companion's own recoil finishes it.
+  battle.player.pokemon.hp = 1;
+  battle.foe.pokemon.hp = 1;
+  const log = [];
+  battle.checkFaint(log);
+  assert.equal(battle.outcome, 'ongoing');
+
+  battle.player.pokemon.hp = 0;
+  battle.foe.pokemon.hp = 0;
+  battle.checkFaint(log);
+
+  // The knock-out it earned still counts, but a companion on no hit points is
+  // not left walking away from the fight as the winner.
+  assert.deepEqual(log.filter((entry) => entry.kind === 'faint').map((entry) => entry.side), ['foe', 'player']);
+  assert.equal(battle.outcome, 'lost');
+  assert.equal(log.filter((entry) => entry.kind === 'end').length, 1);
+});
+
+test('an attack the other side cannot take is not the move it reaches for', () => {
+  // Alpha is Normal and beta is made a Ghost for this: Tackle can never land.
+  gameData().species[2].types = ['ghost'];
+  gameData().types.normal.effectiveness = { ghost: 0 };
+  try {
+    const battle = makeBattle({ player: makeOne(1, 20, ['tackle', 'swords-dance']) });
+    const usable = battle.player.pokemon.moves;
+    assert.equal(bestDamageMove(battle, battle.player, battle.foe, usable), null);
+
+    // Over many turns it must never settle into repeating the dead move.
+    const used = new Set();
+    for (let turn = 0; turn < 20; turn++) used.add(battle.chooseMove(battle.player, battle.foe));
+    assert.deepEqual([...used], ['swords-dance']);
+  } finally {
+    gameData().species[2].types = ['normal'];
+    gameData().types.normal.effectiveness = {};
+  }
 });
