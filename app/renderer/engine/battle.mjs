@@ -7,6 +7,7 @@
  * of the turn. Battles are fought automatically, so the engine produces a list
  * of log entries per turn which the battle scene plays back as animation.
  */
+import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS_TAKEN } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect } from './abilities.mjs';
 import { formeFor } from './forms.mjs';
@@ -1981,6 +1982,7 @@ export class Battle {
     );
     // An Infiltrator is not stopped by anything the other side put up.
     const screen = attackerAbility?.infiltrates ? 1 : this.screenMultiplier(defender, move, critical);
+    const armour = companionArmour(defender, effectiveness);
 
     const damage = Math.max(
       1,
@@ -1998,7 +2000,8 @@ export class Battle {
           weather *
           terrain *
           screen *
-          charged,
+          charged *
+          armour,
       ),
     );
     return { damage, effectiveness, critical };
@@ -2915,4 +2918,27 @@ function doubled(held) {
   if (held.amount) out.amount = held.amount * 2;
   if (held.multiplier !== undefined && held.on === 'resist') out.multiplier = 0;
   return out;
+}
+
+/**
+ * The standing allowance the player's own Pokémon fights under.
+ *
+ * The companion travels alone: there is no party to switch to, no second
+ * chance at a bad matchup, and nobody watching to pull it out of one. So it
+ * takes thirty per cent less of everything aimed at it — and, because a flat
+ * reduction would make type matchups matter thirty per cent less too, a hit it
+ * is actually weak to lands half again as hard. The sum of the two is a
+ * companion that survives the ordinary exchange it cannot answer and still
+ * loses to the thing it should lose to.
+ *
+ * Only what it *takes* is touched. What it deals goes through the formula
+ * untouched, so nothing about the player's own damage changes.
+ *
+ * @param {Combatant} defender
+ * @param {number} effectiveness
+ * @returns {number}
+ */
+export function companionArmour(defender, effectiveness) {
+  if (defender?.side !== 'player') return 1;
+  return COMPANION_DAMAGE_TAKEN * (effectiveness > 1 ? COMPANION_WEAKNESS_TAKEN : 1);
 }

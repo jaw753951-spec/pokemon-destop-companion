@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { BASE_WEIGHT, EVENT_KINDS, EventScheduler } from '../../app/renderer/engine/events.mjs';
+import { BASE_WEIGHT, EVENT_KINDS, EventScheduler, RECENT_WEIGHTS } from '../../app/renderer/engine/events.mjs';
 
 /** Weights are compared loosely: they are shares of 100, not exact integers. */
 const close = (actual, expected, tolerance = 1e-9) =>
@@ -14,56 +14,60 @@ test('every event starts equally likely', () => {
   close(sum(weights), 100);
 });
 
-test('a repeated event is damped 20 → 10 → 1 → 0', () => {
-  const scheduler = new EventScheduler({ last: 'berry', streak: 1 });
-  close(scheduler.weights().berry, 10);
-
-  scheduler.streak = 2;
-  close(scheduler.weights().berry, 1);
-
-  scheduler.streak = 3;
-  close(scheduler.weights().berry, 0);
-
-  // A longer run stays at zero rather than going negative.
-  scheduler.streak = 9;
-  close(scheduler.weights().berry, 0);
+test('the last two events are damped to 1% and 10%', () => {
+  const weights = new EventScheduler({ recent: ['berry', 'ball'] }).weights();
+  close(weights.berry, RECENT_WEIGHTS[0]);
+  close(weights.ball, RECENT_WEIGHTS[1]);
+  close(sum(weights), 100);
 });
 
-test('the damped share is split equally among the others', () => {
-  for (const streak of [1, 2, 3]) {
-    const weights = new EventScheduler({ last: 'wild', streak }).weights();
-    const others = EVENT_KINDS.filter((kind) => kind !== 'wild');
-    const expected = BASE_WEIGHT + (BASE_WEIGHT - weights.wild) / others.length;
-    for (const kind of others) close(weights[kind], expected);
-    close(sum(weights), 100);
+test('what the two remembered events give up is split among the rest', () => {
+  const weights = new EventScheduler({ recent: ['wild', 'trainer'] }).weights();
+  const open = EVENT_KINDS.filter((kind) => kind !== 'wild' && kind !== 'trainer');
+  const expected = (100 - RECENT_WEIGHTS[0] - RECENT_WEIGHTS[1]) / open.length;
+  for (const kind of open) close(weights[kind], expected);
+  close(sum(weights), 100);
+});
+
+test('an event remembered twice takes the harsher figure', () => {
+  const weights = new EventScheduler({ recent: ['heal', 'heal'] }).weights();
+  close(weights.heal, RECENT_WEIGHTS[0]);
+  for (const kind of EVENT_KINDS.filter((entry) => entry !== 'heal')) {
+    close(weights[kind], (100 - RECENT_WEIGHTS[0]) / 4);
   }
+  close(sum(weights), 100);
 });
 
-test('firing a different event restores the previous one', () => {
-  const scheduler = new EventScheduler({ last: 'heal', streak: 2 });
-  close(scheduler.weights().heal, 1);
-
-  // Simulate the roll landing on something else.
-  scheduler.last = 'ball';
-  scheduler.streak = 1;
-  close(scheduler.weights().heal, BASE_WEIGHT + (BASE_WEIGHT - 10) / 4);
+test('an event three rolls back is back on full odds', () => {
+  const scheduler = new EventScheduler();
+  scheduler.remember('berry');
+  scheduler.remember('ball');
+  scheduler.remember('wild');
+  close(scheduler.weights().berry, (100 - RECENT_WEIGHTS[0] - RECENT_WEIGHTS[1]) / 3);
+  assert.deepEqual(scheduler.recent, ['wild', 'ball']);
 });
 
-test('an event can never fire four times in a row', () => {
+test('the same event twice running is all but impossible', () => {
   const scheduler = new EventScheduler();
   const rng = new Rng(1234);
-  let longestRun = 0;
-  let run = 0;
+  let repeats = 0;
+  let flips = 0;
   let previous = null;
+  let before = null;
 
-  for (let i = 0; i < 200000; i++) {
+  const rolls = 200000;
+  for (let i = 0; i < rolls; i++) {
     const kind = scheduler.roll(rng);
-    run = kind === previous ? run + 1 : 1;
+    if (kind === previous) repeats++;
+    if (kind === before && kind !== previous) flips++;
+    before = previous;
     previous = kind;
-    longestRun = Math.max(longestRun, run);
   }
 
-  assert.equal(longestRun, 3, 'three in a row is reachable, four is not');
+  // 1% of the roll, so a hair under one in a hundred.
+  assert.ok(repeats / rolls < 0.02, `repeats landed on ${((repeats / rolls) * 100).toFixed(2)}%`);
+  // And an A-B-A flip-flop, the thing the second slot is there for.
+  assert.ok(flips / rolls < 0.12, `flip-flops landed on ${((flips / rolls) * 100).toFixed(2)}%`);
 });
 
 test('the long-run distribution stays close to even', () => {
@@ -81,46 +85,33 @@ test('the long-run distribution stays close to even', () => {
   }
 });
 
-test('repeats are rarer than an even roll would make them', () => {
-  const scheduler = new EventScheduler();
-  const rng = new Rng(7);
-  let repeats = 0;
-  let previous = null;
-
-  const rolls = 200000;
-  for (let i = 0; i < rolls; i++) {
-    const kind = scheduler.roll(rng);
-    if (kind === previous) repeats++;
-    previous = kind;
-  }
-
-  const share = repeats / rolls;
-  // An even roll would repeat 20% of the time; damping should roughly halve it.
-  assert.ok(share < 0.12, `repeat share was ${(share * 100).toFixed(2)}%`);
-  assert.ok(share > 0.05, `repeats should still happen, got ${(share * 100).toFixed(2)}%`);
-});
-
 test('scheduler state round-trips through a save', () => {
   const scheduler = new EventScheduler();
   scheduler.roll(new Rng(3));
+  scheduler.roll(new Rng(4));
   const restored = new EventScheduler(scheduler.toJSON());
-  assert.equal(restored.last, scheduler.last);
-  assert.equal(restored.streak, scheduler.streak);
+  assert.deepEqual(restored.recent, scheduler.recent);
   assert.deepEqual(restored.weights(), scheduler.weights());
+});
+
+test('a save written before the memory existed keeps its last event damped', () => {
+  const restored = new EventScheduler({ last: 'heal', streak: 3 });
+  assert.deepEqual(restored.recent, ['heal']);
+  close(restored.weights().heal, RECENT_WEIGHTS[0]);
+  close(sum(restored.weights()), 100);
 });
 
 const sum = (weights) => Object.values(weights).reduce((total, value) => total + Number(value), 0);
 
 test('a forced event fires next whatever the weights say', () => {
-  const scheduler = new EventScheduler({ last: 'heal', streak: 3 });
-  // Three rest stops in a row have damped heal out of the running entirely.
-  close(scheduler.weights().heal, 0);
+  const scheduler = new EventScheduler({ recent: ['heal', 'heal'] });
+  // Two rest stops running have damped heal down to a hundredth of the roll.
+  close(scheduler.weights().heal, RECENT_WEIGHTS[0]);
 
   scheduler.force('heal');
   assert.equal(scheduler.roll(new Rng(1)), 'heal');
-  // Recorded like any other roll, so the streak carries on damping it.
+  // Recorded like any other roll, so the memory keeps damping it.
   assert.equal(scheduler.last, 'heal');
-  assert.equal(scheduler.streak, 4);
 
   // And only the once.
   assert.notEqual(scheduler.roll(new Rng(1)), 'heal');

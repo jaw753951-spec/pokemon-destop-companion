@@ -14,7 +14,7 @@ import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { ACTOR_SCALE, COMPANION_X, groundY } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, groundY } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -180,10 +180,8 @@ function startBerry(session, spawnAt) {
     .map(([slug]) => slug);
   const berry = session.rng.pick(berries.length ? berries : ['oran-berry']);
 
-  // `oran-berry` is drawn by a tree sheet named `oran`.
-  const treeName = berry.replace(/-berry$/, '');
   const trees = gameData().actors?.props?.berryTrees ?? {};
-  const tree = trees[treeName] ? treeName : Object.keys(trees)[0];
+  const tree = treeFor(berry, trees);
 
   const state = {
     kind: 'berry',
@@ -213,6 +211,37 @@ function startBerry(session, spawnAt) {
     });
   }
   return state;
+}
+
+/**
+ * Which tree sheet a berry grows on.
+ *
+ * Emerald drew thirty berry trees; this game carries every berry the series
+ * has ever printed, so more than half of them — everything from Gen 4 on, and
+ * a handful of Hoenn's own — have no tree of their own to grow on. They used
+ * to fall back on `Object.keys(trees)[0]`, which is whichever sheet the asset
+ * pipeline happened to finish downloading first: every one of those berries
+ * grew on the same tree, and which tree that was changed between builds.
+ *
+ * Now a berry without a sheet is given one of the thirty by **its own name**,
+ * so the roadside has the variety it looks like it should and a Roseli Berry
+ * is on the same tree every time you meet one.
+ *
+ * @param {string} berry the item slug, e.g. `oran-berry`
+ * @param {Record<string, any>} trees the sheets the build produced
+ * @returns {string|null}
+ */
+export function treeFor(berry, trees) {
+  // `oran-berry` is drawn by a tree sheet named `oran`.
+  const own = berry.replace(/-berry$/, '');
+  if (trees[own]) return own;
+
+  const names = Object.keys(trees).sort();
+  if (names.length === 0) return null;
+
+  let hash = 0;
+  for (let index = 0; index < own.length; index++) hash = (hash * 31 + own.charCodeAt(index)) >>> 0;
+  return names[hash % names.length];
 }
 
 /**
@@ -271,6 +300,29 @@ const SUPPLIES = [
   { level: 60, item: 'hyper-potion' },
   { level: Infinity, item: 'max-potion' },
 ];
+
+/**
+ * How many balls a rest stop hands over, and which ones.
+ *
+ * Balls used to come only off the road, out of the item balls the pickup event
+ * spawns, which left a player who had spent theirs on a good catch with no way
+ * to get more except waiting for the right roll. A Pokémon Center is where you
+ * buy balls in every game in the series, so this is where they come from here.
+ *
+ * Which ball follows the companion's level for the same reason the potion
+ * does: a Poké Ball is what you throw at what you meet at level ten and a
+ * waste of a turn against what you meet at fifty.
+ *
+ * @type {Array<{level: number, item: string}>} highest level last
+ */
+const BALL_SUPPLIES = [
+  { level: 25, item: 'poke-ball' },
+  { level: 50, item: 'great-ball' },
+  { level: Infinity, item: 'ultra-ball' },
+];
+
+/** How many of that ball the stop hands over. */
+const BALL_SUPPLY_COUNT = 5;
 
 /** How long the companion stays inside, out of sight, being seen to. */
 const CENTER_STAY_MS = 5000;
@@ -372,13 +424,23 @@ function restAndResupply(session, app) {
   const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
   session.addItem(supply.item, SUPPLY_COUNT);
 
+  const balls = BALL_SUPPLIES.find((entry) => level < entry.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
+  session.addItem(balls.item, BALL_SUPPLY_COUNT);
+
   app.audio.playJingle(gameData().bgm.cues.heal ?? null);
   app.toast(
-    `${t('event.healed')}\n${t('event.supplied', {
-      name: localized(itemOf(supply.item)?.name, supply.item),
-      count: SUPPLY_COUNT,
-    })}`,
-    3200,
+    [
+      t('event.healed'),
+      t('event.supplied', {
+        name: localized(itemOf(supply.item)?.name, supply.item),
+        count: SUPPLY_COUNT,
+      }),
+      t('event.supplied', {
+        name: localized(itemOf(balls.item)?.name, balls.item),
+        count: BALL_SUPPLY_COUNT,
+      }),
+    ].join('\n'),
+    3600,
   );
 }
 
@@ -394,7 +456,7 @@ function startWild(session, spawnAt) {
     timer: 0,
     flash: 0,
     phaseDuration: 700,
-    prop: { kind: 'pokemon', sprite: null, frame: 'ripe' },
+    prop: { kind: 'pokemon', sprite: null, frame: 'ripe', pokemon: wild },
     carried: null,
     setup: { foes: [wild], trainer: null, leader: null },
     onArrive: (app) => {
@@ -529,7 +591,7 @@ function drawProp(context, state, screenX) {
   if (!prop?.sprite) return;
 
   if (prop.kind === 'berry-tree') {
-    drawBerryTree(context, prop, screenX);
+    drawBerryTree(context, prop, screenX, state.elapsed ?? 0);
     return;
   }
   if (prop.kind === 'ball') {
@@ -542,25 +604,55 @@ function drawProp(context, state, screenX) {
   }
 
   // A Pokémon or trainer waiting on the path, at the size the companion walks
-  // at so the two meet as equals rather than as a giant and a doll.
+  // at so the two meet as equals rather than as a giant and a doll. A wild
+  // Pokémon is sized off the dex like the companion is, so the Sableye in the
+  // road is the same Sableye that would be walking it.
   const sprite = /** @type {Sprite} */ (prop.sprite);
   sprite.draw(context, screenX, groundY(), {
     frame: sprite.frameAt(state.elapsed ?? 0),
-    scale: ACTOR_SCALE,
+    scale: prop.kind === 'pokemon' ? actorScale(sprite, prop.pokemon) : ACTOR_SCALE,
   });
 }
 
 /**
- * Berry sheets hold the tree's growth stages; the last is fruit-bearing and
- * the first is the bare plant left after a harvest.
+ * Which pair of frames a berry sheet's growth stages live on.
+ *
+ * Emerald's sheets are six 16x32 frames: two per stage, the pair being the
+ * sway the tree animates with. The stages, in order, are the grown tree, the
+ * tree in flower, and the tree in fruit — the two stages before those, the
+ * bare earth and the sprout, are shared sheets rather than the berry's own.
+ *
+ * Picking "the last frame" for a ripe tree and "the first" for a picked one
+ * happened to land on the right fruit frame, but it took the tree all the way
+ * back to a bare stalk the moment it was picked: the tree the companion had
+ * just walked up to vanished and left a twig. Naming the stages instead means
+ * a picked tree keeps its shape and loses only what was picked off it.
  */
-function drawBerryTree(context, prop, screenX) {
+const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
+
+/** How long a berry tree holds each of its two sway frames. */
+const BERRY_SWAY_MS = 380;
+
+/**
+ * Berry sheets hold the tree's growth stages; see {@link BERRY_STAGES}.
+ */
+function drawBerryTree(context, prop, screenX, elapsed = 0) {
   const { image, meta } = prop.sprite;
   const frameWidth = 16;
   const frameHeight = 32;
   const columns = Math.max(1, Math.floor(image.naturalWidth / frameWidth));
   const total = Math.max(1, meta?.frames ?? columns);
-  const index = prop.frame === 'ripe' ? total - 1 : 0;
+
+  // The build says which frames it found the fruit on; the table above is the
+  // answer for a manifest written before it did.
+  const ripe = Array.isArray(meta?.fruit) && meta.fruit.length ? meta.fruit : BERRY_STAGES.ripe;
+  const stage = prop.frame === 'ripe' ? ripe : BERRY_STAGES.bare;
+
+  const wanted = stage[Math.floor(elapsed / BERRY_SWAY_MS) % stage.length];
+  // A sheet the build cut differently — fewer frames than Emerald's six —
+  // falls back to its own last frame for a ripe tree and its first for a
+  // picked one, rather than reading off the end of the strip.
+  const index = wanted < total ? wanted : prop.frame === 'ripe' ? total - 1 : 0;
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;

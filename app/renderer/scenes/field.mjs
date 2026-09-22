@@ -6,14 +6,15 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { CLICK_EVENT_BONUS_MS, FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, HOLD_BOOST_RATE, HOLD_BOOST_WALK, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
 import {
-  ACTOR_SCALE,
+  actorHeight,
+  actorScale,
   COMPANION_X,
   drawBackground,
   drawStepDust,
@@ -24,6 +25,7 @@ import {
   WALK_SPEED,
 } from '../render/field.mjs';
 import { backdropForArea } from '../render/backdrop.mjs';
+import { createWeather, weatherLayerFor } from '../render/weather.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -67,15 +69,30 @@ export function fieldScene(session) {
    */
   let showActor = true;
 
+  /**
+   * The rain, snow or ash over this area, made fresh when the area changes so
+   * one place's sky never drifts into the next one's.
+   * @type {ReturnType<typeof createWeather>|null}
+   */
+  let weather = null;
+  let loadedWeather = /** @type {string|null|undefined} */ (undefined);
+
   let hud = /** @type {ReturnType<typeof createHud>|null} */ (null);
   /** @type {ReturnType<typeof createEventRunner>|null} */
   let events = null;
   /** @type {import('../core/app.mjs').App|null} */
   let host = null;
-  /** Clicks since the last frame: consumed one per event-second pulled in. */
-  let clicks = 0;
-  /** The overlay click listener this scene registered, removed on unmount. */
-  let onClick = null;
+  /**
+   * Whether the pointer is being held on the travelling view.
+   *
+   * The hurry-up is a live state rather than a bank of clicks: while it is
+   * true the walk and the event clock run fast, and the frame it goes false
+   * they are back to their ordinary pace with nothing carried over.
+   */
+  let boosting = false;
+  /** The overlay listeners this scene registered, removed on unmount. */
+  let onPointerDown = null;
+  let onPointerUp = null;
 
   /** Load whatever art the current area and companion need. */
   const refreshArt = (app) => {
@@ -94,6 +111,12 @@ export function fieldScene(session) {
           background = null;
         });
       app.audio.playMusic(session.area.music);
+    }
+
+    const sky = weatherLayerFor(session.area);
+    if (sky !== loadedWeather) {
+      loadedWeather = sky;
+      weather = sky ? createWeather(sky) : null;
     }
 
     const speciesId = spriteKey(session.active);
@@ -276,14 +299,32 @@ export function fieldScene(session) {
         onBattle: (setup) => startBattle(app, setup),
       });
 
-      // The stage is scaled, so the click's own coordinates are of no use
-      // here: it only has to say "the player asked for the next event",
-      // wherever on the view it landed. Menu clicks are filtered out by the
-      // paused flag they set — a settled pause is not a poke at the road.
-      onClick = () => {
-        if (!paused) clicks += 1;
+      // The stage is scaled, so the pointer's own coordinates are of no use
+      // here: holding it anywhere on the view says "get on with it", wherever
+      // on the view it landed. Menu presses are filtered out by the paused
+      // flag they set — a settled pause is not a poke at the road.
+      //
+      // Held rather than counted, and released rather than spent: a player
+      // who stops pressing gets the ordinary pace back on the very next frame,
+      // instead of the game still working through clicks banked a minute ago.
+      onPointerDown = (event) => {
+        if (paused) return;
+        if (/** @type {PointerEvent} */ (event).button !== 0) return;
+        boosting = true;
       };
-      document.getElementById('overlay')?.addEventListener('click', onClick);
+      // Every way a press can end, including the pointer leaving the window
+      // mid-press — a button released off-screen must not leave the walk
+      // running fast with nothing holding it.
+      onPointerUp = () => {
+        boosting = false;
+      };
+
+      const overlay = document.getElementById('overlay');
+      overlay?.addEventListener('pointerdown', onPointerDown);
+      for (const name of ['pointerup', 'pointercancel', 'pointerleave']) {
+        overlay?.addEventListener(name, onPointerUp);
+      }
+      window.addEventListener('blur', onPointerUp);
 
       refreshArt(app);
       hud.update(session);
@@ -291,8 +332,19 @@ export function fieldScene(session) {
     },
 
     unmount() {
-      if (onClick) document.getElementById('overlay')?.removeEventListener('click', onClick);
-      onClick = null;
+      const overlay = document.getElementById('overlay');
+      if (onPointerDown) overlay?.removeEventListener('pointerdown', onPointerDown);
+      if (onPointerUp) {
+        for (const name of ['pointerup', 'pointercancel', 'pointerleave']) {
+          overlay?.removeEventListener(name, onPointerUp);
+        }
+        window.removeEventListener('blur', onPointerUp);
+      }
+      onPointerDown = null;
+      onPointerUp = null;
+      boosting = false;
+      weather = null;
+      loadedWeather = undefined;
       hud = null;
       events = null;
       host = null;
@@ -301,19 +353,18 @@ export function fieldScene(session) {
     update(deltaMs, app) {
       if (paused) return;
 
-      // A click anywhere on the travelling view pulls the next event in: a
-      // click per half a second trimmed, which is what a player poking at the
-      // companion is asking for. Menus and battles sit above this scene, so a
-      // click on those never reaches here.
-      while (clicks > 0) {
-        clicks -= 1;
-        session.eventTimer = Math.max(0, session.eventTimer - CLICK_EVENT_BONUS_MS);
-      }
+      // Holding the pointer on the travelling view runs the clock fast, so the
+      // next event comes round sooner; the frame the pointer goes up this is 1
+      // again and the pace is back to normal, with nothing owed either way.
+      // Menus and battles sit above this scene, so a press on those never
+      // reaches here.
+      const boost = boosting ? HOLD_BOOST_RATE : 1;
 
       const walking = events?.walking ?? true;
-      if (walking) offset += (WALK_SPEED * deltaMs) / 1000;
+      const pace = boosting ? HOLD_BOOST_WALK : 1;
+      if (walking) offset += (WALK_SPEED * pace * deltaMs) / 1000;
 
-      const { rotateArea, autosave, event } = session.tick(deltaMs);
+      const { rotateArea, autosave, event } = session.tick(deltaMs, { eventRate: boost });
 
       if (rotateArea && !events?.busy) {
         session.rotateArea();
@@ -330,6 +381,7 @@ export function fieldScene(session) {
       }
 
       events?.update(deltaMs, offset, app);
+      weather?.update(deltaMs);
       refreshArt(app);
       hud?.update(session);
     },
@@ -339,19 +391,31 @@ export function fieldScene(session) {
         drawBackground(field, background, Math.round(offset));
         // The height the companion is actually drawn at, so a carried item
         // clears the head of a Wailord as surely as that of a Wurmple.
-        events?.render(field, offset, Math.round((companion?.height ?? 24) * ACTOR_SCALE));
+        events?.render(field, offset, actorHeight(companion, session.active));
 
         if (companion && showActor && !events?.hidesActor) {
           const moving = !paused && (events?.walking ?? true);
-          const walk = { x: COMPANION_X, y: groundY(), distance: offset, moving };
+          const walk = {
+            x: COMPANION_X,
+            y: groundY(),
+            distance: offset,
+            moving,
+            scale: actorScale(companion, session.active),
+          };
           drawStepDust(field, walk);
           drawWalker(field, companion, walk);
         }
+
+        // Over everything, because it is between the player and the place.
+        weather?.draw(field);
       });
     },
 
     setPaused(value) {
       paused = value;
+      // Whatever was holding the walk fast is not holding it any more: a menu
+      // opening over the road ends the hurry-up along with everything else.
+      if (value) boosting = false;
     },
 
     get offset() {

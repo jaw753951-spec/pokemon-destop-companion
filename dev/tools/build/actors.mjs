@@ -173,14 +173,25 @@ async function buildProps(assetDir, pool, log) {
         });
         if (!source) return;
         const sheet = keyed(decodePng(source));
-        // A berry sheet holds the tree's growth stages as 16x32 frames; the
-        // last one is the ripe tree the harvest event picks from.
-        const frameCount = frameLayout(sheet, 16, 32).count;
+        // A berry sheet holds the tree's growth stages as 16x32 frames: two
+        // per stage, for the grown tree, the tree in flower and the tree in
+        // fruit. See BERRY_STAGES in the field-events scene, which reads them.
+        const layout = frameLayout(sheet, 16, 32);
         await writeOut(
           join(assetDir, 'props', 'berry-trees', `${name}.png`),
           encodePng(sheet.width, sheet.height, sheet.data),
         );
-        out.berryTrees[name] = { width: sheet.width, height: sheet.height, frames: frameCount };
+        out.berryTrees[name] = {
+          width: sheet.width,
+          height: sheet.height,
+          frames: layout.count,
+          // What the frames are, checked rather than assumed: a sheet the
+          // decompilation cuts differently, or one whose fruit stage is the
+          // same picture as its flowering stage — a tree with no berries on
+          // it — is reported instead of shipped as a berry tree that is bare
+          // when the companion walks up to pick from it.
+          fruit: fruitFrames(sheet, layout),
+        };
       }),
     ),
     ...[...STAGE_SHEETS].map((name) =>
@@ -207,12 +218,60 @@ async function buildProps(assetDir, pool, log) {
 
   out.center = await buildPokemonCenter(assetDir, pool);
 
+  const bare = Object.entries(out.berryTrees)
+    .filter(([, tree]) => !tree.fruit)
+    .map(([name]) => name);
   log(
     `props: ${Object.keys(out.berryTrees).length} berry trees, ${Object.keys(out.stages).length} growth stages` +
       `${out.center ? ', a Pokémon Center' : ''}`,
   );
+  if (bare.length) log(`  berry trees with nothing on them: ${bare.join(', ')}`);
   return out;
 }
+
+/**
+ * Which frames of a berry sheet are the tree in fruit, or null if none are.
+ *
+ * Emerald lays a berry sheet out as three two-frame stages — grown, flowering,
+ * fruiting — and the renderer needs the last pair. "The last two frames" is
+ * only true while a sheet has exactly six, and "it has fruit on it" is not
+ * true at all unless the fruiting frames differ from the flowering ones. Both
+ * are checked here, once, at build time, so a berry tree that would be drawn
+ * bare is a line in the build log rather than something a player finds.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet
+ * @param {ReturnType<typeof frameLayout>} layout
+ * @returns {[number, number]|null}
+ */
+function fruitFrames(sheet, layout) {
+  if (layout.count < BERRY_STAGE_FRAMES * 3) return null;
+
+  const fruit = /** @type {[number, number]} */ ([4, 5]);
+  const flowering = [2, 3];
+  // Every stage is a different drawing of the tree; a fruiting frame that is
+  // pixel-for-pixel its flowering frame means the fruit was never drawn.
+  const differs = fruit.some((frame, index) => !sameFrame(sheet, layout, frame, flowering[index]));
+  return differs ? fruit : null;
+}
+
+/**
+ * @param {import('../lib/image.mjs').Raster} sheet
+ * @param {ReturnType<typeof frameLayout>} layout
+ * @param {number} a
+ * @param {number} b
+ */
+function sameFrame(sheet, layout, a, b) {
+  const left = cropFrame(sheet, layout, a);
+  const right = cropFrame(sheet, layout, b);
+  if (left.width !== right.width || left.height !== right.height) return false;
+  for (let index = 0; index < left.data.length; index++) {
+    if (left.data[index] !== right.data[index]) return false;
+  }
+  return true;
+}
+
+/** How many animation frames a berry tree's growth stage is drawn in. */
+const BERRY_STAGE_FRAMES = 2;
 
 /**
  * How a sheet is cut into frames. Decomp sheets are row-major: a sheet wider

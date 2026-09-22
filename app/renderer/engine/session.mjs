@@ -10,7 +10,7 @@ import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
-import { fullyHeal } from './pokemon.mjs';
+import { ensureAttack, fullyHeal } from './pokemon.mjs';
 
 export class Session {
   /**
@@ -23,6 +23,14 @@ export class Session {
     this.active = save.party.active;
     /** @type {Array<import('./pokemon.mjs').Pokemon|null>} */
     this.box = save.party.box ?? [];
+
+    // A Pokémon with nothing but status moves cannot win a fight it is left to
+    // run on its own, and saves written before that was guaranteed are full of
+    // them. Every Pokémon the save carries is given something that hits, on
+    // the way in, rather than finding out mid-battle.
+    for (const pokemon of [this.active, ...this.box]) {
+      if (pokemon) ensureAttack(pokemon);
+    }
     /**
      * The bag, less anything the game no longer carries: a save written before
      * an item was found to have no effect here would otherwise keep it for
@@ -78,14 +86,21 @@ export class Session {
   /**
    * Advance the timers that run while the companion is travelling.
    *
+   * `eventRate` is how fast the event clock runs compared with everything
+   * else: the field passes the hurry-up the player is holding down, and
+   * passes 1 again the moment they let go. Only the event clock answers it —
+   * the area rotation, the autosave and the playtime are the run's own pace
+   * and are not something a held pointer should be able to wind on.
+   *
    * @param {number} deltaMs
+   * @param {{eventRate?: number}} [options]
    * @returns {{rotateArea: boolean, autosave: boolean, event: boolean}}
    */
-  tick(deltaMs) {
+  tick(deltaMs, { eventRate = 1 } = {}) {
     this.playtime += deltaMs;
     this.areaTimer -= deltaMs;
     this.autosaveTimer -= deltaMs;
-    this.eventTimer -= deltaMs;
+    this.eventTimer -= deltaMs * Math.max(1, eventRate);
 
     const rotateArea = this.areaTimer <= 0;
     if (rotateArea) this.areaTimer = this.rollAreaTimer();

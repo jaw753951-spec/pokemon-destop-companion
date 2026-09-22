@@ -8,11 +8,11 @@
 import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
-import { artOf, gameData, speciesOf } from '../core/data.mjs';
+import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
-import { Battler, fitScale } from '../render/battler.mjs';
+import { Battler, battlerArt, battlerScale } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
 
@@ -43,7 +43,7 @@ export function captureScene({ session, target, onFinish }) {
     keepBelow: true,
 
     mount(app) {
-      const art = artOf(target, 'front');
+      const art = battlerArt(target);
       if (art) {
         loadSprite(art.path, art.meta).then((sprite) => {
           // Field coordinates, so the target is the size it was on the path.
@@ -54,8 +54,10 @@ export function captureScene({ session, target, onFinish }) {
             y,
             facing: -1,
             // Clear of the name above it and the balls below, whatever size the
-            // species is drawn at.
-            scale: fitScale(sprite, { width: FIELD_WIDTH - 24, height: y - 14 }, 1),
+            // species is drawn at — the same box icon the fight was drawn in,
+            // so the Pokémon being thrown at is the one that was standing
+            // there a second ago.
+            scale: battlerScale(sprite, target, { width: FIELD_WIDTH - 24, height: y - 14 }),
           });
         });
       }

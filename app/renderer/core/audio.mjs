@@ -116,7 +116,12 @@ export class AudioEngine {
    * music with two seconds of silence afterwards.
    *
    * Scheduling reuses the music machinery, but on a private `current` that
-   * clears itself at the end of the song instead of looping.
+   * clears itself at the end of the song instead of looping — and, crucially,
+   * one that a change of music does not clear. A victory fanfare is played the
+   * instant a battle ends, which is the same instant the field asks for its
+   * area music back; `stopMusic` used to take the jingle down with the track
+   * it was replacing, so the fanfare stopped a few notes in. Music and jingles
+   * are now stopped separately, and only the music is stopped here.
    *
    * @param {string|null} name
    */
@@ -146,7 +151,15 @@ export class AudioEngine {
     this.scheduleJingle();
   }
 
-  /** Queue the jingle's notes once through, then stop scheduling. */
+  /**
+   * Queue the jingle's notes once through, then stop scheduling.
+   *
+   * Exactly one pass over the song, ever: the cursors only move forwards and
+   * the origin never advances, so however many ticks it takes to get through a
+   * fanfare it is still the one fanfare. The loop that used to sit here
+   * advanced the origin by a whole song length whenever a tick ran out of
+   * look-ahead, which is how a fanfare could come back for a second round.
+   */
   scheduleJingle() {
     const jingle = this.jingle;
     if (!jingle || !this.context || !this.effectGain) return;
@@ -155,34 +168,31 @@ export class AudioEngine {
     const end = jingle.startedAt + song.duration;
     let started = 0;
 
-    for (let pass = 0; pass < 4 && started < MAX_NOTES_PER_TICK; pass++) {
-      const origin = jingle.startedAt + pass * song.duration;
-      if (origin > horizon) break;
-      song.tracks.forEach((track, index) => {
-        while (cursors[index] < track.notes.length && started < MAX_NOTES_PER_TICK) {
-          const note = track.notes[cursors[index]];
-          const when = origin + note.t;
-          if (when > horizon) return;
-          this.playNote(track.program, note, Math.max(when, this.context.currentTime));
-          cursors[index]++;
-          started++;
-        }
-      });
-    }
+    song.tracks.forEach((track, index) => {
+      while (cursors[index] < track.notes.length && started < MAX_NOTES_PER_TICK) {
+        const note = track.notes[cursors[index]];
+        const when = jingle.startedAt + note.t;
+        if (when > horizon) return;
+        this.playNote(track.program, note, Math.max(when, this.context.currentTime), this.effectGain);
+        cursors[index]++;
+        started++;
+      }
+    });
 
-    // One pass is the whole jingle; past its end there is nothing to schedule
-    // and the private player stands down.
-    if (this.context.currentTime > end + 0.2) {
-      if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
-      this.jingleTimer = undefined;
-      this.jingle = null;
-    }
+    // Past the end of that one pass there is nothing left to schedule and the
+    // private player stands down.
+    if (this.context.currentTime > end + 0.2) this.stopJingle();
   }
 
+  /** Stop the looping music, leaving any fanfare over it to finish. */
   stopMusic() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
     this.current = null;
+  }
+
+  /** Stop scheduling the fanfare. Notes already queued still sound. */
+  stopJingle() {
     if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
     this.jingleTimer = undefined;
     this.jingle = null;
@@ -229,13 +239,17 @@ export class AudioEngine {
    * @param {number} program General MIDI program, 128 for percussion
    * @param {{t: number, d: number, n: number, v: number}} note
    * @param {number} when
+   * @param {GainNode|null} [output] the channel to voice it on, music by
+   *   default — a fanfare asks for the effects channel, which is what makes it
+   *   audible over music the player has turned down
    */
-  playNote(program, note, when) {
+  playNote(program, note, when, output = null) {
     if (!this.context || !this.musicGain) return;
+    const sink = output ?? this.musicGain;
     const voice = voiceFor(program);
     const duration = Math.min(note.d, 4);
     const gain = this.context.createGain();
-    gain.connect(this.musicGain);
+    gain.connect(sink);
 
     /** @type {AudioScheduledSourceNode} */
     let source;

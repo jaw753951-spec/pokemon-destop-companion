@@ -9,7 +9,7 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { useItem } from '../engine/items.mjs';
+import { holdItem, isHoldable, useItem } from '../engine/items.mjs';
 import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
@@ -202,12 +202,23 @@ async function openMenu(app, session, slug, inspector, refresh) {
 
   const choice = await chooseAction(app, localized(item.name, slug), [
     { value: 'use', label: t('items.use') },
+    // Handing a berry over to be carried is its own action, beside using it:
+    // the two are different intentions and a berry answers to both.
+    ...(isHoldable(slug) ? [{ value: 'hold', label: t('items.hold') }] : []),
     { value: 'inspect', label: t('items.inspect') },
     { value: 'toss', label: t('items.toss'), danger: true },
   ]);
 
   if (choice === 'inspect') {
     showInspector(inspector, slug);
+    return;
+  }
+
+  if (choice === 'hold') {
+    const result = holdItem(session, slug);
+    app.toast(result.message);
+    app.audio.blip(result.ok ? 'confirm' : 'error');
+    if (result.used) refresh();
     return;
   }
 
@@ -222,10 +233,10 @@ async function openMenu(app, session, slug, inspector, refresh) {
   if (choice === 'use') {
     const result = useItem(session, slug);
     app.toast(result.message ?? t('items.cannotUse'));
-    if (result.used) {
-      app.audio.blip(result.ok ? 'confirm' : 'error');
-      refresh();
-    }
+    // The blip answers every press, not only the ones that changed something:
+    // silence after a refused use reads as a button that did not register.
+    app.audio.blip(result.ok ? 'confirm' : 'error');
+    if (result.used) refresh();
   }
 }
 

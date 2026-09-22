@@ -9,14 +9,14 @@ import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared
 import { weatherForArea } from '../../shared/area-tags.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
-import { abilityOf, artOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
+import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
 import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
-import { Battler, fitScale } from '../render/battler.mjs';
+import { Battler, battlerArt, battlerScale, FOE_DEPTH } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
@@ -131,7 +131,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
   for (const foe of foes) session.markSeen(foe.speciesId);
 
   /**
-   * Put a battle sprite on a side, whichever of back and front the data had.
+   * Put a battle sprite on a side, from the box icon both sides now fight in.
    *
    * Both sides go through the same path — keyed on the sprite key, so a
    * Pokémon whose shape changes mid-fight is reloaded like a new picture
@@ -148,9 +148,7 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
     if (side === 'player') loadedPlayerId = key;
     else loadedFoeId = key;
 
-    const back = side === 'player' ? artOf(pokemon, 'back') : null;
-    const front = artOf(pokemon, 'front');
-    const art = back ?? front;
+    const art = battlerArt(pokemon);
     if (!art) return;
     loadSprite(art.path, art.meta).then((sprite) => {
       const latest = side === 'player' ? loadedPlayerId : loadedFoeId;
@@ -162,20 +160,18 @@ export function battleScene({ session, foes, trainer = null, backdrop = null, mu
               x: FOE_SPOT.x,
               y: FOE_SPOT.y,
               facing: -1,
-              // The BW set draws backs and fronts at much the same size (mean
-              // height 75 against 78), so the foe is shrunk to put it up the
-              // field. Without this the two sit on the same plane and the
-              // battle reads flat.
-              scale: fitScale(sprite, FOE_ROOM, 0.8),
+              // Drawn smaller to put it up the field: without a depth cue the
+              // two sit on the same plane and the battle reads flat.
+              scale: battlerScale(sprite, pokemon, FOE_ROOM, FOE_DEPTH),
             }
           : {
               x: PLAYER_SPOT.x,
               y: PLAYER_SPOT.y,
               facing: 1,
-              scale: fitScale(sprite, PLAYER_ROOM, 1),
-              // No back art: the front sprite stands in, mirrored so the
-              // companion still looks up the field at what it is fighting.
-              flip: Boolean(!back),
+              scale: battlerScale(sprite, pokemon, PLAYER_ROOM),
+              // The icon faces the viewer's left; the companion stands on the
+              // left, so it is mirrored to look up the field at its opponent.
+              flip: true,
             }),
       });
       if (side === 'player') playerBattler = battler;

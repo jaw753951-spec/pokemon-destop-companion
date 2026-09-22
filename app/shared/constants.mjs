@@ -35,13 +35,42 @@ export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 export const EVENT_INTERVAL_MS = 60 * 1000;
 
 /**
- * How much a click on the travelling view pulls the next event in.
+ * How much faster the travelling view runs while the pointer is held down.
  *
- * One event a minute is the idle pace; a player poking at the companion is
- * asking it to get on with it, so each click shoulders half a second off the
- * wait — a handful of clicks visibly matters without ever emptying it.
+ * One event a minute is the idle pace; a player holding the pointer on the
+ * companion is asking it to get on with it. Holding runs the walk and the
+ * event clock at this multiple, and **letting go stops it on the spot** —
+ * nothing is banked, so the pace a player sees is always the one their hand is
+ * asking for. The older behaviour shouldered half a second off the wait per
+ * click, which kept hurrying the game along long after the clicking stopped.
  */
-export const CLICK_EVENT_BONUS_MS = 500;
+export const HOLD_BOOST_RATE = 6;
+
+/**
+ * How fast the companion walks while the pointer is held, as a multiple of its
+ * ordinary pace. Lower than the event clock's: the point is to read as a jog,
+ * not to tear the map past the window.
+ */
+export const HOLD_BOOST_WALK = 2.5;
+
+/**
+ * Damage the player's own Pokémon takes, as a share of what the formula says.
+ *
+ * The companion fights on its own for hours at a time with nobody to switch it
+ * out, so it is given a standing thirty per cent off everything aimed at it.
+ * What it deals is untouched — this is armour, not strength.
+ */
+export const COMPANION_DAMAGE_TAKEN = 0.7;
+
+/**
+ * And what a hit it is weak to costs it on top of that.
+ *
+ * Flat damage reduction makes type matchups matter less, so the thing the
+ * matchup is *about* is sharpened to compensate: a super-effective hit lands
+ * half again as hard on the companion. Resisted and neutral hits are unchanged
+ * beyond the reduction above.
+ */
+export const COMPANION_WEAKNESS_TAKEN = 1.5;
 
 /**
  * How long the companion stays in one area before moving on: ten minutes,

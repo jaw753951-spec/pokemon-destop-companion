@@ -9,6 +9,9 @@
  * and a displaced position.
  */
 
+import { artOf } from '../core/data.mjs';
+import { actorScale } from './field.mjs';
+
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
 
 /**
@@ -27,6 +30,62 @@
 export function fitScale(sprite, room, preferred) {
   const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
   return Math.min(preferred, fits);
+}
+
+/**
+ * The art a Pokémon is drawn from in a battle: its **box icon**, the same
+ * picture it walks the field and fills a box slot with.
+ *
+ * The game used to fight with the front and back sprites, which come from a
+ * different set entirely — Showdown's animations where there are any, and the
+ * modern three-dimensional renders where there are not. Those renders are lit,
+ * shaded and posed like models rather than drawn like sprites, so a battle
+ * looked like a different game from the walk that led into it, and which of
+ * the two a player got depended on nothing more meaningful than how new the
+ * species was. One set of art for the whole game is worth more than the best
+ * picture of each Pokémon taken separately.
+ *
+ * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ */
+export function battlerArt(pokemon) {
+  const art = artOf(pokemon, 'icon');
+  if (!art) return null;
+  // Box icons are a single still drawing; the walk animates them by moving
+  // them, and a battle by the poses above.
+  return { path: art.path, meta: { ...art.meta, frames: 1, delay: 1000 } };
+}
+
+/**
+ * How much bigger than its field size a Pokémon is drawn in a battle.
+ *
+ * A battle is a close-up: the same sprite that is ankle-high on the road fills
+ * a good part of the screen here, which is exactly what the cartridges do when
+ * they cut from the overworld to a fight.
+ */
+export const BATTLE_ZOOM = 2.2;
+
+/**
+ * And how much smaller the far side is drawn, which is the only depth cue a
+ * flat backdrop has. The foe stands up the field; the companion is nearer the
+ * camera than it is.
+ */
+export const FOE_DEPTH = 0.8;
+
+/**
+ * What to draw a battler at: its own field scale, brought up to battle size,
+ * pushed back if it is the far one, and shrunk to fit if that overruns.
+ *
+ * Because it starts from the field's own {@link actorScale}, the whole roster
+ * keeps one scale in battle too — a Sableye is a Sableye's size next to a
+ * Snorlax rather than whatever size its icon happened to be drawn at.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {{speciesId: number}|null|undefined} pokemon
+ * @param {{width: number, height: number}} room
+ * @param {number} [depth]
+ */
+export function battlerScale(sprite, pokemon, room, depth = 1) {
+  return fitScale(sprite, room, actorScale(sprite, pokemon) * BATTLE_ZOOM * depth);
 }
 
 /** How long each pose runs before falling back to idle. */
@@ -52,12 +111,11 @@ export class Battler {
     /**
      * Whether the art has to be mirrored to look the way this side faces.
      *
-     * The two sprite sets already point at each other across the field: a
-     * front sprite is drawn three-quarters towards the viewer's left, where
-     * the player's Pokémon stands, and a back sprite shows the companion from
-     * behind facing right, where the foe stands. So neither is mirrored — only
-     * the stand-in front sprite used for a species with no back art, which
-     * would otherwise have the companion looking over its shoulder.
+     * A box icon is drawn three-quarters on, turned towards the viewer's left
+     * — the same drawing the field walks with. The foe stands on the right and
+     * is already looking the right way; the companion stands on the left and
+     * is mirrored, so the two face each other across the backdrop exactly as
+     * the companion faces down the road it walks.
      */
     this.flip = flip;
 

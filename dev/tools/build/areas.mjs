@@ -8,7 +8,7 @@ import { fetchJson, writeOut } from '../lib/http.mjs';
 import { encodePng } from '../lib/png.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
-import { crop, gradeTime, makeSeamless, pickWalkableBand, pickWalkLane, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
+import { crop, gradeTime, makeSeamless, pickWalkPath, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
 import { nameBundle } from '../lib/poke.mjs';
 import { AREAS, BACKGROUND_HEIGHT, EMERALD, FIELD_WIDTH, POKEAPI } from '../sources.mjs';
 
@@ -29,13 +29,22 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     // Two of the thirty maps are shorter than the window; they give what they
     // have and the field fills the remainder from their own top row.
     const bandBlocks = Math.min(wantedBlocks, layout.height);
-    const bandRow = pickWalkableBand(blockdata, layout.width, layout.height, bandBlocks);
-    const band = crop(rendered, 0, bandRow * METATILE_SIZE, rendered.width, bandBlocks * METATILE_SIZE);
+    // The walk decides the crop, rather than the crop deciding the walk: the
+    // strip is cut to a stretch of map the companion can cross end to end, so
+    // the loop it walks has no hillside or tree in it at any point. See
+    // `pickWalkPath` for why a whole-width strip could not manage that.
+    const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks);
+    const band = crop(
+      rendered,
+      path.column * METATILE_SIZE,
+      path.bandRow * METATILE_SIZE,
+      path.columns * METATILE_SIZE,
+      bandBlocks * METATILE_SIZE,
+    );
     const strip = repeatToWidth(makeSeamless(band), FIELD_WIDTH * 2);
     // Where the companion's feet go within the strip: the bottom edge of the
     // lane whose blocks are clear, rather than a fixed fraction of the window.
-    const laneRow = pickWalkLane(blockdata, layout.width, bandRow, bandBlocks);
-    const groundY = Math.min(strip.height, (laneRow - bandRow + 1) * METATILE_SIZE);
+    const groundY = Math.min(strip.height, (path.laneRow - path.bandRow + 1) * METATILE_SIZE);
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
@@ -60,6 +69,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
 
     log(
       `area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  ground=${groundY}  ` +
+        `walk=${path.columns} blocks @row ${path.laneRow} (headroom ${path.clearance})  ` +
         `music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}`,
     );
   }

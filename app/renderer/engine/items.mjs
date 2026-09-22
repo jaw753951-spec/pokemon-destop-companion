@@ -41,9 +41,18 @@ export function useItem(session, slug) {
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
   // Rare Candy — does it here, whichever pocket it sits in.
   if (item.use) {
-    if (!applyUse(pokemon, item)) return { used: false, ok: false, message: t('items.cannotUse') };
-    session.removeItem(slug);
-    return { used: true, ok: true, message: t('items.used', { name: label }) };
+    if (applyUse(pokemon, item)) {
+      session.removeItem(slug);
+      return { used: true, ok: true, message: t('items.used', { name: label }) };
+    }
+    // A berry is both: something that can be eaten now and something that is
+    // usually meant to be carried until it is needed. Using one on a Pokémon
+    // at full health used to stop dead at "that cannot be used right now",
+    // with no way to hand it over at all — so an item that can be held falls
+    // through to being held instead of failing.
+    if (!item.attributes.includes('holdable')) {
+      return { used: false, ok: false, message: t('items.cannotUse') };
+    }
   }
 
   // An evolution stone, if this Pokémon is waiting on one.
@@ -64,15 +73,44 @@ export function useItem(session, slug) {
   }
 
   // Anything holdable becomes the held item.
-  if (item.attributes.includes('holdable')) {
-    if (pokemon.heldItem) session.addItem(pokemon.heldItem);
-    session.removeItem(slug);
-    pokemon.heldItem = slug;
-    return { used: true, ok: true, message: t('items.used', { name: label }) };
-  }
+  if (item.attributes.includes('holdable')) return holdItem(session, slug);
 
   return { used: false, ok: false, message: t('items.cannotUse') };
 }
+
+/**
+ * Put an item in the travelling Pokémon's hand, whatever else it could do.
+ *
+ * Separate from {@link useItem} because the two are different intentions: a
+ * Sitrus Berry used is eaten now, and a Sitrus Berry held is kept for the
+ * moment the battle needs it. Whatever it was already holding goes back in the
+ * bag rather than being thrown away.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} slug
+ * @returns {{used: boolean, ok: boolean, message: string}}
+ */
+export function holdItem(session, slug) {
+  const item = itemOf(slug);
+  const pokemon = session.active;
+  if (!item || !pokemon) return { used: false, ok: false, message: t('items.cannotUse') };
+  if (!item.attributes.includes('holdable')) {
+    return { used: false, ok: false, message: t('items.cannotHold') };
+  }
+  if (!session.countOf(slug)) return { used: false, ok: false, message: t('items.cannotUse') };
+
+  if (pokemon.heldItem === slug) {
+    return { used: false, ok: false, message: t('items.alreadyHeld', { name: localized(item.name, slug) }) };
+  }
+
+  if (pokemon.heldItem) session.addItem(pokemon.heldItem);
+  session.removeItem(slug);
+  pokemon.heldItem = slug;
+  return { used: true, ok: true, message: t('items.held', { name: localized(item.name, slug) }) };
+}
+
+/** Whether an item is one a Pokémon could be given to carry. */
+export const isHoldable = (slug) => Boolean(itemOf(slug)?.attributes?.includes('holdable'));
 
 /**
  * Apply an item's use effect: what its own effect text says it does.
