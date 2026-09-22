@@ -242,29 +242,38 @@ function cropFrame(sheet, layout, index) {
 /** How many blocks square the Center is cut out as. */
 const CENTER_BLOCKS = 5;
 
-
+/**
+ * How many times a metatile has to appear outside the crop before its colours
+ * are taken to be the ground's.
+ *
+ * A town's grass and paving are laid down all over it; a building stands in
+ * one place. A handful of uses is enough to be sure — and being sure matters,
+ * because these blocks are what the ground's palette is read from.
+ */
+const GROUND_REPEATS = 4;
 
 /**
  * Rub the town off the building.
  *
  * A Center is part of the town it stands in — drawn from the same metatiles as
- * the road outside it — so cutting one out brings the grass and the path
- * around it along, and the rest stop then arrives on the companion's road
- * standing in a square of somebody else's lawn.
+ * the road outside it — so cutting one out brings the grass and the path along
+ * with it, and the rest stop then arrives on the companion's road standing in
+ * a square of somebody else's lawn.
  *
- * There is no list saying which blocks are the building, and there does not
- * need to be. A Pokémon Center stands in one place: the metatiles that make up
- * its roof and its walls are used *there and nowhere else in the town*, while
- * the grass and the paving it stands on are laid down all over. So a block
- * that also appears outside the crop is scenery — and one that only appears
- * inside it is the building, however ordinary it looks.
+ * Two passes, because the town and the building are not divided along block
+ * lines. The roof's corners are cut diagonally and the metatiles they sit in
+ * hold grass *behind* the slope; the block under the doorstep holds wall and
+ * lawn together. Clearing whole blocks leaves the first and eats the second.
  *
- * Reaching in from the edge matters too. A wall block the town happens to use
- * elsewhere — a shadow, a step — would otherwise be punched out of the middle
- * of the building; enclosed by the rest of it, the flood never reaches it.
+ * So: the blocks the town repeats all over are unambiguously ground, and they
+ * are cleared outright and their colours noted. Then everything of those
+ * colours that the outside can still reach goes too, whichever block it is
+ * sitting in — which is the grass behind the roof and beside the step, and
+ * nothing of the building, because a building is not the colour of a lawn.
  *
  * @param {import('../lib/image.mjs').Raster} building the cropped picture
  * @param {{blockdata: Buffer, widthInBlocks: number, fromX: number, fromY: number, blocks: number}} where
+ * @returns {number} how many whole blocks were cleared
  */
 export function clearScenery(building, { blockdata, widthInBlocks, fromX, fromY, blocks }) {
   /** The metatile at a place on the town's own grid. */
@@ -274,46 +283,115 @@ export function clearScenery(building, { blockdata, widthInBlocks, fromX, fromY,
     return blockdata.readUInt16LE(offset) & 0x3ff;
   };
 
-  /** Every metatile the town uses anywhere outside the crop. */
-  const elsewhere = new Set();
+  /** How often each metatile is used anywhere outside the crop. */
+  const outside = new Map();
   const height = Math.floor(blockdata.length / 2 / widthInBlocks);
   for (let by = 0; by < height; by++) {
     for (let bx = 0; bx < widthInBlocks; bx++) {
       const inside = bx >= fromX && bx < fromX + blocks && by >= fromY && by < fromY + blocks;
       if (inside) continue;
       const id = at(bx, by);
-      if (id !== null) elsewhere.add(id);
+      if (id !== null) outside.set(id, (outside.get(id) ?? 0) + 1);
     }
   }
 
-  /** Whether the block at this place in the crop is part of the town at large. */
-  const isScenery = (bx, by) => {
+  /** Whether this place in the crop is a block the town lays down all over. */
+  const isGround = (bx, by) => {
     const id = at(fromX + bx, fromY + by);
-    return id === null || elsewhere.has(id);
+    return id === null || (outside.get(id) ?? 0) >= GROUND_REPEATS;
   };
 
-  // Flood in from every edge of the crop, across scenery only.
+  // Flood in from every edge of the crop, across ground only. Reaching in from
+  // the edge is what protects a ground-looking block walled in by the
+  // building: enclosed by it, the flood never arrives.
   const seen = new Set();
   /** @type {Array<[number, number]>} */
   const queue = [];
   for (let i = 0; i < blocks; i++) {
     queue.push([i, 0], [i, blocks - 1], [0, i], [blocks - 1, i]);
   }
-
   while (queue.length) {
     const [bx, by] = queue.pop();
     if (bx < 0 || by < 0 || bx >= blocks || by >= blocks) continue;
     const key = by * blocks + bx;
     if (seen.has(key)) continue;
-    if (!isScenery(bx, by)) continue;
+    if (!isGround(bx, by)) continue;
     seen.add(key);
     queue.push([bx + 1, by], [bx - 1, by], [bx, by + 1], [bx, by - 1]);
   }
 
+  /** The colours those blocks are made of: the ground's own palette. */
+  const palette = new Set();
   for (const key of seen) {
-    clearBlock(building, (key % blocks) * METATILE_SIZE, Math.floor(key / blocks) * METATILE_SIZE);
+    const left = (key % blocks) * METATILE_SIZE;
+    const top = Math.floor(key / blocks) * METATILE_SIZE;
+    for (let y = top; y < Math.min(building.height, top + METATILE_SIZE); y++) {
+      for (let x = left; x < Math.min(building.width, left + METATILE_SIZE); x++) {
+        palette.add(colourAt(building, x, y));
+      }
+    }
+    clearBlock(building, left, top);
   }
+
+  bleedGround(building, palette);
   return seen.size;
+}
+
+/**
+ * Take the ground's colours away from wherever the outside can still reach
+ * them — the grass behind a diagonal roof, the lawn beside a doorstep.
+ *
+ * A flood rather than a sweep: a green pixel the building encloses is part of
+ * the building, whatever it is the colour of.
+ *
+ * @param {import('../lib/image.mjs').Raster} picture
+ * @param {Set<number>} palette
+ */
+function bleedGround(picture, palette) {
+  if (palette.size === 0) return;
+  const { width, height } = picture;
+  const seen = new Uint8Array(width * height);
+  /** @type {number[]} */
+  const queue = [];
+
+  // Every pixel already gone is a way in, and so is the border itself.
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const index = y * width + x;
+      const edge = x === 0 || y === 0 || x === width - 1 || y === height - 1;
+      if (picture.data[index * 4 + 3] === 0 || (edge && palette.has(colourAt(picture, x, y)))) {
+        seen[index] = 1;
+        queue.push(index);
+      }
+    }
+  }
+
+  while (queue.length) {
+    const index = queue.pop();
+    const x = index % width;
+    const y = (index - x) / width;
+    picture.data[index * 4 + 3] = 0;
+
+    for (const [nx, ny] of [[x + 1, y], [x - 1, y], [x, y + 1], [x, y - 1]]) {
+      if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+      const next = ny * width + nx;
+      if (seen[next]) continue;
+      if (picture.data[next * 4 + 3] !== 0 && !palette.has(colourAt(picture, nx, ny))) continue;
+      seen[next] = 1;
+      queue.push(next);
+    }
+  }
+}
+
+/**
+ * One pixel's colour as a single number, so a set can hold it.
+ * @param {import('../lib/image.mjs').Raster} picture
+ * @param {number} x
+ * @param {number} y
+ */
+function colourAt(picture, x, y) {
+  const offset = (y * picture.width + x) * 4;
+  return (picture.data[offset] << 16) | (picture.data[offset + 1] << 8) | picture.data[offset + 2];
 }
 
 /**

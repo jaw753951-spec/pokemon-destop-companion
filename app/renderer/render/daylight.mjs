@@ -15,20 +15,28 @@
 import { FIELD_HEIGHT, FIELD_WIDTH } from '../../shared/constants.mjs';
 
 /**
- * The wash for each band, chosen to sit alongside `TIME_GRADES` in the
- * pipeline rather than to reproduce it exactly: a multiply-and-add over every
- * channel is not something a single fill can do, but the colour it leaves is.
+ * The wash for each band.
  *
- * `day` is nothing at all — the unmodified palette is the daytime one.
+ * These are not guesses. The pipeline grades a background by multiplying each
+ * channel and adding to it — `out = m·c + k`, the `TIME_GRADES` table in
+ * `dev/tools/lib/image.mjs` — and a single fill can only do `out = (1-a)·c +
+ * a·t`. The two agree on a straight line through the whole range of a channel
+ * if `a` and `t` are chosen for it, so they were: the alpha was searched and
+ * the colour solved by least squares against the pipeline's own numbers over
+ * every value a pixel can hold. The fits land within a few units of 255 —
+ * night, the harshest of them, inside eleven.
+ *
+ * `day` is nothing at all: the unmodified palette is the daytime one, and the
+ * fit agrees, coming out as a neutral grey at two per cent.
  *
  * @type {Record<string, {colour: string, strength: number}|null>}
  */
 export const DAYLIGHT = {
-  dawn: { colour: 'rgb(74, 86, 140)', strength: 0.16 },
+  dawn: { colour: 'rgb(255, 140, 255)', strength: 0.07 },
   day: null,
-  afternoon: { colour: 'rgb(255, 198, 122)', strength: 0.14 },
-  dusk: { colour: 'rgb(158, 74, 62)', strength: 0.28 },
-  night: { colour: 'rgb(20, 30, 92)', strength: 0.46 },
+  afternoon: { colour: 'rgb(251, 123, 0)', strength: 0.115 },
+  dusk: { colour: 'rgb(190, 0, 0)', strength: 0.25 },
+  night: { colour: 'rgb(0, 2, 114)', strength: 0.455 },
 };
 
 /** The scratch layer, made once and reused every frame. */
