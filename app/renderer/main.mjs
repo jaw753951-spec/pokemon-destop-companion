@@ -2,7 +2,7 @@
  * Renderer entry point: load everything the game needs, then hand control to
  * the title screen.
  */
-import { App, fitStage, runLoop, trackWindowPosition } from './core/app.mjs';
+import { App, fitStage, runLoop, trackWindowDrag } from './core/app.mjs';
 import { AudioEngine } from './core/audio.mjs';
 import { saves, settings as settingsApi, windowControl } from './core/bridge.mjs';
 import { loadGameData } from './core/data.mjs';
@@ -18,7 +18,7 @@ async function boot() {
   fitStage();
   window.addEventListener('resize', fitStage);
   document.getElementById('minimize')?.addEventListener('click', () => windowControl.minimize());
-  trackWindowPosition();
+  trackWindowDrag();
 
   const settings = await settingsApi.get();
   // The sheet has the last word on which languages exist, so a settings file

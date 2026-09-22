@@ -80,6 +80,19 @@ export function registerHandlers() {
     return { x, y };
   });
 
+  // One message per pointer move rather than a throttled timer: the moves
+  // arrive at the frame rate the pointer itself does, and a timer coarse
+  // enough to batch them makes the drag feel like it is being pulled through
+  // sand. `setPosition` takes whole pixels, so the fractional drift a 1.25×
+  // window carries is rounded away, never accumulated.
+  handle('window:moveBy', ({ dx, dy }) => {
+    const window = getWindow();
+    if (!window || window.isDestroyed()) return false;
+    const [x, y] = window.getPosition();
+    window.setPosition(Math.round(x + Number(dx) || 0), Math.round(y + Number(dy) || 0));
+    return true;
+  });
+
   handle('window:minimize', () => {
     getWindow()?.minimize();
     return true;

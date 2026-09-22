@@ -32,6 +32,8 @@ export const saves = {
 
 export const windowControl = {
   rememberPosition: () => api().window.rememberPosition(),
+  /** @param {number} dx @param {number} dy */
+  moveBy: (dx, dy) => api().window.moveBy(dx, dy),
   minimize: () => api().window.minimize(),
 };
 

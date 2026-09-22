@@ -24,6 +24,7 @@ contextBridge.exposeInMainWorld('pdc', {
   },
   window: {
     rememberPosition: () => invoke('window:position'),
+    moveBy: (dx, dy) => invoke('window:moveBy', { dx, dy }),
     minimize: () => invoke('window:minimize'),
   },
   app: {

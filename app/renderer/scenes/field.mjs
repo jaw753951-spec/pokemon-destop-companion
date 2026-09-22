@@ -6,7 +6,7 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
+import { CLICK_EVENT_BONUS_MS, FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -72,6 +72,10 @@ export function fieldScene(session) {
   let events = null;
   /** @type {import('../core/app.mjs').App|null} */
   let host = null;
+  /** Clicks since the last frame: consumed one per event-second pulled in. */
+  let clicks = 0;
+  /** The overlay click listener this scene registered, removed on unmount. */
+  let onClick = null;
 
   /** Load whatever art the current area and companion need. */
   const refreshArt = (app) => {
@@ -272,12 +276,23 @@ export function fieldScene(session) {
         onBattle: (setup) => startBattle(app, setup),
       });
 
+      // The stage is scaled, so the click's own coordinates are of no use
+      // here: it only has to say "the player asked for the next event",
+      // wherever on the view it landed. Menu clicks are filtered out by the
+      // paused flag they set — a settled pause is not a poke at the road.
+      onClick = () => {
+        if (!paused) clicks += 1;
+      };
+      document.getElementById('overlay')?.addEventListener('click', onClick);
+
       refreshArt(app);
       hud.update(session);
       return hud.root;
     },
 
     unmount() {
+      if (onClick) document.getElementById('overlay')?.removeEventListener('click', onClick);
+      onClick = null;
       hud = null;
       events = null;
       host = null;
@@ -285,6 +300,15 @@ export function fieldScene(session) {
 
     update(deltaMs, app) {
       if (paused) return;
+
+      // A click anywhere on the travelling view pulls the next event in: a
+      // click per half a second trimmed, which is what a player poking at the
+      // companion is asking for. Menus and battles sit above this scene, so a
+      // click on those never reaches here.
+      while (clicks > 0) {
+        clicks -= 1;
+        session.eventTimer = Math.max(0, session.eventTimer - CLICK_EVENT_BONUS_MS);
+      }
 
       const walking = events?.walking ?? true;
       if (walking) offset += (WALK_SPEED * deltaMs) / 1000;

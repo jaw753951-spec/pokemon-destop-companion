@@ -614,11 +614,19 @@ function drawCenter(context, prop, screenX) {
 }
 
 /**
- * The ball on the ground. Once emptied it is drawn in two halves — the lid
- * tipped back off the base — since the games have no "opened ball" sprite of
- * its own for the overworld.
+ * The ball on the ground. Once emptied it is drawn as the same ball with its
+ * top half tipped back off the base — the games have no "opened ball" sprite
+ * of their own for the overworld. (Exported so the check harness can render
+ * the shape headlessly.)
+ *
+ * Tipping it by rotating the lid leaves the two square halves overhanging
+ * empty air at their corners, which is the "broken image" look. Instead the
+ * base stays put and the lid is **sheared off to the right and shortened** —
+ * a row per blit, each row shifted a little further and squashed a little
+ * thinner, so the lid reads as hinged at its back edge and curled over, and
+ * every drawn pixel stays inside the sprite's own footprint.
  */
-function drawBall(context, prop, screenX) {
+export function drawBall(context, prop, screenX) {
   const { image } = prop.sprite;
   const size = image.naturalHeight;
   // Item icons are drawn for a bag list, where they are the only thing on the
@@ -634,14 +642,32 @@ function drawBall(context, prop, screenX) {
   }
 
   const half = Math.floor(size / 2);
-  // Base stays put.
+  // The base keeps its place on the ground.
   context.drawImage(image, 0, half, size, size - half, left, top + drawn / 2, drawn, drawn / 2);
-  // Lid tips up and back.
-  context.save();
-  context.translate(left + drawn / 2, top + drawn / 2);
-  context.rotate(-0.6);
-  context.drawImage(image, 0, 0, size, half, -drawn / 2, -drawn / 2 - 3, drawn, drawn / 2);
-  context.restore();
+  // The lid: one blit per source row, hinged at its back (right) edge and
+  // curling forward — the further up the lid a row sits, the further right
+  // and the thinner it is drawn, so the lid reads as tipped over rather than
+  // rotated into a square-shaped hole. `imageSmoothingEnabled` is already off
+  // in field space, so the squash stays as crisp as the rest of the field.
+  const lidHeight = drawn / 2;
+  const rowHeight = lidHeight / half;
+  for (let row = 0; row < half; row++) {
+    // 0 at the hinge (bottom of the lid), 1 at its rim (top).
+    const lifted = 1 - row / half;
+    const shift = lifted * drawn * 0.38;
+    const height = rowHeight * (1 - lifted * 0.45);
+    context.drawImage(
+      image,
+      0,
+      row,
+      size,
+      1,
+      Math.round(left + shift),
+      Math.round(top + row * rowHeight),
+      drawn,
+      Math.max(1, height),
+    );
+  }
 }
 
 /**

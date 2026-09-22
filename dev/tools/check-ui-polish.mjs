@@ -115,10 +115,12 @@ app.whenReady().then(async () => {
   console.log('shot: ui-polish-battle');
 
   // Click the battle: the beat hurries and a ripple spawns, fading in 260ms.
+  // A real click answers as a pointerdown first — which is what the catcher
+  // listens for — so the harness sends the same event the pointer would.
   const clicked = await window.webContents.executeJavaScript(`(async () => {
     const catcher = document.querySelector('.battle-clickcatch');
     const rect = catcher.getBoundingClientRect();
-    catcher.dispatchEvent(new MouseEvent('click', { bubbles: true, clientX: rect.left + 120, clientY: rect.top + 60 }));
+    catcher.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, clientX: rect.left + 120, clientY: rect.top + 60 }));
     await new Promise((r) => setTimeout(r, 60));
     return Boolean(document.querySelector('.click-ripple'));
   })()`, true);
