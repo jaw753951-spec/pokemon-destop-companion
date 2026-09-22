@@ -13,6 +13,17 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
 import { fullyHeal } from '../engine/pokemon.mjs';
+
+/** How long the ball is in the air, and how high it arcs, in field pixels. */
+const THROW_MS = 420;
+const THROW_ARC = 26;
+
+/** How long one shake takes, and how far the ball rocks over, in radians. */
+const SHAKE_MS = 320;
+const SHAKE_TILT = 0.5;
+
+/** How wide the ball is drawn on this screen, in field pixels. */
+const BALL_DRAWN = 14;
 import { Battler, fitScale } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
@@ -33,6 +44,85 @@ export function captureScene({ session, target, onFinish }) {
   /** @type {Battler|null} */
   let battler = null;
 
+  /**
+   * The ball in flight, and then on the ground.
+   *
+   * The throw is the whole of what a capture screen shows happening: an arc
+   * up to the Pokémon, a flash as it goes in, and the ball rocking on the
+   * spot once per shake the roll passed. Without it the odds simply changed
+   * and a message appeared.
+   *
+   * @type {{
+   *   icon: HTMLImageElement|null,
+   *   phase: 'fly'|'shake'|'caught'|'broke',
+   *   elapsed: number,
+   *   shakes: number,
+   *   caught: boolean,
+   *   from: {x: number, y: number},
+   * }|null}
+   */
+  let thrown = null;
+  /** Where the target stands, filled in once its sprite has been measured. */
+  let targetSpot = { x: Math.round(FIELD_WIDTH / 2), y: Math.round(FIELD_HEIGHT * 0.52) };
+
+  /**
+   * Put a ball in the air.
+   * @param {string} ball
+   * @param {number} shakes
+   * @param {boolean} caught
+   */
+  function throwAt(ball, shakes, caught) {
+    const icon = new Image();
+    icon.src = url('assets', `items/${ball}.png`);
+    thrown = {
+      icon,
+      phase: 'fly',
+      elapsed: 0,
+      shakes,
+      caught,
+      from: { x: Math.round(FIELD_WIDTH * 0.2), y: FIELD_HEIGHT - 26 },
+    };
+  }
+
+  /** @param {number} deltaMs */
+  function tickThrow(deltaMs) {
+    if (!thrown) return;
+    thrown.elapsed += deltaMs;
+
+    if (thrown.phase === 'fly' && thrown.elapsed >= THROW_MS) {
+      thrown.phase = 'shake';
+      thrown.elapsed = 0;
+      // The Pokémon is inside the ball from the moment it lands.
+      if (battler) battler.visible = false;
+      return;
+    }
+    if (thrown.phase === 'shake' && thrown.elapsed >= thrown.shakes * SHAKE_MS) {
+      thrown.phase = thrown.caught ? 'caught' : 'broke';
+      thrown.elapsed = 0;
+      // One that broke out is back on its feet.
+      if (!thrown.caught && battler) battler.visible = true;
+    }
+  }
+
+  /** Where the ball is this frame, and how far over it is rocking. */
+  function ballAt() {
+    if (!thrown) return null;
+    const { phase, elapsed } = thrown;
+    if (phase === 'fly') {
+      const step = Math.min(1, elapsed / THROW_MS);
+      return {
+        x: thrown.from.x + (targetSpot.x - thrown.from.x) * step,
+        // A lobbed arc rather than a straight line: up and over.
+        y: thrown.from.y + (targetSpot.y - thrown.from.y) * step - Math.sin(step * Math.PI) * THROW_ARC,
+        tilt: step * Math.PI * 2,
+      };
+    }
+    // Rocking on the spot, once per shake, settling between each.
+    const turn = (elapsed % SHAKE_MS) / SHAKE_MS;
+    const rocking = phase === 'shake' ? Math.sin(turn * Math.PI * 2) * SHAKE_TILT : 0;
+    return { x: targetSpot.x, y: targetSpot.y, tilt: rocking };
+  }
+
   const label = () => localized(speciesOf(target.speciesId)?.name, '');
   const counter = el('div.capture-attempts');
   const message = el('div.battle-message', {
@@ -49,6 +139,7 @@ export function captureScene({ session, target, onFinish }) {
         loadSprite(art.path, art.meta).then((sprite) => {
           // Field coordinates, so the target is the size it was on the path.
           const y = Math.round(FIELD_HEIGHT * 0.52);
+          const scale = fitScale(sprite, { width: FIELD_WIDTH - 24, height: y - 14 }, 1);
           battler = new Battler({
             sprite,
             x: Math.round(FIELD_WIDTH / 2),
@@ -56,8 +147,10 @@ export function captureScene({ session, target, onFinish }) {
             facing: -1,
             // Clear of the name above it and the balls below, whatever size the
             // species is drawn at.
-            scale: fitScale(sprite, { width: FIELD_WIDTH - 24, height: y - 14 }, 1),
+            scale,
           });
+          // The ball is thrown at the middle of the Pokémon, not at its feet.
+          targetSpot = { x: battler.x, y: Math.round(y - (sprite.height * scale) / 2) };
         });
       }
       app.audio.playCry(target.speciesId);
@@ -78,14 +171,55 @@ export function captureScene({ session, target, onFinish }) {
 
     update(deltaMs) {
       battler?.update(deltaMs);
+      tickThrow(deltaMs);
     },
 
     render(context) {
       context.fillStyle = 'rgba(10, 14, 24, 0.78)';
       context.fillRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
-      inFieldSpace(context, (field) => battler?.draw(field));
+      inFieldSpace(context, (field) => {
+        battler?.draw(field);
+        drawThrow(field);
+      });
     },
   };
+
+  /**
+   * The ball, wherever it is in the throw.
+   * @param {CanvasRenderingContext2D} context
+   */
+  function drawThrow(context) {
+    const at = ballAt();
+    if (!thrown?.icon?.complete || !at) return;
+
+    const width = BALL_DRAWN;
+    const height = Math.max(
+      1,
+      Math.round((width * thrown.icon.naturalHeight) / Math.max(1, thrown.icon.naturalWidth)),
+    );
+
+    context.save();
+    context.translate(at.x, at.y);
+    context.rotate(at.tilt);
+    context.drawImage(thrown.icon, -width / 2, -height / 2, width, height);
+    context.restore();
+
+    // The flash as it opens, and again as it closes for good.
+    if (thrown.phase === 'fly' || thrown.phase === 'caught') {
+      const step = thrown.phase === 'fly'
+        ? Math.max(0, thrown.elapsed / THROW_MS - 0.85) / 0.15
+        : Math.max(0, 1 - thrown.elapsed / 260);
+      if (step > 0) {
+        context.save();
+        context.globalAlpha = Math.min(0.75, step);
+        context.fillStyle = '#ffffff';
+        context.beginPath();
+        context.arc(at.x, at.y, width * (0.6 + step), 0, Math.PI * 2);
+        context.fill();
+        context.restore();
+      }
+    }
+  }
 
   /** The throws left, counted in balls — three of them say it without a word. */
   function renderCounter() {
@@ -140,8 +274,11 @@ export function captureScene({ session, target, onFinish }) {
     app.audio.blip('select');
 
     const result = attemptCapture(session.rng, target, ball);
-    // Let the shakes play out before saying what happened.
-    await wait(400 + result.shakes * 320);
+    // The ball goes up, the Pokémon goes in, and it rocks once per shake the
+    // roll passed. Nothing is said until that has played out.
+    throwAt(ball, Math.max(1, result.shakes), result.caught);
+    message.textContent = t('capture.thrown');
+    await wait(THROW_MS + Math.max(1, result.shakes) * SHAKE_MS + 260);
 
     if (result.caught) {
       settled = true;
@@ -172,6 +309,9 @@ export function captureScene({ session, target, onFinish }) {
     }
 
     busy = false;
+    thrown = null;
+    if (battler) battler.visible = true;
+
     if (attempts <= 0) {
       settled = true;
       message.textContent = t('capture.fled', { name: label() });

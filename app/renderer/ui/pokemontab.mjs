@@ -14,10 +14,11 @@ import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilityWorks } from '../engine/abilities.mjs';
 import { unequipItem } from '../engine/items.mjs';
+import { itemOf } from '../core/data.mjs';
 import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
-import { chooseFromList } from './dialog.mjs';
+import { chooseFromList, describe } from './dialog.mjs';
 import { moveCard, moveSummary } from './movecard.mjs';
 import { statHexagon, statTable } from './statgraph.mjs';
 import { typeChip } from './typechip.mjs';
@@ -65,7 +66,7 @@ export function pokemonTab(app, session, refresh, state = {}) {
           el('span.label', { text: t('pokemon.exp') }),
           el('span', { text: progress.needed ? `${progress.into}/${progress.needed}` : '—' }),
         ]),
-        abilityLine(pokemon),
+        abilityLine(app, pokemon),
         heldLine(app, session, refresh),
 
         el('div.section-title', { text: t('pokemon.moves') }),
@@ -105,8 +106,17 @@ function heldLine(app, session, refresh) {
       ? el('button.chip', {
           type: 'button',
           text: localized(gameData().items[held]?.name, held),
-          title: t('items.takeBack'),
-          onClick: () => {
+          title: t('items.inspect'),
+          onClick: async () => {
+            app.audio.blip('select');
+            const item = itemOf(held);
+            const off = await describe(app, {
+              title: localized(item?.name, held),
+              subtitle: item?.pocket ? t(`items.pocket.${item.pocket}`) : null,
+              body: localized(item?.text, '') || (item?.works ? '' : t('items.noEffectYet')),
+              action: { label: t('items.takeBack'), danger: true },
+            });
+            if (!off) return;
             const result = unequipItem(session);
             app.audio.blip(result.ok ? 'confirm' : 'error');
             app.toast(result.message);
@@ -281,33 +291,40 @@ function moveClasses(move) {
 }
 
 /**
- * The ability, and what it does.
+ * The ability, as a name that can be asked about.
  *
- * An ability the engine has not been taught yet says so, in the same words the
- * bag uses for an item it cannot act on — a player should not have to fight a
- * battle to find out that nothing was going to happen.
+ * An ability the engine has not been taught yet says so when asked, in the
+ * same words the bag uses for an item it cannot act on — a player should not
+ * have to fight a battle to find out that nothing was going to happen.
  *
+ * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  */
-function abilityLine(pokemon) {
+function abilityLine(app, pokemon) {
   const ability = abilityOf(pokemon.ability);
   const hidden = (speciesOf(pokemon.speciesId)?.abilities ?? []).some(
     (entry) => entry.name === pokemon.ability && entry.hidden,
   );
 
-  return el('div.pokemon-line.pokemon-ability', {}, [
+  return el('div.pokemon-line', {}, [
     el('span.label', { text: t('pokemon.ability') }),
-    el('span.ability-body', {}, [
-      el('span.ability-name', {}, [
-        el('span', { text: localized(ability?.name, pokemon.ability) }),
-        hidden ? el('span.ability-hidden', { text: t('pokemon.hiddenAbility') }) : null,
-      ]),
-      el('span.ability-text', {
-        text: abilityWorks(pokemon.ability)
-          ? localized(ability?.text, ability?.effect ?? '')
-          : t('items.noEffectYet'),
-      }),
-    ]),
+    // The name only. What it does is a paragraph, and a paragraph in a row on
+    // a 270-pixel screen pushed the move slots off the bottom of the page.
+    el('button.chip', {
+      type: 'button',
+      text: localized(ability?.name, pokemon.ability),
+      title: t('items.inspect'),
+      onClick: () => {
+        app.audio.blip('select');
+        void describe(app, {
+          title: localized(ability?.name, pokemon.ability),
+          subtitle: hidden ? t('pokemon.hiddenAbility') : null,
+          body: abilityWorks(pokemon.ability)
+            ? localized(ability?.text, ability?.effect ?? '')
+            : t('items.noEffectYet'),
+        });
+      },
+    }),
   ]);
 }
 

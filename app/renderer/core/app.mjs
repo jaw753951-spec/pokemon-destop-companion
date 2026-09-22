@@ -19,6 +19,8 @@ import { setLanguage } from './i18n.mjs';
  * @property {(deltaMs: number, app: App) => void} [update]
  * @property {(context: CanvasRenderingContext2D, app: App) => void} [render]
  * @property {boolean} [keepBelow] draw the scene beneath this one as well
+ * @property {boolean} [keepBelowRunning] let the scene beneath this one go on
+ *   updating: a menu opened over the road should not stop the walk
  * @property {(paused: boolean) => void} [setPaused] halt the scene's own motion
  *   while something else, such as a field event, plays out over it
  * @property {number} [offset] the field scene's world scroll, so events can
@@ -104,9 +106,16 @@ export class App {
    * @param {number} deltaMs
    */
   tick(deltaMs) {
-    // Only the top scene updates; ones below it are paused, which is what a
-    // menu over the field should do.
-    this.scene?.update?.(deltaMs, this);
+    // The top scene updates, and so does everything under a scene that says
+    // the one below it may keep going — a bag opened over the road stops the
+    // player, not the companion. Deepest first, so a scene that reads what the
+    // one below it did sees this frame's state rather than the last frame's.
+    // By index rather than over a copy: a scene that closes itself mid-update
+    // shortens the stack, and the loop should stop there rather than go on to
+    // update something that has already been unmounted.
+    for (let index = this.firstUpdateIndex(); index < this.stack.length; index++) {
+      this.stack[index]?.scene.update?.(deltaMs, this);
+    }
 
     const context = this.context;
     context.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
@@ -119,6 +128,16 @@ export class App {
       this.toastTimer -= deltaMs;
       if (this.toastTimer <= 0) this.toastNode.hidden = true;
     }
+  }
+
+  /**
+   * The deepest scene that still runs, which is as far down as the chain of
+   * `keepBelowRunning` scenes above it reaches.
+   */
+  firstUpdateIndex() {
+    let index = this.stack.length - 1;
+    while (index > 0 && this.stack[index].scene.keepBelowRunning) index--;
+    return Math.max(0, index);
   }
 
   /** The deepest scene that still needs drawing under the current one. */

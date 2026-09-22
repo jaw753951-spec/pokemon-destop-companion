@@ -30,6 +30,9 @@ export function inventoryScene({ session, onClose }) {
 
   return {
     keepBelow: true,
+    // The companion keeps walking under this: a menu is the player
+    // stopping to read, not the Pokémon stopping to wait.
+    keepBelowRunning: true,
 
     mount(app) {
       const tabs = el('div.tab-strip');

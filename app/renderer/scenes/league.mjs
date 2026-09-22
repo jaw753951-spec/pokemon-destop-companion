@@ -8,7 +8,7 @@
  * restored and you choose whether to go straight on or step back out to the
  * field and prepare.
  */
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { VICTORY_CUE_SECONDS, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
@@ -162,7 +162,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     session.leagueRegion = league.region;
 
     const name = session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '');
-    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null);
+    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null, { seconds: VICTORY_CUE_SECONDS });
     app.toast(`${t('league.crowned', { name })}\n${t('league.wentHome')}`, 5000);
     onCrowned();
   }

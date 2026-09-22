@@ -304,7 +304,7 @@
   "status.frz.blocked": "{name} is frozen solid!",
   "status.frz.ended": "{name} thawed out!",
   "status.cured": "{name} was cured of its condition!",
-  "items.equip": "Give",
+  "items.equip": "Give to hold",
   "items.equipped": "{name} is now holding the {item}!",
   "items.unequipped": "Took the {item} back from {name}.",
   "items.alreadyHeld": "It is already holding that.",
@@ -321,12 +321,13 @@
   "tray.title": "To catch",
   "stat.acc": "accuracy",
   "stat.eva": "evasiveness",
-  "items.takeBack": "Click to take it back",
+  "items.takeBack": "Take it back",
   "battle.failed": "But it failed!",
   "battle.cannotMove": "{name} cannot move!",
   "battle.statusHurt": "{name} took damage from its condition!",
   "battle.cannotLearnMore": "{name} wants to learn {move}, but it already knows four moves!",
   "settings.saveAndExit": "Save and return to title",
   "settings.saveAndExitConfirm": "Save and return to the title screen?",
-  "settings.saveAndQuitConfirm": "Save and quit the game?"
+  "settings.saveAndQuitConfirm": "Save and quit the game?",
+  "capture.thrown": "Threw the ball!"
 }

@@ -304,7 +304,7 @@
   "status.frz.blocked": "{name}은(는) 얼어붙어서 움직일 수 없다!",
   "status.frz.ended": "{name}의 얼음이 녹았다!",
   "status.cured": "{name}의 상태이상이 나았다!",
-  "items.equip": "장착",
+  "items.equip": "지니게 한다",
   "items.equipped": "{name}에게 {item}을(를) 들게 했다!",
   "items.unequipped": "{name}에게서 {item}을(를) 받았다!",
   "items.alreadyHeld": "이미 들고 있습니다.",
@@ -321,12 +321,13 @@
   "tray.title": "포획 대기",
   "stat.acc": "명중률",
   "stat.eva": "회피율",
-  "items.takeBack": "눌러서 돌려받기",
+  "items.takeBack": "맡기고 있는 것을 돌려받는다",
   "battle.failed": "하지만 실패했다!",
   "battle.cannotMove": "{name}은(는) 움직일 수 없다!",
   "battle.statusHurt": "{name}은(는) 데미지를 입었다!",
   "battle.cannotLearnMore": "{name}은(는) {move}을(를) 배우고 싶은 것 같다! 하지만 기술은 4개까지만 배울 수 있다!",
   "settings.saveAndExit": "저장 후 메인 화면으로",
   "settings.saveAndExitConfirm": "저장하고 메인 화면으로 나가시겠습니까?",
-  "settings.saveAndQuitConfirm": "저장하고 게임을 종료하시겠습니까?"
+  "settings.saveAndQuitConfirm": "저장하고 게임을 종료하시겠습니까?",
+  "capture.thrown": "볼을 던졌다!"
 }

@@ -27,7 +27,7 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, move: 520, damage: 680, stat: 700, faint: 900, end: 1100 };
+const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100 };
 
 /** How much of a beat a click skips, as a share of the full wait. */
 const CLICK_SPEEDUP = 0.5;
@@ -43,8 +43,18 @@ const CLICK_SPEEDUP = 0.5;
 const STATUS_HURT = { brn: 'status.brn.hurt', psn: 'status.psn.hurt' };
 const STATUS_BLOCKED = { slp: 'status.slp.blocked', frz: 'status.frz.blocked', par: 'status.par.blocked' };
 
-/** How long the red damage ghost holds before draining to the real bar. */
-const GHOST_DELAY_MS = 240;
+/**
+ * How fast a health bar moves: the time a *whole* bar takes to drain, and the
+ * least time any change takes.
+ *
+ * The games drain at a constant rate, so a scratch is over in a moment and a
+ * heavy hit takes a visible while — which is how a player reads how much it
+ * cost without looking at the number. A fixed duration for every change, which
+ * is what a CSS transition gives, makes the two look the same and the bar look
+ * as though it is guessing.
+ */
+const DRAIN_FULL_MS = 1100;
+const DRAIN_MIN_MS = 110;
 
 /**
  * The message box's top edge, in field pixels: it is 34 tall and sits 8 from
@@ -132,13 +142,6 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const foeBar = healthBar();
   /** The trainer's remaining party, drawn as the balls still on their belt. */
   const foeBalls = el('div.battle-balls');
-  /**
-   * How long until each side's damage ghost settles: one beat after the hit
-   * that opened the gap, so the red shows where the bar was before it drains.
-   * @type {{player: number, foe: number}}
-   */
-  const ghostTimers = { player: 0, foe: 0 };
-
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
@@ -272,7 +275,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     update(deltaMs, app) {
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
-      tickBarGhosts(deltaMs);
+      playerBar.update(deltaMs);
+      foeBar.update(deltaMs);
 
       if (finished) return;
       beat -= deltaMs;
@@ -362,7 +366,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(trainer
           ? t(leader ? 'event.leader' : 'event.trainer', { trainer: localized(trainer.name, '') })
           : t('event.wild', { name: nameOf(foe) }));
-        break;
+        return BEAT_MS.intro;
 
       // The companion is sent out after whatever it is being sent out against
       // has been named, which is the order the games read in.
@@ -385,7 +389,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       case 'damage': {
         battlerFor(entry.side)?.setPose('hit');
         app.audio.blip('hit');
-        updateBars({ hurt: entry.side });
+        updateBars();
         return BEAT_MS.damage;
       }
 
@@ -815,17 +819,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     message.textContent = text;
   }
 
-  /**
-   * @param {{hurt?: 'player'|'foe'}} [just] the side a hit just landed on, so
-   *   its ghost holds a beat before draining while the other's settles at once
-   */
-  function updateBars(just) {
+  /** Point both bars at whatever the two Pokémon are now on. */
+  function updateBars() {
     playerBar.set(session.active);
     foeBar.set(battle.foe?.pokemon ?? null);
-    ghostTimers.player = just?.hurt === 'player' ? GHOST_DELAY_MS : 0;
-    ghostTimers.foe = just?.hurt === 'foe' ? GHOST_DELAY_MS : 0;
-    if (ghostTimers.player <= 0) playerBar.settle();
-    if (ghostTimers.foe <= 0) foeBar.settle();
   }
 
   /**
@@ -843,16 +840,6 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         ? el('span.field-chip', { text: t(`terrain.${field.terrain}.name`), title: t(`terrain.${field.terrain}.start`) })
         : null,
     ]);
-  }
-
-  /**
-   * @param {number} deltaMs
-   */
-  function tickBarGhosts(deltaMs) {
-    ghostTimers.player -= deltaMs;
-    ghostTimers.foe -= deltaMs;
-    if (ghostTimers.player <= 0) playerBar.settle();
-    if (ghostTimers.foe <= 0) foeBar.settle();
   }
 
   /**
@@ -879,55 +866,80 @@ function nameplate(pokemon) {
   return node;
 }
 
-function healthBar() {
+/**
+ * One bar, moving at one speed — which is what the games have.
+ *
+ * The bar is animated here rather than by a CSS transition: a transition runs
+ * for the time it is given whatever distance it has to cover, so a two-point
+ * scratch and a bar-emptying hit took exactly as long as each other. The
+ * number counts along with it, as it does on the cartridge, so the two never
+ * disagree about how much is left.
+ */
+export function healthBar() {
   const fill = el('i');
-  // The ghost trails the real bar down in red wherever damage just landed, the
-  // way the handheld games show what was taken before it settles.
-  const ghost = el('i.ghost');
   const text = el('span.battle-hp');
-  const track = el('div.battle-track', {}, [fill, ghost, text]);
+  const track = el('div.battle-track', {}, [fill, text]);
+
+  /** What the bar is showing, what it is heading for, and how fast. */
+  let shown = /** @type {{hp: number, max: number}|null} */ (null);
+  let goal = 0;
+  /** Hit points a millisecond, signed. */
+  let rate = 0;
+
+  function paint() {
+    if (!shown) {
+      fill.style.width = '0%';
+      text.textContent = '';
+      return;
+    }
+    const ratio = shown.max > 0 ? Math.max(0, Math.min(1, shown.hp / shown.max)) : 0;
+    fill.style.width = `${ratio * 100}%`;
+    // The thresholds the games change colour at: half, and a fifth.
+    fill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
+    text.textContent = `${Math.round(shown.hp)}/${shown.max}`;
+  }
 
   return {
     root: track,
+
     /**
      * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
      */
     set(pokemon) {
       if (!pokemon) {
-        fill.style.width = '0%';
-        ghost.style.width = '0%';
-        ghost.dataset.pending = 'false';
-        text.textContent = '';
+        shown = null;
+        rate = 0;
+        paint();
         return;
       }
-      const max = maxHp(pokemon);
-      const ratio = max > 0 ? Math.max(0, pokemon.hp) / max : 0;
-      const width = `${ratio * 100}%`;
-      fill.style.width = width;
-      fill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
 
-      // The ghost shows where the bar stood before whatever just happened. A
-      // heal pulls it up at once — showing damage backwards reads wrong — and
-      // a hit leaves it where it was, red, until `settle` drains it to here.
-      const previous = Number.parseFloat(ghost.style.width) || 0;
-      if (ratio * 100 >= previous) {
-        ghost.style.width = width;
-        ghost.dataset.pending = 'false';
-      } else if (ghost.dataset.pending !== 'true') {
-        ghost.dataset.pending = 'true';
+      const max = maxHp(pokemon);
+      const hp = Math.max(0, Math.min(max, pokemon.hp));
+
+      // A bar arriving for the first time, or one whose Pokémon has just
+      // changed shape under it, is simply drawn where it stands.
+      if (!shown || shown.max !== max) {
+        shown = { hp, max };
+        goal = hp;
+        rate = 0;
+        paint();
+        return;
       }
-      text.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
+
+      goal = hp;
+      const distance = Math.abs(goal - shown.hp) / max;
+      const duration = Math.max(DRAIN_MIN_MS, distance * DRAIN_FULL_MS);
+      rate = (goal - shown.hp) / duration;
+      paint();
     },
-    /**
-     * Drain the ghost down to the real bar, once the hit has been seen.
-     * The `.drain` class swaps the transition from the fill's easing to a
-     * slower fall, and is removed again the moment it has done its work.
-     */
-    settle() {
-      if (ghost.dataset.pending !== 'true') return;
-      ghost.dataset.pending = 'false';
-      ghost.classList.add('drain');
-      ghost.style.width = fill.style.width;
+
+    /** @param {number} deltaMs */
+    update(deltaMs) {
+      if (!shown || rate === 0 || shown.hp === goal) return;
+      const next = shown.hp + rate * deltaMs;
+      shown.hp = rate > 0 ? Math.min(goal, next) : Math.max(goal, next);
+      if (shown.hp === goal) rate = 0;
+      paint();
     },
   };
 }

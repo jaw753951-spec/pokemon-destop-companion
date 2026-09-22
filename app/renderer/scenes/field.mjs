@@ -6,7 +6,16 @@
  * spawns something ahead on the path, and the walk carries on until it is
  * reached — so nothing ever simply appears on top of the player.
  */
-import { CLICK_EVENT_BONUS_MS, EVENT_RETRY_MS, FIELD_HEIGHT, timeOfDay } from '../../shared/constants.mjs';
+import {
+  CLICK_EVENT_BONUS_MS,
+  EVENT_RETRY_MS,
+  FIELD_HEIGHT,
+  HURRY_MAX_MS,
+  HURRY_PER_CLICK_MS,
+  HURRY_SPEED,
+  timeOfDay,
+  VICTORY_CUE_SECONDS,
+} from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -59,8 +68,29 @@ export function fieldScene(session) {
   /** Which art is on screen: the species, and which of its two palettes. */
   let loadedSpriteId = '';
   let offset = 0;
-  /** Set while a menu or battle is on top; the walk and its timers stop. */
+  /**
+   * Set while a battle, the capture screen or the league is on top: those
+   * replace the view, so the walk and its timers stop with it.
+   */
   let paused = false;
+  /**
+   * Set while the bag, the Pokédex or the settings are open.
+   *
+   * The companion keeps walking under them — a menu is the player stopping to
+   * read, not the Pokémon stopping to wait — but nothing new is *started*
+   * while one is up: a battle erupting underneath an open bag would leave the
+   * two screens stacked on each other. The turn is held rather than dropped,
+   * so it comes round again a few seconds after the menu closes.
+   */
+  let menuOpen = false;
+  /**
+   * How long the walk is still hurried along by clicks, in milliseconds.
+   *
+   * A poke at the companion makes it get on with it: the road scrolls faster
+   * while this is running down, which is the part of a click a player can
+   * actually see.
+   */
+  let hurry = 0;
   /**
    * Cleared while a battle or the capture screen is up: those draw their own
    * version of the companion, and two of it at once reads as a bug.
@@ -226,27 +256,16 @@ export function fieldScene(session) {
       app.toast(t('badge.obtained', { name: badgeLabel(setup.leader) }));
     } else if (setup.trainer) {
       session.trainerWins++;
-      app.audio.playJingle(gameData().bgm.cues.victoryTrainer ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryTrainer ?? null, { seconds: VICTORY_CUE_SECONDS });
     } else {
       // Only wild Pokémon can be caught, so only they reach the tray — and
       // only when the companion was the one left standing.
       for (const pokemon of result.defeated) session.addToTray(pokemon);
-      app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null, { seconds: VICTORY_CUE_SECONDS });
     }
 
     restock(app);
     refreshArt(app);
-
-    // Knocking a wild Pokémon down is what earns the throw, so the capture
-    // screen opens on it rather than waiting to be found in the tray. With no
-    // ball in the bag there is nothing to throw and it stays there instead.
-    if (!setup.trainer && session.balls().length > 0) {
-      const next = session.tray[session.tray.length - 1];
-      if (next && result.defeated.includes(next)) {
-        session.tray.pop();
-        openCapture(app, next);
-      }
-    }
   }
 
   /**
@@ -281,17 +300,17 @@ export function fieldScene(session) {
       hud = createHud({
         onInventory: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(inventoryScene({ session, onClose: () => closeMenu(app) }));
         },
         onPokedex: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(pokedexScene({ session, onClose: () => closeMenu(app) }));
         },
         onSettings: () => {
           app.audio.blip('select');
-          paused = true;
+          menuOpen = true;
           app.push(
             settingsScene({
               onClose: () => closeMenu(app),
@@ -325,10 +344,11 @@ export function fieldScene(session) {
 
       // The stage is scaled, so the click's own coordinates are of no use
       // here: it only has to say "the player asked for the next event",
-      // wherever on the view it landed. Menu clicks are filtered out by the
-      // paused flag they set — a settled pause is not a poke at the road.
+      // wherever on the view it landed.
       onClick = (event) => {
-        if (paused) return;
+        // Not while something else owns the screen: a click on an open bag is
+        // aimed at the bag, wherever in it the pointer landed.
+        if (paused || menuOpen) return;
         // A click on a control is not a poke at the road, however it reaches
         // this listener on its way up: the tray and the dialogs it opens sit
         // in the same overlay, and a menu button answers for itself.
@@ -336,9 +356,11 @@ export function fieldScene(session) {
         if (target instanceof Element && target.closest('button, .modal, .panel')) return;
 
         clicks += 1;
-        // A ring where the pointer landed. Half a second off a minute's wait
-        // is not something a player can see happening, so the click answers
-        // for itself — without it the poke reads as having done nothing.
+        // The companion picks up its feet for a moment, and a ring marks
+        // where the pointer landed. A second off a minute's wait is not
+        // something a player can watch happening; the road going past faster
+        // is.
+        hurry = Math.min(HURRY_MAX_MS, hurry + HURRY_PER_CLICK_MS);
         app.clickRipple(event);
       };
       document.getElementById('overlay')?.addEventListener('click', onClick);
@@ -369,7 +391,8 @@ export function fieldScene(session) {
       }
 
       const walking = events?.walking ?? true;
-      if (walking) offset += (WALK_SPEED * deltaMs) / 1000;
+      if (hurry > 0) hurry = Math.max(0, hurry - deltaMs);
+      if (walking) offset += (WALK_SPEED * (hurry > 0 ? HURRY_SPEED : 1) * deltaMs) / 1000;
 
       const { rotateArea, autosave, event } = session.tick(deltaMs);
 
@@ -377,14 +400,14 @@ export function fieldScene(session) {
       // goes back to a few seconds instead of its whole period, so the walk
       // picks it up as soon as the road is clear again.
       if (rotateArea) {
-        if (events?.busy) session.areaTimer = EVENT_RETRY_MS;
+        if (events?.busy || menuOpen) session.areaTimer = EVENT_RETRY_MS;
         else {
           session.rotateArea();
           refreshArt(app);
         }
       }
       if (event) {
-        if (events?.busy) session.eventTimer = EVENT_RETRY_MS;
+        if (events?.busy || menuOpen) session.eventTimer = EVENT_RETRY_MS;
         else events?.start(session.events.roll(session.rng), offset, app);
       }
       if (autosave) {
@@ -394,7 +417,10 @@ export function fieldScene(session) {
           .catch(() => {});
       }
 
-      events?.update(deltaMs, offset, app);
+      // Held while a menu is open: the walk and the clocks carry on under one,
+      // but an event part way through does not get to reach its battle and
+      // push a fight on top of the bag the player is reading.
+      if (!menuOpen) events?.update(deltaMs, offset, app);
       refreshArt(app);
       hud?.update(session);
     },
@@ -436,6 +462,7 @@ export function fieldScene(session) {
   function closeMenu(app) {
     app.pop();
     paused = false;
+    menuOpen = false;
     showActor = true;
     resumeMusic(app);
     refreshArt(app);

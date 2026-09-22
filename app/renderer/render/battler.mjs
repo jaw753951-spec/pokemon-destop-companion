@@ -33,15 +33,17 @@ export function fitScale(sprite, room, preferred) {
 const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 
 /**
- * How long the arrows over a stat change stay up, and how many there are.
+ * The arrows over a stat change: how long they run, how many there are, and
+ * the colours the games use.
  *
- * The cartridges play a column of chevrons climbing the sprite for a raise and
- * falling down it for a drop; three of them over two-thirds of a second is
- * that animation at this size, and it is the only thing on screen that says a
- * stat moved before the message box gets to the words.
+ * The cartridges play a spread of arrows sweeping up the Pokémon for a raise
+ * and down it for a drop, with the sprite itself washed in the same colour
+ * while they pass. Solid arrows across the width of the sprite read at this
+ * size where an outlined chevron on the centre line did not.
  */
-const STAT_EFFECT_MS = 640;
-const STAT_ARROWS = 3;
+const STAT_EFFECT_MS = 620;
+const STAT_ARROWS = 4;
+const STAT_COLOURS = { up: '#6ee06a', down: '#ff6b6b' };
 
 export class Battler {
   /**
@@ -133,6 +135,14 @@ export class Battler {
     const transform = this.transform();
 
     context.save();
+    // A fainting Pokémon sinks through the line it was standing on: whatever
+    // has gone below it is not drawn, so it disappears into the ground
+    // instead of sliding down over the message box.
+    if (this.pose === 'lose') {
+      context.beginPath();
+      context.rect(0, 0, context.canvas.width, this.y);
+      context.clip();
+    }
     context.globalAlpha = transform.alpha;
     context.translate(this.x + transform.dx * this.facing, this.y + transform.dy);
     if (transform.rotate) {
@@ -164,32 +174,72 @@ export class Battler {
     const progress = Math.min(1, this.statElapsed / STAT_EFFECT_MS);
     const up = this.statDirection > 0;
     const height = this.sprite.height * this.scale;
+    const width = this.sprite.width * this.scale;
+    const colour = up ? STAT_COLOURS.up : STAT_COLOURS.down;
+
+    // The sprite is washed in the same colour while the arrows pass, which is
+    // what makes the games' version read as something happening *to* the
+    // Pokémon rather than as decoration drawn near it.
+    this.drawTint(context, colour, (1 - progress) * 0.34);
 
     context.save();
-    // Fade out over the second half, so the arrows leave rather than vanish.
-    context.globalAlpha = progress < 0.5 ? 1 : 1 - (progress - 0.5) * 2;
-    context.strokeStyle = up ? '#7ad06d' : '#e2686a';
-    context.lineWidth = 2;
-    context.lineCap = 'round';
-    context.lineJoin = 'round';
+    // Fade out over the last third, so the arrows leave rather than vanish.
+    context.globalAlpha = progress < 0.66 ? 1 : Math.max(0, 1 - (progress - 0.66) * 3);
+    context.fillStyle = colour;
 
     for (let index = 0; index < STAT_ARROWS; index++) {
-      // Each arrow starts a little behind the one before it, so the three read
-      // as one column travelling rather than three blinking. The first is up
+      // Each arrow starts a little behind the one before it, so the four read
+      // as one sweep travelling rather than four blinking. The first is up
       // from the opening frame — the stagger is for the ones behind it.
-      const raw = progress * 1.6 - index * 0.2;
+      const raw = progress * 1.5 - index * 0.16;
       if (index > 0 && raw <= 0) continue;
       const step = Math.max(0, Math.min(1, raw));
-      const travel = (up ? -1 : 1) * (height * 0.35 + step * height * 0.5);
-      const y = this.y - (up ? 0 : height * 0.8) + travel;
-      const width = 4;
+
+      // Spread across the sprite rather than stacked on its centre line, so
+      // the sweep covers the Pokémon the way the cartridges' does.
+      const lane = index / Math.max(1, STAT_ARROWS - 1) - 0.5;
+      const x = this.x + lane * width * 0.55;
+      // Up: from the feet to over the head. Down: from the head to the feet.
+      const y = up ? this.y - step * height : this.y - height + step * height;
+      const arm = Math.max(3, width * 0.12);
+      const tip = up ? -arm : arm;
 
       context.beginPath();
-      context.moveTo(this.x - width, y + (up ? width : -width));
-      context.lineTo(this.x, y);
-      context.lineTo(this.x + width, y + (up ? width : -width));
-      context.stroke();
+      context.moveTo(x, y + tip);
+      context.lineTo(x - arm, y - tip * 0.2);
+      context.lineTo(x - arm * 0.4, y - tip * 0.2);
+      context.lineTo(x - arm * 0.4, y - tip);
+      context.lineTo(x + arm * 0.4, y - tip);
+      context.lineTo(x + arm * 0.4, y - tip * 0.2);
+      context.lineTo(x + arm, y - tip * 0.2);
+      context.closePath();
+      context.fill();
     }
+    context.restore();
+  }
+
+  /**
+   * A colour washed over the sprite's own pixels, and nothing around them.
+   *
+   * @param {CanvasRenderingContext2D} context
+   * @param {string} colour
+   * @param {number} strength
+   */
+  drawTint(context, colour, strength) {
+    if (!this.sprite || strength <= 0) return;
+    const transform = this.transform();
+    context.save();
+    context.globalAlpha = strength;
+    context.globalCompositeOperation = 'source-atop';
+    context.translate(this.x + transform.dx * this.facing, this.y + transform.dy);
+    context.translate(-this.x, -this.y);
+    this.sprite.draw(context, this.x, this.y, {
+      frame: this.sprite.frameAt(this.elapsed),
+      flip: this.flip,
+      scale: this.scale * transform.scale,
+    });
+    context.fillStyle = colour;
+    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
     context.restore();
   }
 
@@ -202,21 +252,7 @@ export class Battler {
    * @param {number} strength
    */
   drawFlash(context, strength) {
-    if (!this.sprite) return;
-    const transform = this.transform();
-    context.save();
-    context.globalAlpha = strength;
-    context.globalCompositeOperation = 'source-atop';
-    context.translate(this.x + transform.dx * this.facing, this.y + transform.dy);
-    context.translate(-this.x, -this.y);
-    this.sprite.draw(context, this.x, this.y, {
-      frame: this.sprite.frameAt(this.elapsed),
-      flip: this.flip,
-      scale: this.scale * transform.scale,
-    });
-    context.fillStyle = '#ff4040';
-    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
-    context.restore();
+    this.drawTint(context, '#ff4040', strength);
   }
 
   /**
@@ -247,13 +283,12 @@ export class Battler {
         return { ...still, dy: -hop * 9, scale: 1 + hop * 0.04 };
       }
       case 'lose': {
-        // Sink, tip over and fade.
-        return {
-          ...still,
-          dy: progress * 14,
-          rotate: progress * 0.5,
-          alpha: 1 - progress * 0.85,
-        };
+        // Straight down and out of sight, which is what the cartridges do: the
+        // sprite slides below the ground it was standing on and is cut off at
+        // that line as it goes, rather than tipping over and dimming in place.
+        // `draw` does the cutting; the height it has to travel is its own.
+        const height = (this.sprite?.height ?? 0) * this.scale;
+        return { ...still, dy: progress * (height + 4), alpha: 1 };
       }
       default:
         return still;

@@ -44,6 +44,30 @@ export const EVENT_INTERVAL_MS = 60 * 1000;
 export const CLICK_EVENT_BONUS_MS = 1000;
 
 /**
+ * How much of a victory fanfare is played, in seconds.
+ *
+ * The cartridge's own victory theme runs for as long as the cartridge wanted
+ * to hold the screen — a good ten seconds for a trainer. Here it holds the
+ * area music off for that whole time while the companion is already walking
+ * again, so it is cut to its opening phrase: long enough to be the fanfare,
+ * short enough that the road gets its music back.
+ */
+export const VICTORY_CUE_SECONDS = 4;
+
+/**
+ * How a poke at the companion hurries the walk.
+ *
+ * Trimming the event clock is the substance of a click, but a second off a
+ * minute is not something anyone can watch happening. So the road goes past
+ * faster for a moment as well: each click buys a short burst, they stack up to
+ * a couple of seconds, and the speed is a clear change without turning the
+ * walk into a blur.
+ */
+export const HURRY_PER_CLICK_MS = 600;
+export const HURRY_MAX_MS = 2400;
+export const HURRY_SPEED = 2.6;
+
+/**
  * How long to wait before trying again when a roll came due while an event was
  * still playing out.
  *

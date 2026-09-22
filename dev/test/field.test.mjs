@@ -133,3 +133,58 @@ test('a bobbing companion leaves its shadow on the ground', () => {
   const topOf = (recorded) => recorded.calls.image[0][6];
   assert.equal(topOf(grounded) - topOf(lifted), 3);
 });
+
+// -------------------------------------------------- the scene stack's clocks
+
+test('a menu leaves the scene below it running, a battle does not', async () => {
+  const { App } = await import('../../app/renderer/core/app.mjs');
+
+  const ticks = { road: 0, menu: 0, fight: 0 };
+  const road = { update: () => { ticks.road++; } };
+  const menu = { keepBelow: true, keepBelowRunning: true, update: () => { ticks.menu++; } };
+  const fight = { keepBelow: true, update: () => { ticks.fight++; } };
+
+  // Only the stack matters here, so the shell is stood up without its DOM.
+  const app = Object.create(App.prototype);
+  app.stack = [{ scene: road, node: null }];
+  app.toastTimer = 0;
+
+  /** One frame of updates, without the drawing the real tick also does. */
+  const frame = () => {
+    for (let index = app.firstUpdateIndex(); index < app.stack.length; index++) {
+      app.stack[index]?.scene.update?.(16, app);
+    }
+  };
+
+  frame();
+  assert.deepEqual(ticks, { road: 1, menu: 0, fight: 0 });
+
+  // A bag over the road: both run, and the companion keeps walking.
+  app.stack.push({ scene: menu, node: null });
+  frame();
+  assert.deepEqual(ticks, { road: 2, menu: 1, fight: 0 });
+
+  // A battle replaces the view, so the road stops.
+  app.stack = [{ scene: road, node: null }, { scene: fight, node: null }];
+  frame();
+  assert.deepEqual(ticks, { road: 2, menu: 1, fight: 1 });
+});
+
+test('a scene that closes itself mid-frame does not take the loop with it', async () => {
+  const { App } = await import('../../app/renderer/core/app.mjs');
+
+  let below = 0;
+  const app = Object.create(App.prototype);
+  app.stack = [
+    { scene: { update: () => { below++; } }, node: null },
+    { scene: { keepBelowRunning: true, update: () => { app.stack.pop(); } }, node: null },
+  ];
+
+  assert.doesNotThrow(() => {
+    for (let index = app.firstUpdateIndex(); index < app.stack.length; index++) {
+      app.stack[index]?.scene.update?.(16, app);
+    }
+  });
+  assert.equal(below, 1);
+  assert.equal(app.stack.length, 1);
+});

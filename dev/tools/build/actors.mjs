@@ -239,7 +239,96 @@ function cropFrame(sheet, layout, index) {
   return crop(sheet, column * layout.frameWidth, row * layout.frameHeight, layout.frameWidth, layout.frameHeight);
 }
 
-/** Shared growth-stage art that is not tied to a particular berry. */
+/** How many blocks square the Center is cut out as. */
+const CENTER_BLOCKS = 5;
+
+/**
+ * How many times a metatile has to appear across a town before it counts as
+ * the ground rather than as part of a building.
+ *
+ * A town's grass and paving are laid down dozens of times over. A building is
+ * built once, out of blocks that appear once — there is one Pokémon Center in
+ * Oldale, so the blocks that make up its roof and its walls appear exactly as
+ * often as there are of it.
+ */
+const SCENERY_REPEATS = 8;
+
+/**
+ * Rub the town off the building.
+ *
+ * A Center is part of the town it stands in — drawn from the same metatiles as
+ * the road outside it — so cutting one out brings the grass and the path
+ * around it along, and the rest stop then arrives on the companion's road
+ * standing in a square of somebody else's lawn.
+ *
+ * There is no list saying which blocks are the building, and there does not
+ * need to be: the ground is *repeated* and a building is not. So the blocks
+ * whose metatile the town uses over and over are scenery, and the ones that
+ * are also reachable from the edge of the crop — which the building's own
+ * blocks are not, being surrounded by itself — are cleared away.
+ *
+ * Reaching in from the edge matters. A wall block that happened to be common
+ * would otherwise be punched out of the middle of the building; enclosed by
+ * the rest of it, it is never reached.
+ *
+ * @param {import('../lib/image.mjs').Raster} building the cropped picture
+ * @param {{blockdata: Buffer, widthInBlocks: number, fromX: number, fromY: number, blocks: number}} where
+ */
+export function clearScenery(building, { blockdata, widthInBlocks, fromX, fromY, blocks }) {
+  /** How often each metatile is used across the whole town. */
+  const uses = new Map();
+  for (let offset = 0; offset + 1 < blockdata.length; offset += 2) {
+    const id = blockdata.readUInt16LE(offset) & 0x3ff;
+    uses.set(id, (uses.get(id) ?? 0) + 1);
+  }
+
+  /** Whether the block at this place in the crop is one the town repeats. */
+  const isScenery = (bx, by) => {
+    const offset = ((fromY + by) * widthInBlocks + (fromX + bx)) * 2;
+    if (offset < 0 || offset + 1 >= blockdata.length) return true;
+    const id = blockdata.readUInt16LE(offset) & 0x3ff;
+    return (uses.get(id) ?? 0) >= SCENERY_REPEATS;
+  };
+
+  // Flood in from every edge of the crop, across scenery only.
+  const seen = new Set();
+  /** @type {Array<[number, number]>} */
+  const queue = [];
+  for (let i = 0; i < blocks; i++) {
+    queue.push([i, 0], [i, blocks - 1], [0, i], [blocks - 1, i]);
+  }
+
+  while (queue.length) {
+    const [bx, by] = queue.pop();
+    if (bx < 0 || by < 0 || bx >= blocks || by >= blocks) continue;
+    const key = by * blocks + bx;
+    if (seen.has(key)) continue;
+    if (!isScenery(bx, by)) continue;
+    seen.add(key);
+    queue.push([bx + 1, by], [bx - 1, by], [bx, by + 1], [bx, by - 1]);
+  }
+
+  for (const key of seen) {
+    clearBlock(building, (key % blocks) * METATILE_SIZE, Math.floor(key / blocks) * METATILE_SIZE);
+  }
+  return seen.size;
+}
+
+/**
+ * Make one metatile's worth of a picture transparent.
+ *
+ * @param {import('../lib/image.mjs').Raster} raster
+ * @param {number} left
+ * @param {number} top
+ */
+function clearBlock(raster, left, top) {
+  for (let y = top; y < Math.min(raster.height, top + METATILE_SIZE); y++) {
+    for (let x = left; x < Math.min(raster.width, left + METATILE_SIZE); x++) {
+      raster.data[(y * raster.width + x) * 4 + 3] = 0;
+    }
+  }
+}
+
 /**
  * The Pokémon Center the rest stop plays out at, cut out of a real town.
  *
@@ -256,15 +345,24 @@ function cropFrame(sheet, layout, index) {
  */
 async function buildPokemonCenter(assetDir, pool) {
   const maps = await openMaps(pool);
-  const { map, image } = await maps.render(CENTER_TOWN);
+  const { map, layout: townLayout, blockdata, image } = await maps.render(CENTER_TOWN);
 
   const warp = (map.warp_events ?? []).find((event) => String(event.dest_map).includes('POKEMON_CENTER'));
   if (!warp) return null;
 
   // The building around its door: two blocks either side, and four above.
-  const left = (Number(warp.x) - 2) * METATILE_SIZE;
-  const top = (Number(warp.y) - 4) * METATILE_SIZE;
-  const building = crop(image, left, top, 5 * METATILE_SIZE, 5 * METATILE_SIZE);
+  const fromX = Number(warp.x) - 2;
+  const fromY = Number(warp.y) - 4;
+  const building = crop(image, fromX * METATILE_SIZE, fromY * METATILE_SIZE, CENTER_BLOCKS * METATILE_SIZE, CENTER_BLOCKS * METATILE_SIZE);
+  // …and then the town rubbed off it, so it stands on the companion's road
+  // rather than on a square of the lawn it was cut from.
+  clearScenery(building, {
+    blockdata,
+    widthInBlocks: townLayout.width,
+    fromX,
+    fromY,
+    blocks: CENTER_BLOCKS,
+  });
   await writeOut(
     join(assetDir, 'props', 'poke-center.png'),
     encodePng(building.width, building.height, building.data),

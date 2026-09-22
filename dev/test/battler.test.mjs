@@ -29,17 +29,24 @@ function recorder() {
     translate() {},
     rotate() {},
     scale() {},
+    rect() {},
+    clip() {},
     fillRect() {},
     drawImage() {},
     beginPath() { pen = []; points.push(pen); },
     moveTo(x, y) { pen?.push([x, y]); },
     lineTo(x, y) { pen?.push([x, y]); },
+    closePath() {},
     stroke() {},
+    fill() {},
   };
 }
 
 /** A sprite stub: the size is all the arrows read off it. */
 const sprite = { width: 40, height: 60, frameAt: () => 0, draw() {} };
+
+/** How far past the sprite's own box an arrow's tip may reach. */
+const ARM = Math.max(3, 40 * 0.12);
 
 /** @param {number} direction */
 function arrowsFor(direction) {
@@ -50,7 +57,8 @@ function arrowsFor(direction) {
   for (let step = 0; step < 10; step++) {
     const context = recorder();
     battler.draw(/** @type {any} */ (context));
-    frames.push(context.points.map((line) => line[1]?.[1]).filter((y) => y !== undefined));
+    // The first point of each arrow is its tip, which is what travels.
+    frames.push(context.points.map((line) => line[0]?.[1]).filter((y) => y !== undefined));
     battler.update(80);
   }
   return frames;
@@ -81,7 +89,7 @@ test('the arrows stay on the sprite they belong to', () => {
   for (const direction of [1, -1]) {
     for (const frame of arrowsFor(direction)) {
       for (const y of frame) {
-        assert.ok(y >= 90 - 60 - 6 && y <= 90 + 6, `arrow at ${y} is off the sprite`);
+        assert.ok(y >= 90 - 60 - ARM - 1 && y <= 90 + ARM + 1, `arrow at ${y} is off the sprite`);
       }
     }
   }
@@ -90,4 +98,36 @@ test('the arrows stay on the sprite they belong to', () => {
 test('a battler too big for its corner is scaled to fit it', () => {
   assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 80, height: 120 }, 1), 1);
   assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 40, height: 30 }, 1), 0.5);
+});
+
+test('a fainting Pokémon sinks straight down and is cut off at its feet', () => {
+  const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  battler.setPose('lose');
+
+  const tops = [];
+  const clips = [];
+  for (let step = 0; step < 8; step++) {
+    const context = recorder();
+    // The clip rectangle is the one the draw puts up before the sprite.
+    context.rect = (x, y, w, h) => clips.push([x, y, w, h]);
+    battler.draw(/** @type {any} */ (context));
+    tops.push(context.calls?.dy ?? battler.transform().dy);
+    battler.update(100);
+  }
+
+  // Down, and only down — the games do not tip a fainted Pokémon over.
+  assert.ok(tops[tops.length - 1] > tops[0], `expected a descent, saw ${tops.join(', ')}`);
+  for (let i = 1; i < tops.length; i++) assert.ok(tops[i] >= tops[i - 1], 'the slide should never reverse');
+  assert.equal(battler.transform().rotate, 0);
+
+  // And everything below the line it stood on is cut away as it goes.
+  assert.ok(clips.length > 0, 'a fainting sprite should be clipped');
+  for (const [, , , height] of clips) assert.equal(height, 90);
+});
+
+test('a fainted Pokémon stays down', () => {
+  const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  battler.setPose('lose');
+  for (let step = 0; step < 30; step++) battler.update(100);
+  assert.equal(battler.pose, 'lose');
 });

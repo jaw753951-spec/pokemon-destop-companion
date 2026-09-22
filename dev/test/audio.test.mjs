@@ -123,3 +123,35 @@ test('stopping the music leaves nothing waiting to come back', async () => {
   tick(2);
   assert.equal(audio.current, null);
 });
+
+test('a cue can be cut to its opening phrase', async () => {
+  const audio = new AudioEngine();
+  await audio.playMusic('route');
+  // The stub song is half a second long; ask for a fifth of it.
+  await audio.playJingle('victory', { seconds: 0.1 });
+  assert.equal(audio.jingle?.limit, 0.1);
+
+  // It is over — and the music back — well before the whole song would have
+  // finished, which is the point of cutting it.
+  now += 0.6;
+  tick();
+  await settle();
+  assert.equal(audio.jingle, null);
+  assert.equal(audio.current?.name, 'route');
+});
+
+test('a cue is never stretched past the song it came from', async () => {
+  const audio = new AudioEngine();
+  await audio.playJingle('victory', { seconds: 30 });
+  assert.equal(audio.jingle?.limit, 0.5);
+});
+
+test('cues play on the music channel, where the music slider reaches them', async () => {
+  const audio = new AudioEngine();
+  const voiced = [];
+  audio.playNote = (program, note, when, output) => voiced.push(output);
+
+  await audio.playJingle('victory');
+  assert.ok(voiced.length > 0, 'the cue should have voiced something');
+  for (const output of voiced) assert.equal(output, audio.musicGain);
+});

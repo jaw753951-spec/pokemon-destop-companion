@@ -1,19 +1,16 @@
 #!/usr/bin/env electron
 /**
- * One-shot check for the item ball lying on the path: renders the closed and
- * opened shapes with the real `drawBall` and verifies two things the drawing
- * got wrong.
+ * One-shot check for the item ball lying on the path: renders it closed, part
+ * way through being collected, and once it has gone.
  *
  * The icon is deliberately *not* square. The pipeline trims every item icon to
- * its opaque pixels, so almost none of them are, and the opened ball was
- * reading one number off the image's height and using it as the source
- * rectangle's width too — which sampled a tall slice of a wide picture and
- * stretched it across the whole ball. That is what "the image breaks" looked
- * like. A stripe down the right-hand edge of the test icon can only appear in
- * the output if the whole width was sampled.
+ * its opaque pixels, so almost none of them are, and one number read off the
+ * image's height cannot stand for its width too — a stripe down the right-hand
+ * edge of the test icon can only appear in the output if the whole width was
+ * sampled.
  *
- * The second check is the older one: the opened lid has to stay inside the
- * ball's own footprint rather than overhanging it.
+ * And a collected ball leaves nothing behind, as it does on the games' own
+ * maps: past the fade there must be no ball on the ground at all.
  *
  *   xvfb-run -a npx electron --no-sandbox dev/tools/check-ball.mjs
  */
@@ -50,7 +47,7 @@ app.whenReady().then(async () => {
   // happen where the module lives.
   const check = await window.webContents.executeJavaScript(`(async () => {
     try {
-      const { BALL_LID_TIP, BALL_SIZE, drawBall } = await import('./scenes/fieldevents.mjs');
+      const { BALL_FADE_MS, BALL_SIZE, drawBall } = await import('./scenes/fieldevents.mjs');
       const { groundY } = await import('./render/field.mjs');
 
       // A wide, short icon — the shape a trimmed item icon really is. Red lid
@@ -83,7 +80,10 @@ app.whenReady().then(async () => {
       const closedX = 40;
       const openX = 110;
       drawBall(context, { sprite: { image }, frame: 'closed' }, closedX);
-      drawBall(context, { sprite: { image }, frame: 'open' }, openX);
+      // The frame it opens on: still there at full strength, still the whole
+      // icon. Later frames are the same picture fading, so a sample of one of
+      // those would be testing the alpha rather than the source rectangle.
+      drawBall(context, { sprite: { image }, frame: 'open' }, openX, 0);
 
       const { width, height } = canvas;
       const data = context.getImageData(0, 0, width, height).data;
@@ -107,19 +107,33 @@ app.whenReady().then(async () => {
       if (!hasStripe(closedX - 12, closedX + 12)) return { fail: 'the closed ball lost the right of its icon' };
       if (!hasStripe(openX - 12, openX + 16)) return { fail: 'the opened ball lost the right of its icon' };
 
-      // The opened ball may not stray outside the room the drawing gives it:
-      // its own width, plus the distance the lid is meant to tip forward on
-      // the right. Overhanging beyond that was the older bug.
+      // A ball keeps to its own column, opened or not: nothing may appear in
+      // the five columns either side of the width it is drawn at.
       const ground = groundY();
       const left = Math.round(openX - BALL_SIZE / 2);
-      const right = Math.ceil(left + BALL_SIZE * (1 + BALL_LID_TIP)) + 1;
-      for (let y = Math.max(0, ground - 24); y < ground; y++) {
+      const right = left + BALL_SIZE;
+      for (let y = 0; y < ground; y++) {
         for (let x = left - 5; x < left; x++) {
-          if (!isBackground(x, y)) return { fail: \`overhang left at \${x},\${y}\` };
+          if (!isBackground(x, y)) return { fail: \`stray left at \${x},\${y}\` };
         }
         for (let x = right; x < right + 5; x++) {
-          if (!isBackground(x, y)) return { fail: \`overhang right at \${x},\${y}\` };
+          if (!isBackground(x, y)) return { fail: \`stray right at \${x},\${y}\` };
         }
+      }
+
+      // And once the fade is over there is nothing left of it at all.
+      const gone = document.createElement('canvas');
+      gone.width = width;
+      gone.height = height;
+      const after = gone.getContext('2d');
+      after.imageSmoothingEnabled = false;
+      after.fillStyle = 'rgb(127, 176, 105)';
+      after.fillRect(0, 0, width, height);
+      drawBall(after, { sprite: { image }, frame: 'open' }, openX, BALL_FADE_MS + 1);
+      const leftovers = after.getImageData(0, 0, width, height).data;
+      for (let i = 0; i < leftovers.length; i += 4) {
+        const pixel = [leftovers[i], leftovers[i + 1], leftovers[i + 2]];
+        if (!near(pixel, bg)) return { fail: 'a collected ball was still on the ground' };
       }
 
       return { png: canvas.toDataURL('image/png') };

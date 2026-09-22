@@ -60,12 +60,16 @@ const MEET_GAP = 20;
 export const BALL_SIZE = 12;
 
 /**
- * How far the opened lid tips forward, as a share of the ball's width.
+ * How long a collected ball takes to go, in milliseconds.
  *
- * The lid is hinged at its back edge and curls over, so it leaves the ball's
- * own footprint on that side — by this much and no more.
+ * The games have no picture of an opened item ball: the ball is one frame, and
+ * the moment its contents are yours the object is simply gone from the map.
+ * The lid this used to tip forward — half the icon squashed and slid sideways
+ * over the other half — was an invention, and it looked like one. So the ball
+ * opens by leaving: a short lift and fade while the companion holds up what
+ * was inside it.
  */
-export const BALL_LID_TIP = 0.38;
+export const BALL_FADE_MS = 520;
 
 /**
  * @param {{
@@ -277,6 +281,8 @@ function startBall(session, spawnAt) {
     onGathered: (app) => {
       session.addItem(item);
       state.prop.frame = 'open';
+      // When it was opened, so the fade knows how far along it is.
+      state.prop.openedAt = state.elapsed ?? 0;
       state.carried = { icon: `items/${item}.png`, sprite: null };
       loadImage(`items/${item}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
@@ -592,7 +598,7 @@ function drawProp(context, state, screenX) {
     return;
   }
   if (prop.kind === 'ball') {
-    drawBall(context, prop, screenX);
+    drawBall(context, prop, screenX, (state.elapsed ?? 0) - (prop.openedAt ?? 0));
     return;
   }
   if (prop.kind === 'center') {
@@ -685,12 +691,11 @@ function drawCenter(context, prop, screenX) {
  * thinner, so the lid reads as hinged at its back edge and curled over, and
  * every drawn pixel stays inside the sprite's own footprint.
  */
-export function drawBall(context, prop, screenX) {
+export function drawBall(context, prop, screenX, sinceOpened = 0) {
   const { image } = prop.sprite;
   // The icon's own width and height, separately. The pipeline trims each icon
-  // to its opaque pixels, so they are not square — reading one number off the
-  // height and using it for both meant every source rectangle here was the
-  // wrong shape, and the opened ball came out as a smear.
+  // to its opaque pixels, so they are not square, and one number read off the
+  // height cannot stand for both.
   const sourceWidth = image.naturalWidth;
   const sourceHeight = image.naturalHeight;
   if (!sourceWidth || !sourceHeight) return;
@@ -708,43 +713,16 @@ export function drawBall(context, prop, screenX) {
     return;
   }
 
-  const half = Math.max(1, Math.floor(sourceHeight / 2));
-  const lidHeight = Math.round(drawnHeight / 2);
-  // The base keeps its place on the ground.
-  context.drawImage(
-    image,
-    0,
-    half,
-    sourceWidth,
-    sourceHeight - half,
-    left,
-    top + lidHeight,
-    drawnWidth,
-    drawnHeight - lidHeight,
-  );
-  // The lid: one blit per source row, hinged at its back (right) edge and
-  // curling forward — the further up the lid a row sits, the further right
-  // and the thinner it is drawn, so the lid reads as tipped over rather than
-  // rotated into a square-shaped hole. `imageSmoothingEnabled` is already off
-  // in field space, so the squash stays as crisp as the rest of the field.
-  const rowHeight = lidHeight / half;
-  for (let row = 0; row < half; row++) {
-    // 0 at the hinge (bottom of the lid), 1 at its rim (top).
-    const lifted = 1 - row / half;
-    const shift = lifted * drawnWidth * BALL_LID_TIP;
-    const height = rowHeight * (1 - lifted * 0.45);
-    context.drawImage(
-      image,
-      0,
-      row,
-      sourceWidth,
-      1,
-      Math.round(left + shift),
-      Math.round(top + row * rowHeight),
-      drawnWidth,
-      Math.max(1, height),
-    );
-  }
+  // Opened: the same ball, rising and fading out of the picture. There is
+  // nothing left on the ground once it has gone, which is what the map shows
+  // after an item ball is collected.
+  const step = Math.max(0, Math.min(1, sinceOpened / BALL_FADE_MS));
+  if (step >= 1) return;
+
+  context.save();
+  context.globalAlpha = 1 - step;
+  context.drawImage(image, left, Math.round(top - step * drawnHeight * 0.8), drawnWidth, drawnHeight);
+  context.restore();
 }
 
 /**
