@@ -31,8 +31,18 @@ export function useItem(session, slug) {
     const move = item.move;
     if (!move || !moveOf(move)) return { used: false, ok: false, message: t('items.cannotUse') };
     const species = speciesOf(pokemon.speciesId);
+    // The games name both the Pokémon and the move rather than refusing
+    // silently, which is the only way to tell "wrong Pokémon" apart from
+    // "wrong moment".
     if (!species?.learnset.machine.includes(move)) {
-      return { used: false, ok: false, message: t('items.cannotUse') };
+      return {
+        used: false,
+        ok: false,
+        message: t('items.cannotLearn', {
+          name: nameOf(pokemon),
+          move: localized(moveOf(move)?.name, move),
+        }),
+      };
     }
     if (!session.machines.includes(move)) session.machines.push(move);
     return { used: true, ok: true, message: t('items.taught', { move: localized(moveOf(move)?.name, move) }) };
@@ -41,16 +51,31 @@ export function useItem(session, slug) {
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
   // Rare Candy — does it here, whichever pocket it sits in.
   if (item.use) {
-    if (!applyUse(pokemon, item)) return { used: false, ok: false, message: t('items.cannotUse') };
-    session.removeItem(slug);
-    return { used: true, ok: true, message: t('items.used', { name: label }) };
+    if (applyUse(pokemon, item)) {
+      session.removeItem(slug);
+      return { used: true, ok: true, message: t('items.used', { name: label }) };
+    }
+    // A berry is both: something that can be eaten now and something that is
+    // usually meant to be carried until it is needed. Using one on a Pokémon
+    // at full health used to stop dead at "that cannot be used right now",
+    // with no way to hand it over at all — so where the bag would offer to
+    // hand the item over, a use that had nothing to do does that instead.
+    //
+    // Asked through `itemActions` rather than `canHold`, because the question
+    // is what the bag offers for this item, not what could physically be
+    // carried: PokeAPI marks a PP Max holdable, and holding one is not what
+    // the medicine pocket is for. A PP Max with nothing left to buy has to go
+    // on saying so.
+    if (!itemActions(session, slug).equip) {
+      return { used: false, ok: false, message: t('items.cannotUse') };
+    }
   }
 
   // An evolution stone, if this Pokémon is waiting on one.
   const evolution = pendingEvolution(pokemon, { item: slug });
   if (evolution) {
     session.removeItem(slug);
-    const from = pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, '');
+    const from = nameOf(pokemon);
     evolveInto(pokemon, evolution.to);
     session.markCaught(evolution.to);
     return {
@@ -63,15 +88,130 @@ export function useItem(session, slug) {
     };
   }
 
-  // Anything holdable becomes the held item.
-  if (item.attributes.includes('holdable')) {
-    if (pokemon.heldItem) session.addItem(pokemon.heldItem);
-    session.removeItem(slug);
-    pokemon.heldItem = slug;
-    return { used: true, ok: true, message: t('items.used', { name: label }) };
-  }
+  // Anything a Pokémon could carry becomes the held item instead of failing.
+  if (canHold(slug)) return equipItem(session, slug);
 
   return { used: false, ok: false, message: t('items.cannotUse') };
+}
+
+/**
+ * Whether an item is one a Pokémon could be given to carry.
+ *
+ * This is the **one** answer to that question, and both the bag's menu and
+ * `equipItem` read it. They used to ask it differently — the menu offered
+ * anything in the berry pocket, and the equip refused anything whose
+ * `attributes` did not carry `holdable` — so a berry whose PokeAPI record
+ * spells its attributes another way put a "give to hold" button on screen that
+ * answered "that cannot be held" when it was pressed. A menu that offers
+ * something the engine refuses is worse than no menu at all.
+ *
+ * The berry pocket is holdable by definition (the whole pocket is things a
+ * Pokémon carries), as is anything the engine knows a held effect for.
+ *
+ * @param {string} slug
+ */
+export function canHold(slug) {
+  const item = itemOf(slug);
+  if (!item) return false;
+  return (
+    item.pocket === 'berries' ||
+    Boolean(item.held) ||
+    Boolean(item.attributes?.includes('holdable'))
+  );
+}
+
+/**
+ * Put an item in the travelling Pokémon's hand.
+ *
+ * Holding is what a tool or a berry is for — a Leftovers does nothing in the
+ * bag — so the bag offers this rather than "use" for them. Whatever was being
+ * held goes back into the bag, which is how the games swap one for another.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} slug
+ * @returns {{used: boolean, ok: boolean, message: string}}
+ */
+export function equipItem(session, slug) {
+  const item = itemOf(slug);
+  const pokemon = session.active;
+  if (!item || !canHold(slug)) {
+    return { used: false, ok: false, message: t('items.cannotEquip') };
+  }
+  if (pokemon.heldItem === slug) {
+    return { used: false, ok: false, message: t('items.alreadyHeld') };
+  }
+
+  if (pokemon.heldItem) session.addItem(pokemon.heldItem);
+  if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip') };
+  pokemon.heldItem = slug;
+  return {
+    used: true,
+    ok: true,
+    message: t('items.equipped', { name: nameOf(pokemon), item: localized(item.name, slug) }),
+  };
+}
+
+/**
+ * Take back whatever the travelling Pokémon is holding.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @returns {{used: boolean, ok: boolean, message: string}}
+ */
+export function unequipItem(session) {
+  const pokemon = session.active;
+  const slug = pokemon.heldItem;
+  if (!slug) return { used: false, ok: false, message: t('items.holdsNothing') };
+
+  session.addItem(slug);
+  pokemon.heldItem = null;
+  return {
+    used: true,
+    ok: true,
+    message: t('items.unequipped', {
+      name: nameOf(pokemon),
+      item: localized(itemOf(slug)?.name, slug),
+    }),
+  };
+}
+
+/**
+ * What the bag can do with an item, for the Pokémon travelling right now.
+ *
+ * The pocket decides most of it: medicine is used, a machine is taught, a ball
+ * is only ever thrown on the capture screen, and a tool or a berry is carried.
+ * The exception is a stone the companion is waiting on, which is used on it
+ * rather than held — the one thing in those two pockets that does something
+ * from the bag.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {string} slug
+ * @returns {{use: boolean, equip: boolean}}
+ */
+export function itemActions(session, slug) {
+  const item = itemOf(slug);
+  if (!item) return { use: false, equip: false };
+
+  // A ball is thrown at what the companion knocked down, from the capture
+  // screen; there is nothing for the bag's own menu to do with one.
+  if (item.pocket === 'pokeballs') return { use: false, equip: false };
+  if (item.pocket === 'machines') return { use: true, equip: false };
+  if (item.pocket === 'medicine') return { use: Boolean(item.use), equip: false };
+
+  return {
+    use: Boolean(pendingEvolution(session.active, { item: slug })),
+    // The same question `equipItem` answers, asked through the same function:
+    // a menu that offers what the engine then refuses is the bug this pair
+    // used to have.
+    equip: canHold(slug),
+  };
+}
+
+/**
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {string}
+ */
+function nameOf(pokemon) {
+  return pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, '');
 }
 
 /**

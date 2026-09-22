@@ -200,8 +200,26 @@ export function abilitySlot(pokemon) {
 }
 
 /**
+ * The move every Pokémon falls back on when it has nothing that hits.
+ *
+ * Tackle is the series' own answer to the same question — it is what a starter
+ * opens with and what the games hand out when a moveset would otherwise have
+ * nothing in it — and every Pokémon in this game can be given it, because the
+ * alternative is a Pokémon that cannot fight.
+ */
+export const DEFAULT_ATTACK = 'tackle';
+
+/** Whether a move actually does damage, as opposed to setting something up. */
+export const isAttack = (slug) => {
+  const move = moveOf(slug);
+  return Boolean(move && move.damageClass !== 'status' && (move.power ?? 0) > 0);
+};
+
+/**
  * The four most recent level-up moves available at the Pokémon's level, which
- * is what the games give a freshly encountered Pokémon.
+ * is what the games give a freshly encountered Pokémon — with the guarantee
+ * that at least one of them hits.
+ *
  * @param {Pokemon} pokemon
  * @returns {string[]}
  */
@@ -214,12 +232,74 @@ export function defaultMoves(pokemon) {
     .filter((move) => moveOf(move));
 
   const unique = [...new Set(learnable)];
-  const chosen = unique.slice(-4);
-  if (chosen.length) return chosen;
+  let chosen = unique.slice(-4);
 
-  // A species whose learnset starts above this level still needs something.
-  const fallback = species.learnset.level.map(([, move]) => move).find((move) => moveOf(move));
-  return fallback ? [fallback] : ['tackle'];
+  if (chosen.length === 0) {
+    // A species whose learnset starts above this level still needs something.
+    const fallback = species.learnset.level.map(([, move]) => move).find((move) => moveOf(move));
+    chosen = fallback ? [fallback] : [];
+  }
+
+  return withAttack(chosen, species);
+}
+
+/**
+ * The same four moves, but with something that hits among them.
+ *
+ * Some species learn nothing but status moves for their first several levels —
+ * a Smeargle knows only Sketch, a Magikarp only Splash and a Tackle it gets at
+ * fifteen, a Metapod only Harden — and a companion that fights on its own for
+ * hours had no way to win those fights: it stood there raising its defence
+ * until something knocked it over. So the last slot is given the best hitting
+ * move the species has anywhere in its level-up list, and failing that the
+ * fallback above.
+ *
+ * The move is chosen from the species' own learnset first, so a Metapod gets
+ * its own Tackle back rather than being handed one it was never meant to know.
+ *
+ * @param {string[]} moves
+ * @param {any} species
+ * @returns {string[]}
+ */
+function withAttack(moves, species) {
+  if (moves.some(isAttack)) return moves;
+
+  const fromSpecies = (species?.learnset?.level ?? [])
+    .map(([, move]) => move)
+    .filter((move) => isAttack(move));
+  // The last one it would learn is the strongest thing it has a claim to.
+  const attack = fromSpecies.at(-1) ?? (moveOf(DEFAULT_ATTACK) ? DEFAULT_ATTACK : null);
+  if (!attack || moves.includes(attack)) return moves;
+
+  // Replace the last slot rather than the first: a full set keeps the three
+  // moves the level actually earned, and the one it gives up is the oldest of
+  // the four it was carrying.
+  if (moves.length >= 4) return [...moves.slice(0, 3), attack];
+  return [...moves, attack];
+}
+
+/**
+ * Make sure a Pokémon has something it can attack with, teaching it one if it
+ * has not.
+ *
+ * Saves written before that was guaranteed are full of Pokémon that cannot
+ * fight, and the companion is one of them, so the run repairs them on load
+ * rather than leaving a player to notice it mid-battle.
+ *
+ * @param {Pokemon} pokemon
+ * @returns {string|null} the move it was taught, if it needed one
+ */
+export function ensureAttack(pokemon) {
+  if (!pokemon) return null;
+  const known = (pokemon.moves ?? []).map((entry) => entry?.move).filter(Boolean);
+  if (known.some(isAttack)) return null;
+
+  const species = speciesOf(pokemon.speciesId);
+  const [taught] = withAttack(known, species).filter((move) => !known.includes(move));
+  if (!taught) return null;
+
+  setMove(pokemon, Math.min(3, Math.max(0, known.length)), taught);
+  return taught;
 }
 
 /** @param {Pokemon} pokemon */

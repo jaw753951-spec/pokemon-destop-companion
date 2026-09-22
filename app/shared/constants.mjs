@@ -18,6 +18,18 @@ export const VIEW_HEIGHT = 270;
  */
 export const FIELD_ZOOM = 2;
 
+/**
+ * The zoom the stage is drawn at for a window of a given width.
+ *
+ * Whole quarter steps once a source pixel is worth at least a screen pixel,
+ * and free below that, where snapping would mean throwing away most of a tiny
+ * window. Both the window sizer and the renderer read this, so a window is
+ * never a size the picture inside it cannot fill.
+ *
+ * @param {number} zoom
+ */
+export const snapZoom = (zoom) => (zoom >= 1 ? Math.floor(zoom * 4) / 4 : zoom);
+
 /** The field's own coordinate space, which the zoom scales up to the window. */
 export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
 export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
@@ -35,20 +47,75 @@ export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 export const EVENT_INTERVAL_MS = 60 * 1000;
 
 /**
- * How much a click on the travelling view pulls the next event in.
+ * How much faster the travelling view runs while the pointer is held down.
  *
- * One event a minute is the idle pace; a player poking at the companion is
- * asking it to get on with it, so each click shoulders half a second off the
- * wait — a handful of clicks visibly matters without ever emptying it.
+ * One event a minute is the idle pace; a player holding the pointer on the
+ * companion is asking it to get on with it. Holding runs the walk and the
+ * event clock at this multiple, and **letting go stops it on the spot** —
+ * nothing is banked, so the pace a player sees is always the one their hand is
+ * asking for. The older behaviour shouldered half a second off the wait per
+ * click, which kept hurrying the game along long after the clicking stopped.
  */
-export const CLICK_EVENT_BONUS_MS = 500;
+export const HOLD_BOOST_RATE = 6;
 
 /**
- * How long the companion stays in one area before moving on: ten minutes,
- * fixed. The range that used to sit here made the interval something the
- * player could only guess at; a fixed figure is one you can set a clock by.
+ * How fast the companion walks while the pointer is held, as a multiple of its
+ * ordinary pace. Lower than the event clock's: the point is to read as a jog,
+ * not to tear the map past the window.
  */
-export const AREA_ROTATION_MS = 10 * 60 * 1000;
+export const HOLD_BOOST_WALK = 2.5;
+
+/**
+ * Damage the player's own Pokémon takes, as a share of what the formula says.
+ *
+ * The companion fights on its own for hours at a time with nobody to switch it
+ * out, so it is given a standing thirty per cent off everything aimed at it.
+ * What it deals is untouched — this is armour, not strength.
+ */
+export const COMPANION_DAMAGE_TAKEN = 0.7;
+
+/**
+ * And what a hit it is weak to costs it on top of that.
+ *
+ * Flat damage reduction makes type matchups matter less, so the thing the
+ * matchup is *about* is sharpened to compensate: a super-effective hit lands
+ * half again as hard on the companion. Resisted and neutral hits are unchanged
+ * beyond the reduction above.
+ */
+export const COMPANION_WEAKNESS_TAKEN = 1.5;
+
+/**
+ * How long to wait before trying again when a roll came due while an event was
+ * still playing out.
+ *
+ * The timers run on the walk, not on what is happening on it, so a rest stop
+ * that takes a quarter of a minute can be holding the road when the next event
+ * — or the area change — falls due. Putting the timer back to its full period
+ * threw that turn away: a player watching a Pokémon Center would then go a
+ * further minute with nothing happening, or ten more in the same place.
+ */
+export const EVENT_RETRY_MS = 5 * 1000;
+
+/**
+ * How long the walk from one area to the next takes, in milliseconds.
+ *
+ * Half of it is the screen shutting and half is it opening again, with the
+ * road changed at the darkest point — which is how the games move you from
+ * one place to another, and the reason somewhere else reads as somewhere else
+ * rather than as the ground glitching under the companion's feet.
+ */
+export const CROSSING_MS = 900;
+
+/**
+ * How many events the companion sees in one area before moving on.
+ *
+ * It used to be ten minutes on a clock, which took no notice of the player at
+ * all: a run being hurried along by clicking went through a dozen events
+ * without the scenery ever changing. Counting events instead means the road
+ * moves at the pace the run is actually being played at — ten things happen,
+ * and then somewhere else.
+ */
+export const EVENTS_PER_AREA = 10;
 
 /** The five daylight bands, and the hour each one starts at. */
 export const TIME_BANDS = [

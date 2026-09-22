@@ -14,6 +14,7 @@
  * legs go faster, stop and they stop mid-stride.
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
+import { speciesOf } from '../core/data.mjs';
 
 /**
  * Where the companion's feet sit.
@@ -47,8 +48,92 @@ export function setGroundY(value) {
  * again is as far as they go before they stop belonging to the map — and the
  * field is drawn at twice size, so one source pixel still lands on a whole
  * number of screen pixels.
+ *
+ * This is the figure for the things that really are tile art: trainers, berry
+ * trees, the props an event puts on the road. A Pokémon is sized by
+ * {@link actorScale} instead — see there for why.
  */
 export const ACTOR_SCALE = 1.5;
+
+/**
+ * How tall a Pokémon of average size stands on the field, in field pixels.
+ *
+ * The box icons are not drawn to a common scale. They are drawn to fill a grid
+ * cell, so a Sableye — half a metre of Pokémon — arrives 30 pixels tall while
+ * a Caterpie arrives at 16, and at a flat multiplier the Sableye towered over
+ * the road at nearly half the window's height. Sizing off the art meant the
+ * roster had no scale at all: what you saw was how much of a cell the artist
+ * filled, which is not a fact about the Pokémon.
+ *
+ * So the drawing is normalised away and the **Pokédex** decides instead: every
+ * species is drawn to a height computed from its own listed height, which is
+ * the one measurement that means the same thing for all 1,025 of them.
+ */
+export const ACTOR_HEIGHT = 26;
+
+/**
+ * How strongly the dex's height moves a species off that figure.
+ *
+ * A straight ratio is useless here — Wailord is fifty times Caterpie's height
+ * and cannot be drawn fifty times as tall — so the ratio is taken to a
+ * fractional power, which is the usual way to put a range this wide on a
+ * screen. At 0.4 a Wailord ends up about four times a Caterpie: plainly the
+ * bigger animal, still something the window can hold.
+ */
+const ACTOR_HEIGHT_EXPONENT = 0.4;
+
+/** The band every Pokémon's drawn height is kept inside, in field pixels. */
+const ACTOR_HEIGHT_RANGE = { min: 18, max: 44 };
+
+/**
+ * And the band its scale is kept inside, whatever the sum says.
+ *
+ * Blowing a 14-pixel icon up past double turns it to mush, and shrinking a
+ * large one below six-tenths loses the details that make it recognisable, so
+ * the art gets a say after the dex has had its one.
+ */
+const ACTOR_SCALE_RANGE = { min: 0.6, max: 2 };
+
+/** The height the dex lists for a species, in metres. */
+function speciesHeightM(pokemon) {
+  // PokeAPI files height in decimetres; a species the dex has no figure for is
+  // treated as a metre, which is close to the median.
+  const decimetres = pokemon ? speciesOf(pokemon.speciesId)?.height : null;
+  return decimetres > 0 ? decimetres / 10 : 1;
+}
+
+/**
+ * What to draw a Pokémon's field art at so the whole roster shares one scale.
+ *
+ * @param {{width: number, height: number}|null|undefined} sprite
+ * @param {{speciesId: number}|null|undefined} pokemon
+ * @returns {number}
+ */
+export function actorScale(sprite, pokemon) {
+  if (!sprite?.height) return ACTOR_SCALE;
+
+  const wanted = clamp(
+    ACTOR_HEIGHT * speciesHeightM(pokemon) ** ACTOR_HEIGHT_EXPONENT,
+    ACTOR_HEIGHT_RANGE.min,
+    ACTOR_HEIGHT_RANGE.max,
+  );
+  return clamp(wanted / sprite.height, ACTOR_SCALE_RANGE.min, ACTOR_SCALE_RANGE.max);
+}
+
+/**
+ * How tall that Pokémon actually comes out, which is what anything drawn over
+ * its head — a carried berry, say — has to clear.
+ *
+ * @param {{width: number, height: number}|null|undefined} sprite
+ * @param {{speciesId: number}|null|undefined} pokemon
+ */
+export function actorHeight(sprite, pokemon) {
+  if (!sprite?.height) return ACTOR_HEIGHT;
+  return Math.round(sprite.height * actorScale(sprite, pokemon));
+}
+
+/** @param {number} value @param {number} low @param {number} high */
+const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
 /** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
@@ -164,17 +249,36 @@ export function walkFrame(distance) {
  *
  * @param {CanvasRenderingContext2D} context
  * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{x: number, y: number, distance: number, moving: boolean, flip?: boolean, scale?: number}} options
+ * @param {{
+ *   x: number,
+ *   y: number,
+ *   distance: number,
+ *   moving: boolean,
+ *   flip?: boolean,
+ *   scale?: number,
+ *   lift?: number,
+ * }} options `lift` raises the sprite off the ground without its shadow, for
+ *   a companion busy with something where it stands
  */
-export function drawWalker(context, sprite, { x, y, distance, moving, flip = true, scale = ACTOR_SCALE }) {
+export function drawWalker(
+  context,
+  sprite,
+  { x, y, distance, moving, flip = true, scale = ACTOR_SCALE, lift: raised = 0 },
+) {
   const { lift, lean } = moving ? walkFrame(distance) : WALK_CYCLE[0];
 
-  const width = sprite.width * scale;
-  const height = sprite.height * scale;
+  // Whole pixels in the field's own space: a sprite whose scale leaves it half
+  // a pixel wide lands on a half pixel at one edge and a whole one at the
+  // other, and the walk cycle then makes that edge shimmer.
+  const width = Math.round(sprite.width * scale);
+  const height = Math.round(sprite.height * scale);
+  // The shadow stays on the ground whatever the sprite is doing above it,
+  // which is what makes a bob read as leaving the ground rather than as the
+  // whole thing sliding up the screen.
   drawShadow(context, x, y, width);
 
   const left = Math.round(x - width / 2);
-  const top = Math.round(y - height - lift);
+  const top = Math.round(y - height - lift - raised);
 
   context.save();
   if (flip) {
@@ -189,10 +293,29 @@ export function drawWalker(context, sprite, { x, y, distance, moving, flip = tru
   } else {
     // One draw per row is a few dozen tiny blits for a sprite this size, which
     // is cheaper than the offscreen canvas an equivalent transform would need.
+    //
+    // Each row is drawn from where it starts to where the *next* one starts,
+    // both rounded the same way, so consecutive rows always abut exactly. The
+    // old version gave every row the same fractional height at a fractional
+    // offset, which at most scales left hairlines of background showing
+    // through the sprite on the beats it leans — the "you can see the map
+    // through it while it walks" report.
     for (let row = 0; row < sprite.height; row++) {
       const weight = 1 - row / sprite.height;
       const shift = Math.round(lean * weight);
-      context.drawImage(sprite.image, 0, row, sprite.width, 1, left + shift, top + row * scale, width, scale);
+      const rowTop = top + Math.round(row * scale);
+      const rowBottom = top + Math.round((row + 1) * scale);
+      context.drawImage(
+        sprite.image,
+        0,
+        row,
+        sprite.width,
+        1,
+        left + shift,
+        rowTop,
+        width,
+        Math.max(1, rowBottom - rowTop),
+      );
     }
   }
   context.restore();

@@ -14,7 +14,7 @@ import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { ACTOR_SCALE, COMPANION_X, groundY } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, groundY } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -25,6 +25,31 @@ const SHOW_ITEM_MS = 3000;
 const SPAWN_MARGIN = 24;
 
 /**
+ * The bob a gathering companion makes, in field pixels and milliseconds.
+ *
+ * Ten seconds of a Pokémon standing perfectly still in front of a berry tree
+ * reads as the game having frozen. A small rise and fall on the spot — up
+ * only, since it cannot sink into the road — is the whole of what says it is
+ * busy with something.
+ */
+const GATHER_BOB_PX = 2;
+const GATHER_BOB_MS = 460;
+
+/** The phases the companion is working through something rather than waiting. */
+const GATHERING = new Set(['gather']);
+
+/**
+ * How far off the ground the companion is at this point in a gather.
+ * @param {any} active
+ * @returns {number} field pixels
+ */
+export function gatherBob(active) {
+  if (!active || !GATHERING.has(active.phase)) return 0;
+  const elapsed = active.elapsed ?? 0;
+  return Math.round(Math.abs(Math.sin((elapsed / GATHER_BOB_MS) * Math.PI)) * GATHER_BOB_PX);
+}
+
+/**
  * How far to the companion's right the prop ends up. Without a gap the two
  * sprites land on the same spot and the companion hides whatever it met.
  * Field pixels, so about a tile and a bit at the size they are drawn.
@@ -32,7 +57,19 @@ const SPAWN_MARGIN = 24;
 const MEET_GAP = 20;
 
 /** How wide a ball lying on the path is drawn, in field pixels — under a tile. */
-const BALL_SIZE = 12;
+export const BALL_SIZE = 12;
+
+/**
+ * How long a collected ball takes to go, in milliseconds.
+ *
+ * The games have no picture of an opened item ball: the ball is one frame, and
+ * the moment its contents are yours the object is simply gone from the map.
+ * The lid this used to tip forward — half the icon squashed and slid sideways
+ * over the other half — was an invention, and it looked like one. So the ball
+ * opens by leaving: a short lift and fade while the companion holds up what
+ * was inside it.
+ */
+export const BALL_FADE_MS = 520;
 
 /**
  * @param {{
@@ -60,6 +97,11 @@ export function createEventRunner({ session, onBattle }) {
     /** Whether the companion is out of sight — inside the Pokémon Center. */
     get hidesActor() {
       return Boolean(active?.hidesActor);
+    },
+
+    /** How far the companion is bobbing as it gathers, in field pixels. */
+    get actorLift() {
+      return gatherBob(active);
     },
 
     /**
@@ -111,6 +153,7 @@ export function createEventRunner({ session, onBattle }) {
       active.timer -= deltaMs;
       active.elapsed = (active.elapsed ?? 0) + deltaMs;
       if (active.timer > 0) return;
+
 
       // An event with a script of its own drives it one beat at a time; the
       // rest of them have only the three phases below.
@@ -180,10 +223,8 @@ function startBerry(session, spawnAt) {
     .map(([slug]) => slug);
   const berry = session.rng.pick(berries.length ? berries : ['oran-berry']);
 
-  // `oran-berry` is drawn by a tree sheet named `oran`.
-  const treeName = berry.replace(/-berry$/, '');
   const trees = gameData().actors?.props?.berryTrees ?? {};
-  const tree = trees[treeName] ? treeName : Object.keys(trees)[0];
+  const tree = treeFor(berry, trees);
 
   const state = {
     kind: 'berry',
@@ -216,6 +257,37 @@ function startBerry(session, spawnAt) {
 }
 
 /**
+ * Which tree sheet a berry grows on.
+ *
+ * Emerald drew thirty berry trees; this game carries every berry the series
+ * has ever printed, so more than half of them — everything from Gen 4 on, and
+ * a handful of Hoenn's own — have no tree of their own to grow on. They used
+ * to fall back on `Object.keys(trees)[0]`, which is whichever sheet the asset
+ * pipeline happened to finish downloading first: every one of those berries
+ * grew on the same tree, and which tree that was changed between builds.
+ *
+ * Now a berry without a sheet is given one of the thirty by **its own name**,
+ * so the roadside has the variety it looks like it should and a Roseli Berry
+ * is on the same tree every time you meet one.
+ *
+ * @param {string} berry the item slug, e.g. `oran-berry`
+ * @param {Record<string, any>} trees the sheets the build produced
+ * @returns {string|null}
+ */
+export function treeFor(berry, trees) {
+  // `oran-berry` is drawn by a tree sheet named `oran`.
+  const own = berry.replace(/-berry$/, '');
+  if (trees[own]) return own;
+
+  const names = Object.keys(trees).sort();
+  if (names.length === 0) return null;
+
+  let hash = 0;
+  for (let index = 0; index < own.length; index++) hash = (hash * 31 + own.charCodeAt(index)) >>> 0;
+  return names[hash % names.length];
+}
+
+/**
  * A ball sits on the path. Which ball it is decides how good the item inside
  * is; the companion spends five seconds retrieving it.
  */
@@ -238,6 +310,8 @@ function startBall(session, spawnAt) {
     onGathered: (app) => {
       session.addItem(item);
       state.prop.frame = 'open';
+      // When it was opened, so the fade knows how far along it is.
+      state.prop.openedAt = state.elapsed ?? 0;
       state.carried = { icon: `items/${item}.png`, sprite: null };
       loadImage(`items/${item}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
@@ -262,7 +336,7 @@ function startBall(session, spawnAt) {
  * Which potion is the one the level has any use for: five Potions are a
  * kindness at level ten and a rounding error at fifty.
  */
-const SUPPLY_COUNT = 5;
+const SUPPLY_COUNT = 8;
 
 /** @type {Array<{level: number, item: string}>} highest level last */
 const SUPPLIES = [
@@ -271,6 +345,29 @@ const SUPPLIES = [
   { level: 60, item: 'hyper-potion' },
   { level: Infinity, item: 'max-potion' },
 ];
+
+/**
+ * How many balls a rest stop hands over, and which ones.
+ *
+ * Balls used to come only off the road, out of the item balls the pickup event
+ * spawns, which left a player who had spent theirs on a good catch with no way
+ * to get more except waiting for the right roll. A Pokémon Center is where you
+ * buy balls in every game in the series, so this is where they come from here.
+ *
+ * Which ball follows the companion's level for the same reason the potion
+ * does: a Poké Ball is what you throw at what you meet at level ten and a
+ * waste of a turn against what you meet at fifty.
+ *
+ * @type {Array<{level: number, item: string}>} highest level last
+ */
+const BALL_SUPPLIES = [
+  { level: 25, item: 'poke-ball' },
+  { level: 50, item: 'great-ball' },
+  { level: Infinity, item: 'ultra-ball' },
+];
+
+/** How many of that ball the stop hands over. */
+const BALL_SUPPLY_COUNT = 5;
 
 /** How long the companion stays inside, out of sight, being seen to. */
 const CENTER_STAY_MS = 5000;
@@ -291,7 +388,7 @@ const CENTER_PASS_MS = 6500;
  * it are the games' own door animation, played forwards to open and backwards
  * to close, which is exactly how the cartridge does it.
  */
-const CENTER_STEPS = [
+export const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 2, ms: 90 },
   { frame: 3, ms: 240 },
@@ -307,6 +404,28 @@ const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 0, ms: 300 },
 ];
+
+/**
+ * The next beat of a Center visit: a door frame, the walk past afterwards, or
+ * nothing left to do.
+ *
+ * Pulled out of the event so the end of the visit can be checked without a
+ * window: the walk-past used to be returned for every beat after the door
+ * script ran out, which meant the event never finished, the runner stayed
+ * busy for the rest of the session, and no event — or area change — could
+ * ever happen again after a rest stop.
+ *
+ * @param {number} step how many beats have been asked for, from zero
+ * @param {boolean} passing whether the walk past the Center has already begun
+ * @returns {{phase: string, duration: number, beat?: any}|null}
+ */
+export function centerBeat(step, passing) {
+  const beat = CENTER_STEPS[step];
+  if (beat) return { phase: 'visit', duration: beat.ms, beat };
+  // One walk past the building, and then the event is over.
+  if (!passing) return { phase: 'passing', duration: CENTER_PASS_MS };
+  return null;
+}
 
 /**
  * A Pokémon Center on the road ahead.
@@ -337,20 +456,21 @@ function startHeal(session, spawnAt) {
     /** One beat of the visit; null once there are none left. */
     onTimer: (app) => {
       step += 1;
-      const beat = CENTER_STEPS[step];
-      if (beat) {
-        state.prop.frame = beat.frame;
-        state.hidesActor = Boolean(beat.inside);
-        if (beat.heal) restAndResupply(session, app);
-        return { phase: 'visit', duration: beat.ms };
-      }
+      const next = centerBeat(step, state.phase === 'passing');
+      if (!next) return null;
 
-      // The visit is over, but the building is not: the companion walks on
-      // past the Center and the map carries it off the left edge like any
-      // other roadside scenery, instead of the place vanishing on the spot.
-      state.phase = 'passing';
-      state.hidesActor = false;
-      return { phase: 'passing', duration: CENTER_PASS_MS };
+      if (next.beat) {
+        state.prop.frame = next.beat.frame;
+        state.hidesActor = Boolean(next.beat.inside);
+        if (next.beat.heal) restAndResupply(session, app);
+      } else {
+        // The visit is over, but the building is not: the companion walks on
+        // past the Center and the map carries it off the left edge like any
+        // other roadside scenery, instead of the place vanishing on the spot.
+        state.hidesActor = false;
+      }
+      state.phase = next.phase;
+      return { phase: next.phase, duration: next.duration };
     },
   };
 
@@ -372,13 +492,23 @@ function restAndResupply(session, app) {
   const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
   session.addItem(supply.item, SUPPLY_COUNT);
 
+  const balls = BALL_SUPPLIES.find((entry) => level < entry.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
+  session.addItem(balls.item, BALL_SUPPLY_COUNT);
+
   app.audio.playJingle(gameData().bgm.cues.heal ?? null);
   app.toast(
-    `${t('event.healed')}\n${t('event.supplied', {
-      name: localized(itemOf(supply.item)?.name, supply.item),
-      count: SUPPLY_COUNT,
-    })}`,
-    3200,
+    [
+      t('event.healed'),
+      t('event.supplied', {
+        name: localized(itemOf(supply.item)?.name, supply.item),
+        count: SUPPLY_COUNT,
+      }),
+      t('event.supplied', {
+        name: localized(itemOf(balls.item)?.name, balls.item),
+        count: BALL_SUPPLY_COUNT,
+      }),
+    ].join('\n'),
+    3600,
   );
 }
 
@@ -394,12 +524,13 @@ function startWild(session, spawnAt) {
     timer: 0,
     flash: 0,
     phaseDuration: 700,
-    prop: { kind: 'pokemon', sprite: null, frame: 'ripe' },
+    prop: { kind: 'pokemon', sprite: null, frame: 'ripe', pokemon: wild },
     carried: null,
     setup: { foes: [wild], trainer: null, leader: null },
     onArrive: (app) => {
       app.audio.playCry(wild.speciesId);
-      app.toast(t('event.wild', { name: localized(speciesOf(wild.speciesId)?.name, '') }));
+      // No toast: the battle opens on the same line a beat later, and the two
+      // of them on screen at once read as the encounter happening twice.
       return 'battle';
     },
   };
@@ -436,11 +567,7 @@ function startTrainer(session, spawnAt) {
     prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
     carried: null,
     setup: { foes: roster, trainer: leader ?? trainerClass, leader },
-    onArrive: (app) => {
-      const name = localized((leader ?? trainerClass).name, '');
-      app.toast(leader ? t('event.leader', { trainer: name }) : t('event.trainer', { trainer: name }));
-      return 'battle';
-    },
+    onArrive: () => 'battle',
   };
 
   const fieldSprite = leader?.field ?? trainerClass?.field;
@@ -486,7 +613,9 @@ function pickLeader(session) {
  * @param {any} leader
  */
 export function leaderParty(session, leader) {
-  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 3));
+  // A badge should be worth working for, not a brick wall: a leader is a
+  // level or two up rather than most of a gym's worth.
+  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 1));
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
@@ -494,7 +623,7 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, 3);
 
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 20 }));
+  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
   return giveTrainerItems(session.rng, party, 'leader');
 }
 
@@ -529,11 +658,11 @@ function drawProp(context, state, screenX) {
   if (!prop?.sprite) return;
 
   if (prop.kind === 'berry-tree') {
-    drawBerryTree(context, prop, screenX);
+    drawBerryTree(context, prop, screenX, state.elapsed ?? 0);
     return;
   }
   if (prop.kind === 'ball') {
-    drawBall(context, prop, screenX);
+    drawBall(context, prop, screenX, (state.elapsed ?? 0) - (prop.openedAt ?? 0));
     return;
   }
   if (prop.kind === 'center') {
@@ -542,25 +671,55 @@ function drawProp(context, state, screenX) {
   }
 
   // A Pokémon or trainer waiting on the path, at the size the companion walks
-  // at so the two meet as equals rather than as a giant and a doll.
+  // at so the two meet as equals rather than as a giant and a doll. A wild
+  // Pokémon is sized off the dex like the companion is, so the Sableye in the
+  // road is the same Sableye that would be walking it.
   const sprite = /** @type {Sprite} */ (prop.sprite);
   sprite.draw(context, screenX, groundY(), {
     frame: sprite.frameAt(state.elapsed ?? 0),
-    scale: ACTOR_SCALE,
+    scale: prop.kind === 'pokemon' ? actorScale(sprite, prop.pokemon) : ACTOR_SCALE,
   });
 }
 
 /**
- * Berry sheets hold the tree's growth stages; the last is fruit-bearing and
- * the first is the bare plant left after a harvest.
+ * Which pair of frames a berry sheet's growth stages live on.
+ *
+ * Emerald's sheets are six 16x32 frames: two per stage, the pair being the
+ * sway the tree animates with. The stages, in order, are the grown tree, the
+ * tree in flower, and the tree in fruit — the two stages before those, the
+ * bare earth and the sprout, are shared sheets rather than the berry's own.
+ *
+ * Picking "the last frame" for a ripe tree and "the first" for a picked one
+ * happened to land on the right fruit frame, but it took the tree all the way
+ * back to a bare stalk the moment it was picked: the tree the companion had
+ * just walked up to vanished and left a twig. Naming the stages instead means
+ * a picked tree keeps its shape and loses only what was picked off it.
  */
-function drawBerryTree(context, prop, screenX) {
+const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
+
+/** How long a berry tree holds each of its two sway frames. */
+const BERRY_SWAY_MS = 380;
+
+/**
+ * Berry sheets hold the tree's growth stages; see {@link BERRY_STAGES}.
+ */
+function drawBerryTree(context, prop, screenX, elapsed = 0) {
   const { image, meta } = prop.sprite;
   const frameWidth = 16;
   const frameHeight = 32;
   const columns = Math.max(1, Math.floor(image.naturalWidth / frameWidth));
   const total = Math.max(1, meta?.frames ?? columns);
-  const index = prop.frame === 'ripe' ? total - 1 : 0;
+
+  // The build says which frames it found the fruit on; the table above is the
+  // answer for a manifest written before it did.
+  const ripe = Array.isArray(meta?.fruit) && meta.fruit.length ? meta.fruit : BERRY_STAGES.ripe;
+  const stage = prop.frame === 'ripe' ? ripe : BERRY_STAGES.bare;
+
+  const wanted = stage[Math.floor(elapsed / BERRY_SWAY_MS) % stage.length];
+  // A sheet the build cut differently — fewer frames than Emerald's six —
+  // falls back to its own last frame for a ripe tree and its first for a
+  // picked one, rather than reading off the end of the strip.
+  const index = wanted < total ? wanted : prop.frame === 'ripe' ? total - 1 : 0;
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;
@@ -626,48 +785,38 @@ function drawCenter(context, prop, screenX) {
  * thinner, so the lid reads as hinged at its back edge and curled over, and
  * every drawn pixel stays inside the sprite's own footprint.
  */
-export function drawBall(context, prop, screenX) {
+export function drawBall(context, prop, screenX, sinceOpened = 0) {
   const { image } = prop.sprite;
-  const size = image.naturalHeight;
+  // The icon's own width and height, separately. The pipeline trims each icon
+  // to its opaque pixels, so they are not square, and one number read off the
+  // height cannot stand for both.
+  const sourceWidth = image.naturalWidth;
+  const sourceHeight = image.naturalHeight;
+  if (!sourceWidth || !sourceHeight) return;
+
   // Item icons are drawn for a bag list, where they are the only thing on the
   // row; on the ground one at its own size is a boulder, so it is brought down
-  // to something a Pokémon could pick up.
-  const drawn = BALL_SIZE;
-  const left = Math.round(screenX - drawn / 2);
-  const top = Math.round(groundY() - drawn);
+  // to something a Pokémon could pick up — keeping its own proportions.
+  const drawnWidth = BALL_SIZE;
+  const drawnHeight = Math.max(1, Math.round((BALL_SIZE * sourceHeight) / sourceWidth));
+  const left = Math.round(screenX - drawnWidth / 2);
+  const top = Math.round(groundY() - drawnHeight);
 
   if (prop.frame === 'closed') {
-    context.drawImage(image, left, top, drawn, drawn);
+    context.drawImage(image, left, top, drawnWidth, drawnHeight);
     return;
   }
 
-  const half = Math.floor(size / 2);
-  // The base keeps its place on the ground.
-  context.drawImage(image, 0, half, size, size - half, left, top + drawn / 2, drawn, drawn / 2);
-  // The lid: one blit per source row, hinged at its back (right) edge and
-  // curling forward — the further up the lid a row sits, the further right
-  // and the thinner it is drawn, so the lid reads as tipped over rather than
-  // rotated into a square-shaped hole. `imageSmoothingEnabled` is already off
-  // in field space, so the squash stays as crisp as the rest of the field.
-  const lidHeight = drawn / 2;
-  const rowHeight = lidHeight / half;
-  for (let row = 0; row < half; row++) {
-    // 0 at the hinge (bottom of the lid), 1 at its rim (top).
-    const lifted = 1 - row / half;
-    const shift = lifted * drawn * 0.38;
-    const height = rowHeight * (1 - lifted * 0.45);
-    context.drawImage(
-      image,
-      0,
-      row,
-      size,
-      1,
-      Math.round(left + shift),
-      Math.round(top + row * rowHeight),
-      drawn,
-      Math.max(1, height),
-    );
-  }
+  // Opened: the same ball, rising and fading out of the picture. There is
+  // nothing left on the ground once it has gone, which is what the map shows
+  // after an item ball is collected.
+  const step = Math.max(0, Math.min(1, sinceOpened / BALL_FADE_MS));
+  if (step >= 1) return;
+
+  context.save();
+  context.globalAlpha = 1 - step;
+  context.drawImage(image, left, Math.round(top - step * drawnHeight * 0.8), drawnWidth, drawnHeight);
+  context.restore();
 }
 
 /**

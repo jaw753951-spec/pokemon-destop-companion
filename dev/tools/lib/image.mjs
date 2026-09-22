@@ -193,110 +193,124 @@ export function keyOut(source, color) {
 }
 
 /**
- * Choose the most walkable horizontal band of a map, so the companion appears
- * to travel along a real path rather than through scenery.
+ * How many blocks of unbroken walkable ground a strip has to have before it is
+ * worth cutting the area out of.
+ *
+ * Under this the loop is so short the repeat is all you see, so a shorter run
+ * of ground is traded for a taller sprite: the search drops a row of headroom
+ * and tries again.
+ */
+const MIN_RUN_BLOCKS = 12;
+
+/**
+ * Find the stretch of map the companion can actually walk along.
+ *
+ * This used to be two steps — choose a horizontal band of the map, then the
+ * *best* row inside it — scoring rows by the share of their blocks that were
+ * passable, and charging each row for how many distinct metatiles it used so
+ * a tree line lost to open ground. A share is not a promise:
+ * every one of the thirty shipped areas ended up on a lane with blocks in it
+ * the sprite had no business crossing, and Route 112 — where a lane that is
+ * ninety per cent clear runs straight at the side of a hill — is where it
+ * showed. A map-wide row that is passable end to end does not exist either:
+ * every map has impassable edges, so there is nothing to find.
+ *
+ * So the strip is **cut down to the walk** instead of the walk being fitted to
+ * the strip. This looks for the longest unbroken run of blocks where the
+ * sprite's feet *and* the rows its body passes through are all passable, and
+ * hands back both the row and the columns it runs between; the caller crops
+ * the background to exactly that, and the companion is then on walkable ground
+ * at every point of a loop that has no impassable block in it at all.
+ *
+ * Headroom is given up before ground is: a cave with nothing twelve blocks
+ * long and three rows tall is searched again for two rows, and then for the
+ * feet alone, so a tight interior clips a shoulder rather than shrinking to a
+ * four-block loop.
  *
  * @param {Buffer} blockdata `map.bin`, uint16 per block with collision in bits 10-11
  * @param {number} widthInBlocks
  * @param {number} heightInBlocks
- * @param {number} bandBlocks how many block rows the band spans
- * @returns {number} the best starting block row
+ * @param {number} bandBlocks how many block rows the strip spans
+ * @returns {{bandRow: number, laneRow: number, column: number, columns: number, clearance: number}}
  */
-export function pickWalkableBand(blockdata, widthInBlocks, heightInBlocks, bandBlocks) {
-  if (heightInBlocks <= bandBlocks) return 0;
-
-  /** @type {Array<{passable: number, variety: number}>} */
-  const rows = [];
-  for (let y = 0; y < heightInBlocks; y++) {
-    let passable = 0;
-    /** @type {Set<number>} */
-    const kinds = new Set();
-    for (let x = 0; x < widthInBlocks; x++) {
-      const offset = (y * widthInBlocks + x) * 2;
-      if (offset + 1 >= blockdata.length) continue;
-      const block = blockdata.readUInt16LE(offset);
-      if (((block >> 10) & 0x03) === 0) passable++;
-      kinds.add(block & 0x03ff);
-    }
-    rows.push({ passable, variety: kinds.size });
-  }
-
-  let bestRow = 0;
-  let bestScore = -Infinity;
-  for (let start = 0; start + bandBlocks <= heightInBlocks; start++) {
-    let score = 0;
-    for (let offset = 0; offset < bandBlocks; offset++) {
-      // Weight the middle rows highest: that is where the sprite actually walks.
-      const distance = Math.abs(offset - (bandBlocks - 1) / 2);
-      const row = rows[start + offset];
-      score += (row.passable - row.variety * VARIETY_PENALTY) * (1 + (bandBlocks / 2 - distance));
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      bestRow = start;
-    }
-  }
-  return bestRow;
-}
-
-/**
- * Choose the block row inside a band that the companion should walk along.
- *
- * Picking a walkable band is not enough on its own: a band is nine rows deep
- * and the sprite only stands on one of them, so a fixed ground line put the
- * companion in a tree line as often as on the path. This picks the row whose
- * own blocks and the two above it are passable — the ones the sprite's body
- * occupies — which is exactly the lane a player would walk a character down.
- *
- * @param {Buffer} blockdata `map.bin`, uint16 per block with collision in bits 10-11
- * @param {number} widthInBlocks
- * @param {number} bandRow the band's first block row
- * @param {number} bandBlocks how many block rows the band spans
- * @returns {number} the block row the companion's feet belong on
- */
-export function pickWalkLane(blockdata, widthInBlocks, bandRow, bandBlocks) {
-  /** Block rows the sprite's body reaches above its feet. */
-  const clearance = Math.min(2, bandBlocks - 1);
-  /** Where in the band a walking sprite reads best, as a fraction of it. */
-  const preferred = (bandBlocks - 1) * 0.62;
-
-  const passable = (row) => {
-    let count = 0;
-    for (let x = 0; x < widthInBlocks; x++) {
-      const offset = ((bandRow + row) * widthInBlocks + x) * 2;
-      if (offset + 1 >= blockdata.length) continue;
-      if (((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0) count++;
-    }
-    return count / Math.max(1, widthInBlocks);
+export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlocks) {
+  const passable = (x, y) => {
+    const offset = (y * widthInBlocks + x) * 2;
+    if (offset + 1 >= blockdata.length) return false;
+    return ((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0;
   };
 
-  let bestRow = Math.round(preferred);
-  let bestScore = -Infinity;
-  for (let row = clearance; row < bandBlocks; row++) {
-    // The row under the feet counts full; the ones the body passes through
-    // count for less, since clipping a shoulder matters less than standing in
-    // a wall.
-    let score = passable(row);
-    for (let above = 1; above <= clearance; above++) score += passable(row - above) * 0.6;
-    score -= Math.abs(row - preferred) * 0.08;
+  /**
+   * The longest clear run anywhere on the map, at this much headroom and no
+   * higher up the map than `minRow`.
+   *
+   * The floor matters: the strip is anchored to the bottom of the window, so a
+   * lane found on the map's very top row would put the companion's feet a few
+   * pixels below the top edge of the screen with the whole map hanging under
+   * it. Seafloor Cavern's longest clear run really is its top row.
+   */
+  const longestRun = (clearance, minRow) => {
+    /** @type {{laneRow: number, column: number, columns: number}|null} */
+    let best = null;
+    for (let y = Math.max(clearance, minRow); y < heightInBlocks; y++) {
+      let run = 0;
+      let start = 0;
+      for (let x = 0; x <= widthInBlocks; x++) {
+        let clear = x < widthInBlocks;
+        for (let above = 0; clear && above <= clearance; above++) clear = passable(x, y - above);
 
-    if (score > bestScore) {
-      bestScore = score;
-      bestRow = row;
+        if (clear) {
+          if (run === 0) start = x;
+          run++;
+          continue;
+        }
+        if (run > 0 && (!best || run > best.columns)) best = { laneRow: y, column: start, columns: run };
+        run = 0;
+      }
     }
+    return best;
+  };
+
+  const wanted = Math.min(2, Math.max(0, bandBlocks - 1));
+  const above = Math.min(heightInBlocks - 1, Math.round((bandBlocks - 1) * LANE_IN_BAND));
+
+  /** @type {{laneRow: number, column: number, columns: number, clearance: number}|null} */
+  let chosen = null;
+  // Lanes that can sit where a walking sprite reads best are looked for first;
+  // only a map with nothing down there settles for one nearer its top edge.
+  for (const minRow of [above, 0]) {
+    for (let clearance = wanted; clearance >= 0; clearance--) {
+      const found = longestRun(clearance, minRow);
+      if (!found) continue;
+      // Keep the roomiest one seen so far, so dropping to no headroom at all
+      // still cannot make the strip shorter than it already was.
+      if (!chosen || found.columns > chosen.columns) chosen = { ...found, clearance };
+      if (chosen.columns >= MIN_RUN_BLOCKS) break;
+    }
+    if (chosen) break;
   }
-  return bandRow + bestRow;
+
+  // A map with nothing passable on it at all: fall back to the whole width at
+  // the band's own reading height rather than producing an empty strip.
+  if (!chosen) {
+    const bandRow = Math.max(0, Math.min(heightInBlocks - bandBlocks, 0));
+    return {
+      bandRow,
+      laneRow: bandRow + Math.round((bandBlocks - 1) * LANE_IN_BAND),
+      column: 0,
+      columns: widthInBlocks,
+      clearance: 0,
+    };
+  }
+
+  // The lane sits where a walking sprite reads best inside the strip, with the
+  // strip slid back inside the map at the top and bottom edges.
+  const bandRow = Math.max(0, Math.min(heightInBlocks - bandBlocks, chosen.laneRow - above));
+  return { bandRow, laneRow: chosen.laneRow, column: chosen.column, columns: chosen.columns, clearance: chosen.clearance };
 }
 
-/**
- * How hard to push the band away from cluttered rows.
- *
- * Open ground and a tree line can be equally walkable, so counting passable
- * blocks alone happily picks the noisiest strip of the map. Charging each row
- * for the number of distinct metatiles it uses breaks that tie towards plain
- * terrain, which is what a route looks like where you actually walk it.
- */
-const VARIETY_PENALTY = 2;
+/** Where down the strip the walked row sits, as a fraction of its height. */
+const LANE_IN_BAND = 0.62;
 
 /**
  * Resample an animation down to at most `maxFrames`, preserving its total

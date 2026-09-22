@@ -19,10 +19,19 @@ import { createPokemon, levelOf, rollWildHeldItem } from './pokemon.mjs';
  * routes keep their wilds within a couple of levels either way and the range
  * opens up as the team — and its movepool — grows into it.
  */
-export const LEVEL_SPREAD = { min: -5, max: 15 };
+export const LEVEL_SPREAD = { min: -6, max: 6 };
+
+/** The most Pokémon a trainer on the road is ever given. */
+export const PARTY_CAP = 3;
 
 /**
  * The spread actually on offer at a given level, widest at the top.
+ *
+ * A wild Pokémon used to be able to turn up fifteen levels above the
+ * companion, which is not a fight — it is a blackout with extra steps, and on
+ * a game that plays itself the player cannot even run. The road is meant to be
+ * somewhere a companion walks, so the wilds now sit around the companion
+ * rather than above it.
  *
  * | level | down | up |
  * |-------|------|----|
@@ -34,9 +43,9 @@ export const LEVEL_SPREAD = { min: -5, max: 15 };
  * @param {number} level
  */
 export function spreadFor(level) {
-  if (level <= 7) return { min: -2, max: 2 };
-  if (level <= 14) return { min: -3, max: 5 };
-  if (level <= 24) return { min: -4, max: 9 };
+  if (level <= 7) return { min: -2, max: 1 };
+  if (level <= 14) return { min: -3, max: 2 };
+  if (level <= 24) return { min: -4, max: 4 };
   return LEVEL_SPREAD;
 }
 
@@ -188,7 +197,10 @@ export function rollTrainer(rng, area, companion, classes) {
   // Early trainers with three monsters a level-5 starter cannot out-trade
   // made the first ten minutes a coin flip on which trainer walked up.
   const companionLevel = levelOf(companion);
-  const cap = companionLevel <= 5 ? 1 : companionLevel <= 9 ? 2 : maxParty;
+  // One Pokémon while the companion is finding its feet, then two, then
+  // three — and never the six a class may claim on paper. A companion is one
+  // Pokémon; six of anything is a wall, not a fight.
+  const cap = companionLevel <= 5 ? 1 : companionLevel <= 11 ? 2 : Math.min(maxParty, PARTY_CAP);
   const high = Math.max(minParty, Math.min(maxParty, cap));
   const size = companionLevel <= 5 ? minParty : rng.int(minParty, high);
 
@@ -196,7 +208,9 @@ export function rollTrainer(rng, area, companion, classes) {
   for (let index = 0; index < size; index++) {
     const level = rollLevel(rng, companion);
     const speciesId = pickSpecies(rng, area, level, trainerClass.types ?? []);
-    party.push(createPokemon(rng, speciesId, level, { ivFloor: 8 }));
+    // No floor on the genes: an ordinary trainer's Pokémon is somebody's
+    // ordinary Pokémon, not a bred one.
+    party.push(createPokemon(rng, speciesId, level));
   }
 
   // A trainer leads with their weakest and saves their strongest for last, the

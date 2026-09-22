@@ -10,7 +10,7 @@ import {
   makeSeamless,
   mirrorX,
   opaqueBounds,
-  pickWalkableBand,
+  pickWalkPath,
   resampleFrames,
 } from '../tools/lib/image.mjs';
 import { parseJascPal, tilesetDirName, combineMetatiles } from '../tools/lib/gba-gfx.mjs';
@@ -83,23 +83,102 @@ test('opaqueBounds finds the tight box, or null when empty', () => {
   assert.equal(opaqueBounds(raster(2, 2, () => [0, 0, 0, 0])), null);
 });
 
-test('pickWalkableBand prefers rows whose blocks are passable', () => {
-  const width = 4;
-  const height = 6;
-  const blocks = Buffer.alloc(width * height * 2);
-  // Rows 3 and 4 are open; everything else is solid (collision bit set).
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const passable = y === 3 || y === 4;
-      blocks.writeUInt16LE(passable ? 0 : 1 << 10, (y * width + x) * 2);
-    }
-  }
-  const start = pickWalkableBand(blocks, width, height, 2);
-  assert.equal(start, 3);
+/**
+ * A map built from a picture: `.` is passable, `#` is not. One character per
+ * block, one string per row.
+ * @param {string[]} rows
+ */
+function blockMap(rows) {
+  const width = rows[0].length;
+  const blocks = Buffer.alloc(width * rows.length * 2);
+  rows.forEach((row, y) => {
+    [...row].forEach((cell, x) => {
+      blocks.writeUInt16LE(cell === '.' ? 0 : 1 << 10, (y * width + x) * 2);
+    });
+  });
+  return { blocks, width, height: rows.length };
+}
+
+test('pickWalkPath crops to ground the companion can actually cross', () => {
+  // A route with a hill in the middle of the otherwise open row, which is
+  // exactly the shape that had the companion walking through Route 112.
+  const rows = [
+    '##########',
+    '...##.....',
+    '...##.....',
+    '...##.....',
+    '##########',
+  ];
+  const { blocks, width, height } = blockMap(rows);
+  const path = pickWalkPath(blocks, width, height, 4);
+
+  // The five-block run to the right of the hill, not the three to its left.
+  assert.equal(path.laneRow, 3);
+  assert.equal(path.column, 5);
+  assert.equal(path.columns, 5);
+  assert.equal(path.clearance, 2);
+  // And the strip is placed so the lane sits inside it.
+  assert.ok(path.laneRow >= path.bandRow && path.laneRow < path.bandRow + 4);
+  assert.ok(path.bandRow >= 0 && path.bandRow + 4 <= height);
 });
 
-test('pickWalkableBand returns 0 when the map is not taller than the band', () => {
-  assert.equal(pickWalkableBand(Buffer.alloc(8), 2, 2, 4), 0);
+test('pickWalkPath gives up headroom before it gives up ground', () => {
+  // Nothing has two clear rows above it, but the bottom row runs clear for
+  // the width of the map — a cave corridor.
+  const rows = [
+    '##########',
+    '#........#',
+    '#.####...#',
+    '#........#',
+    '##########',
+  ];
+  const { blocks, width, height } = blockMap(rows);
+  const path = pickWalkPath(blocks, width, height, 4);
+
+  assert.equal(path.columns, 8);
+  assert.ok(path.clearance < 2, 'a corridor this tight cannot keep both rows of headroom');
+});
+
+test('pickWalkPath never walks a block it cannot cross', () => {
+  const rows = [
+    '..#.......',
+    '..........',
+    '....#.....',
+    '..........',
+    '.......#..',
+    '..........',
+  ];
+  const { blocks, width, height } = blockMap(rows);
+  const path = pickWalkPath(blocks, width, height, 4);
+
+  const passable = (x, y) => (blocks.readUInt16LE((y * width + x) * 2) >> 10 & 0x03) === 0;
+  for (let x = path.column; x < path.column + path.columns; x++) {
+    for (let above = 0; above <= path.clearance; above++) {
+      assert.ok(passable(x, path.laneRow - above), `block ${x},${path.laneRow - above} is not passable`);
+    }
+  }
+});
+
+test('pickWalkPath keeps the lane off the very top of the map', () => {
+  // The longest clear run is the top row, which would leave the companion
+  // standing a few pixels below the top edge of the window.
+  const rows = [
+    '..........',
+    '####.#####',
+    '#........#',
+    '#........#',
+    '#........#',
+    '#........#',
+    '#........#',
+    '#........#',
+    '#........#',
+    '#........#',
+  ];
+  const { blocks, width, height } = blockMap(rows);
+  const path = pickWalkPath(blocks, width, height, 9);
+
+  assert.ok(path.laneRow > 0, `lane landed on row ${path.laneRow}`);
+  assert.ok(path.laneRow - path.bandRow >= 4, 'the lane sits low enough in the strip to read');
 });
 
 test('resampleFrames caps frame count while keeping total duration', () => {

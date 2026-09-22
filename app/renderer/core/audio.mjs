@@ -43,10 +43,22 @@ export class AudioEngine {
     this.effectVolume = 0.8;
     this.cryVolume = 0.9;
 
-    /** @type {{name: string, song: any, startedAt: number, cursors: number[]}|null} */
+    /** @type {{name: string, song: any, startedAt: number, cursors: number[], limit: number}|null} */
     this.jingle = null;
     /** @type {number|undefined} */
     this.jingleTimer = undefined;
+
+    /**
+     * The track the game wants playing under everything else.
+     *
+     * Kept apart from `current`, which is only what the note scheduler happens
+     * to be running: a cue silences the music while it plays, and this is what
+     * comes back afterwards. It is also set the moment `playMusic` is called
+     * rather than after the song has loaded, so a cue started in the same
+     * frame as a track change resumes the new track and not the old one.
+     * @type {string|null}
+     */
+    this.wanted = null;
   }
 
   /** Create the audio graph. Safe to call more than once. */
@@ -89,12 +101,26 @@ export class AudioEngine {
   async playMusic(name) {
     if (!name) return this.stopMusic();
     this.start();
+    // Recorded before anything is awaited, so whatever else happens in this
+    // frame — a victory fanfare, a second track change — agrees on what the
+    // music is meant to be.
+    this.wanted = name;
+    // A cue owns the speaker while it plays; this track comes back under it
+    // when the cue finishes rather than starting underneath it now.
+    if (this.jingle) return;
     if (this.current?.name === name) return;
 
-    const song = await this.loadSong(name);
-    if (!this.context) return;
+    let song;
+    try {
+      song = await this.loadSong(name);
+    } catch {
+      return; // a missing track is silence, not a broken game
+    }
+    // Something asked for a different track, or a cue started, while this one
+    // was loading.
+    if (!this.context || this.wanted !== name || this.jingle) return;
 
-    this.stopMusic();
+    this.haltMusic();
     this.current = {
       name,
       song,
@@ -107,20 +133,31 @@ export class AudioEngine {
   }
 
   /**
-   * Play one of the short cue tracks — the fanfares, the heal chime — once,
-   * over whatever music is already playing, on the effects channel.
+   * Play one of the short cue tracks — the fanfares, the heal chime — once.
+   *
+   * A cue is music, and rides the music channel: the sound tab's music slider
+   * is what a player reaches for to turn a victory fanfare down, not the one
+   * labelled for the interface blips.
    *
    * These are sound effects that happen to be stored as MIDI: the cartridge
    * stops the area music, plays the jingle, and resumes. Looping them through
    * `playMusic` made the heal chime repeat forever, and replaced the area
    * music with two seconds of silence afterwards.
    *
+   * Playing one *over* the music was no better — a victory fanfare and the
+   * battle theme in two keys at once — so the music stands down for the cue
+   * and `wanted` brings it back at the end, which is what the cartridge does.
+   *
    * Scheduling reuses the music machinery, but on a private `current` that
    * clears itself at the end of the song instead of looping.
    *
    * @param {string|null} name
+   * @param {{seconds?: number}} [options] how much of the cue to play. A
+   *   fanfare written for a cartridge runs as long as the cartridge wanted to
+   *   hold the screen; here it holds the area music off for that whole time,
+   *   so the long ones are cut to their opening phrase.
    */
-  async playJingle(name) {
+  async playJingle(name, options = {}) {
     if (!name) return;
     this.start();
     if (!this.context) return;
@@ -132,13 +169,19 @@ export class AudioEngine {
     } catch {
       return; // a missing cue is not worth a console error, let alone a break
     }
-    if (!this.context || !this.effectGain) return;
+    if (!this.context || !this.musicGain) return;
+
+    // The music steps aside for the cue; `wanted` still names it, so the end
+    // of the cue puts it back.
+    this.haltMusic();
 
     const jingle = {
       name,
       song,
       startedAt: this.context.currentTime + 0.05,
       cursors: song.tracks.map(() => 0),
+      // A floor only so a nonsense number cannot ask for a cue of no length.
+      limit: Math.max(0.05, Math.min(song.duration, options.seconds ?? song.duration)),
     };
     if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
     this.jingle = jingle;
@@ -146,46 +189,67 @@ export class AudioEngine {
     this.scheduleJingle();
   }
 
-  /** Queue the jingle's notes once through, then stop scheduling. */
+  /**
+   * Queue the jingle's notes once through, then stop scheduling and hand the
+   * speaker back to the music.
+   */
   scheduleJingle() {
     const jingle = this.jingle;
-    if (!jingle || !this.context || !this.effectGain) return;
-    const { song, cursors } = jingle;
+    if (!jingle || !this.context || !this.musicGain) return;
+    const { song, cursors, limit } = jingle;
     const horizon = this.context.currentTime + LOOKAHEAD_S;
-    const end = jingle.startedAt + song.duration;
+    const end = jingle.startedAt + limit;
     let started = 0;
 
-    for (let pass = 0; pass < 4 && started < MAX_NOTES_PER_TICK; pass++) {
-      const origin = jingle.startedAt + pass * song.duration;
-      if (origin > horizon) break;
-      song.tracks.forEach((track, index) => {
-        while (cursors[index] < track.notes.length && started < MAX_NOTES_PER_TICK) {
-          const note = track.notes[cursors[index]];
-          const when = origin + note.t;
-          if (when > horizon) return;
-          this.playNote(track.program, note, Math.max(when, this.context.currentTime));
-          cursors[index]++;
-          started++;
+    // One pass is the whole cue: it is played once and never looped, so the
+    // cursors run to the end of each track and stay there. Anything past the
+    // cut is skipped rather than played, so a trimmed cue ends where it was
+    // trimmed instead of going quiet with its notes still ringing.
+    song.tracks.forEach((track, index) => {
+      while (cursors[index] < track.notes.length && started < MAX_NOTES_PER_TICK) {
+        const note = track.notes[cursors[index]];
+        if (note.t >= limit) {
+          cursors[index] = track.notes.length;
+          break;
         }
-      });
-    }
+        const when = jingle.startedAt + note.t;
+        if (when > horizon) return;
+        // Trimmed short if it would ring past the cut.
+        const room = limit - note.t;
+        const clipped = note.d > room ? { ...note, d: room } : note;
+        this.playNote(track.program, clipped, Math.max(when, this.context.currentTime), this.musicGain);
+        cursors[index]++;
+        started++;
+      }
+    });
 
-    // One pass is the whole jingle; past its end there is nothing to schedule
-    // and the private player stands down.
-    if (this.context.currentTime > end + 0.2) {
-      if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
-      this.jingleTimer = undefined;
-      this.jingle = null;
-    }
+    if (this.context.currentTime <= end + 0.2) return;
+
+    this.stopJingle();
+    // Whatever the game asked for while the cue held the speaker — or was
+    // playing before it started — comes back now.
+    if (this.wanted) void this.playMusic(this.wanted);
   }
 
-  stopMusic() {
+  /** Stop the note scheduler, leaving `wanted` — and any cue — alone. */
+  haltMusic() {
     if (this.timer !== undefined) window.clearInterval(this.timer);
     this.timer = undefined;
     this.current = null;
+  }
+
+  /** Stop a cue that is playing, without resuming anything. */
+  stopJingle() {
     if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
     this.jingleTimer = undefined;
     this.jingle = null;
+  }
+
+  /** Silence for good: no track playing, and none waiting to come back. */
+  stopMusic() {
+    this.wanted = null;
+    this.haltMusic();
+    this.stopJingle();
   }
 
   /** Queue every note that starts within the look-ahead window. */
@@ -229,13 +293,17 @@ export class AudioEngine {
    * @param {number} program General MIDI program, 128 for percussion
    * @param {{t: number, d: number, n: number, v: number}} note
    * @param {number} when
+   * @param {GainNode|null} [output] the channel to voice it on; the music by
+   *   default, which is also where the cues go — a fanfare is music, and the
+   *   music slider is what a player reaches for to quieten one
    */
-  playNote(program, note, when) {
+  playNote(program, note, when, output = null) {
     if (!this.context || !this.musicGain) return;
+    const sink = output ?? this.musicGain;
     const voice = voiceFor(program);
     const duration = Math.min(note.d, 4);
     const gain = this.context.createGain();
-    gain.connect(this.musicGain);
+    gain.connect(sink);
 
     /** @type {AudioScheduledSourceNode} */
     let source;

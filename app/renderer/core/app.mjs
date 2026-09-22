@@ -6,7 +6,7 @@
  * are pushed and popped rather than swapped so a menu can return to whatever
  * was underneath it.
  */
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { clear, el } from './dom.mjs';
 import { settings as settingsApi, windowControl } from './bridge.mjs';
 import { setLanguage } from './i18n.mjs';
@@ -19,6 +19,8 @@ import { setLanguage } from './i18n.mjs';
  * @property {(deltaMs: number, app: App) => void} [update]
  * @property {(context: CanvasRenderingContext2D, app: App) => void} [render]
  * @property {boolean} [keepBelow] draw the scene beneath this one as well
+ * @property {boolean} [keepBelowRunning] let the scene beneath this one go on
+ *   updating: a menu opened over the road should not stop the walk
  * @property {(paused: boolean) => void} [setPaused] halt the scene's own motion
  *   while something else, such as a field event, plays out over it
  * @property {number} [offset] the field scene's world scroll, so events can
@@ -104,9 +106,16 @@ export class App {
    * @param {number} deltaMs
    */
   tick(deltaMs) {
-    // Only the top scene updates; ones below it are paused, which is what a
-    // menu over the field should do.
-    this.scene?.update?.(deltaMs, this);
+    // The top scene updates, and so does everything under a scene that says
+    // the one below it may keep going — a bag opened over the road stops the
+    // player, not the companion. Deepest first, so a scene that reads what the
+    // one below it did sees this frame's state rather than the last frame's.
+    // By index rather than over a copy: a scene that closes itself mid-update
+    // shortens the stack, and the loop should stop there rather than go on to
+    // update something that has already been unmounted.
+    for (let index = this.firstUpdateIndex(); index < this.stack.length; index++) {
+      this.stack[index]?.scene.update?.(deltaMs, this);
+    }
 
     const context = this.context;
     context.clearRect(0, 0, VIEW_WIDTH, VIEW_HEIGHT);
@@ -119,6 +128,16 @@ export class App {
       this.toastTimer -= deltaMs;
       if (this.toastTimer <= 0) this.toastNode.hidden = true;
     }
+  }
+
+  /**
+   * The deepest scene that still runs, which is as far down as the chain of
+   * `keepBelowRunning` scenes above it reaches.
+   */
+  firstUpdateIndex() {
+    let index = this.stack.length - 1;
+    while (index > 0 && this.stack[index].scene.keepBelowRunning) index--;
+    return Math.max(0, index);
   }
 
   /** The deepest scene that still needs drawing under the current one. */
@@ -190,8 +209,7 @@ export class App {
  */
 export function fitStage() {
   const stage = /** @type {HTMLElement} */ (document.getElementById('stage'));
-  const scale = Math.min(window.innerWidth / VIEW_WIDTH, window.innerHeight / VIEW_HEIGHT);
-  const snapped = scale >= 1 ? Math.floor(scale * 4) / 4 : scale;
+  const snapped = snapZoom(Math.min(window.innerWidth / VIEW_WIDTH, window.innerHeight / VIEW_HEIGHT));
   stage.style.transform = `scale(${snapped})`;
   stage.style.left = `${Math.round((window.innerWidth - VIEW_WIDTH * snapped) / 2)}px`;
   stage.style.top = `${Math.round((window.innerHeight - VIEW_HEIGHT * snapped) / 2)}px`;
@@ -227,40 +245,52 @@ export function runLoop(app) {
  * Drag the window by its top strip with the pointer, rather than leaving it to
  * the frameless window's own drag region — which answers on some window sizes
  * and not others. The position is remembered once, on the drop.
+ *
+ * Two things make this work where stepping the window along by the distance
+ * between two pointer events did not.
+ *
+ * The measurement is taken from the *desk*, not from the window. Every client
+ * coordinate is relative to a window that is itself being moved: nudge the
+ * window right and a pointer that has not moved at all reports itself further
+ * left, so a drag driven by client deltas argues with itself — which is the
+ * shaking. `screenX` and `screenY` do not move when the window does.
+ *
+ * And the window is put somewhere rather than nudged. Each message carries the
+ * whole distance travelled since the drag began, so a message that arrives
+ * late lands the window where the pointer already is instead of adding a step
+ * that has been taken twice.
  */
 export function trackWindowDrag() {
-  const bar = document.getElementById('dragbar');
-  if (!bar) return;
+  const handles = /** @type {HTMLElement[]} */ ([...document.querySelectorAll('[data-drag]')]);
+  if (handles.length === 0) return;
 
-  /** The pointer's last viewport position, or null while not dragging. */
-  let last = null;
+  /** Where on the desk the drag began, or null while not dragging. */
+  let from = null;
 
-  bar.addEventListener('pointerdown', (event) => {
-    if (event.button !== 0) return;
-    // The minimize button is a control, not a handle.
-    if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
-    last = { x: event.clientX, y: event.clientY };
-    bar.setPointerCapture(event.pointerId);
-  });
+  for (const handle of handles) {
+    handle.addEventListener('pointerdown', (event) => {
+      if (event.button !== 0) return;
+      // The minimize button is a control, not a handle.
+      if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
+      from = { x: event.screenX, y: event.screenY };
+      handle.setPointerCapture(event.pointerId);
+      void windowControl.beginDrag();
+    });
 
-  bar.addEventListener('pointermove', (event) => {
-    if (!last) return;
-    // Viewport coordinates ride with the window, so the delta between moves
-    // is exactly how far the mouse travelled on the desk.
-    const dx = event.clientX - last.x;
-    const dy = event.clientY - last.y;
-    last = { x: event.clientX, y: event.clientY };
-    windowControl.moveBy(dx, dy);
-  });
+    handle.addEventListener('pointermove', (event) => {
+      if (!from) return;
+      void windowControl.dragTo(event.screenX - from.x, event.screenY - from.y);
+    });
 
-  const release = (event) => {
-    if (!last) return;
-    last = null;
-    if (event.type === 'pointerup' && bar.hasPointerCapture(event.pointerId)) {
-      bar.releasePointerCapture(event.pointerId);
-    }
-    windowControl.rememberPosition();
-  };
-  bar.addEventListener('pointerup', release);
-  bar.addEventListener('pointercancel', release);
+    const release = (event) => {
+      if (!from) return;
+      from = null;
+      if (event.type === 'pointerup' && handle.hasPointerCapture(event.pointerId)) {
+        handle.releasePointerCapture(event.pointerId);
+      }
+      void windowControl.endDrag();
+    };
+    handle.addEventListener('pointerup', release);
+    handle.addEventListener('pointercancel', release);
+  }
 }

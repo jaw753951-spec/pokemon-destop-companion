@@ -2,11 +2,16 @@
  * The field event scheduler.
  *
  * Once a minute the game rolls one of five events. They start out equally
- * likely, but whichever fired last is damped — to half, then to a twentieth,
- * then out of the running entirely — with the probability it gives up shared
- * equally among the other four. Firing anything else restores it at once. The
- * effect is that runs of the same event become progressively unlikely without
- * ever being made impossible on the first repeat.
+ * likely, and the scheduler remembers the **last two** it fired: the one that
+ * just happened is worth 1%, the one before it 10%, and the probability those
+ * two give up is shared equally among the events that are neither. So a run of
+ * the same event is all but impossible, an A-B-A flip-flop is unlikely, and
+ * anything the companion has not seen for three events is back on full odds.
+ *
+ * This replaced a streak counter that damped only the most recent event, in
+ * three steps (20 → 10 → 1 → 0): it could not tell the difference between
+ * "berry, berry" and "berry, ball, berry", so the two-event ping-pong it left
+ * behind was exactly as likely as anything else.
  */
 
 /** @typedef {'berry'|'ball'|'wild'|'trainer'|'heal'} EventKind */
@@ -18,19 +23,32 @@ export const EVENT_KINDS = ['berry', 'ball', 'wild', 'trainer', 'heal'];
 export const BASE_WEIGHT = 100 / EVENT_KINDS.length;
 
 /**
- * What the most recent event's weight drops to after firing it once, twice,
- * and three or more times in a row.
+ * What the events the scheduler remembers are worth, most recent first.
+ *
+ * Two entries, so the memory is two events deep. An event that is both — the
+ * same kind twice in a row — takes the lower of the two, which is the point of
+ * damping it in the first place.
  */
-export const REPEAT_WEIGHTS = [10, 1, 0];
+export const RECENT_WEIGHTS = [1, 10];
+
+/** How many events back the scheduler remembers. */
+export const MEMORY = RECENT_WEIGHTS.length;
 
 export class EventScheduler {
   /**
-   * @param {{last?: EventKind|null, streak?: number, forced?: EventKind|null}} [state]
+   * @param {{
+   *   recent?: EventKind[],
+   *   last?: EventKind|null,
+   *   streak?: number,
+   *   forced?: EventKind|null,
+   * }} [state] `last`/`streak` are the shape older saves carry
    */
   constructor(state = {}) {
-    /** @type {EventKind|null} */
-    this.last = state.last ?? null;
-    this.streak = state.streak ?? 0;
+    /**
+     * The kinds that fired, most recent first, at most `MEMORY` of them.
+     * @type {EventKind[]}
+     */
+    this.recent = normalizeRecent(state);
     /**
      * An event the game has decided on regardless of the odds — a companion
      * that has just fainted is walked to a rest stop rather than into whatever
@@ -38,6 +56,11 @@ export class EventScheduler {
      * @type {EventKind|null}
      */
     this.forced = state.forced ?? null;
+  }
+
+  /** The event that fired most recently, or null before any has. */
+  get last() {
+    return this.recent[0] ?? null;
   }
 
   /**
@@ -56,14 +79,22 @@ export class EventScheduler {
     /** @type {Record<string, number>} */
     const weights = {};
     for (const kind of EVENT_KINDS) weights[kind] = BASE_WEIGHT;
-    if (!this.last || this.streak <= 0) return /** @type {any} */ (weights);
 
-    const damped = REPEAT_WEIGHTS[Math.min(this.streak, REPEAT_WEIGHTS.length) - 1];
-    const surrendered = BASE_WEIGHT - damped;
-    weights[this.last] = damped;
-    for (const kind of EVENT_KINDS) {
-      if (kind !== this.last) weights[kind] += surrendered / (EVENT_KINDS.length - 1);
-    }
+    /** The kinds that are damped, so the rest can share what they gave up. */
+    const damped = new Set();
+    this.recent.slice(0, MEMORY).forEach((kind, index) => {
+      if (!EVENT_KINDS.includes(kind)) return;
+      // Remembered twice — the same event two rolls running — keeps the
+      // harsher of the two figures rather than the more recent one.
+      weights[kind] = Math.min(weights[kind], RECENT_WEIGHTS[index]);
+      damped.add(kind);
+    });
+
+    const open = EVENT_KINDS.filter((kind) => !damped.has(kind));
+    if (open.length === 0) return /** @type {any} */ (weights);
+
+    const surrendered = 100 - EVENT_KINDS.reduce((total, kind) => total + weights[kind], 0);
+    for (const kind of open) weights[kind] += surrendered / open.length;
     return /** @type {any} */ (weights);
   }
 
@@ -76,12 +107,7 @@ export class EventScheduler {
     if (this.forced) {
       const forced = this.forced;
       this.forced = null;
-      // A rest stop the game sent the companion to is followed by the odds
-      // saying no to another one: the streak records a full run rather than a
-      // first repeat, so the back-to-back rest stops a first-repeat's 10% used
-      // to hand out — the "heal twice after losing" report — cannot happen.
-      this.streak = forced === this.last ? this.streak + 1 : REPEAT_WEIGHTS.length;
-      this.last = forced;
+      this.remember(forced);
       return forced;
     }
 
@@ -89,13 +115,36 @@ export class EventScheduler {
     const chosen = rng.weighted(EVENT_KINDS.map((kind) => ({ value: kind, weight: weights[kind] })));
     const kind = /** @type {EventKind} */ (chosen ?? EVENT_KINDS[0]);
 
-    this.streak = kind === this.last ? this.streak + 1 : 1;
-    this.last = kind;
+    this.remember(kind);
     return kind;
   }
 
-  /** @returns {{last: EventKind|null, streak: number, forced: EventKind|null}} */
-  toJSON() {
-    return { last: this.last, streak: this.streak, forced: this.forced };
+  /**
+   * Push an event onto the memory, dropping whatever falls off the end.
+   * @param {EventKind} kind
+   */
+  remember(kind) {
+    this.recent = [kind, ...this.recent].slice(0, MEMORY);
   }
+
+  /** @returns {{recent: EventKind[], forced: EventKind|null}} */
+  toJSON() {
+    return { recent: [...this.recent], forced: this.forced };
+  }
+}
+
+/**
+ * The remembered events, from whichever shape the save was written in.
+ *
+ * A save from before the memory existed carries the one event it damped and
+ * how long the run was; the run is worth nothing now, but the event itself
+ * still belongs at the front of the memory — a player reloading mid-run should
+ * not be handed the event they have just had three of.
+ *
+ * @param {{recent?: any, last?: any}} state
+ * @returns {EventKind[]}
+ */
+function normalizeRecent(state) {
+  const stored = Array.isArray(state.recent) ? state.recent : state.last ? [state.last] : [];
+  return stored.filter((kind) => EVENT_KINDS.includes(kind)).slice(0, MEMORY);
 }

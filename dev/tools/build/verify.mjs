@@ -11,6 +11,9 @@ import { readFile, stat } from 'node:fs/promises';
 import { defaultLanguage } from '../../../app/shared/languages.mjs';
 import { LANGUAGES } from '../languages.mjs';
 import { MAX_SPECIES, MOVE_FLAG_SET } from '../sources.mjs';
+// The renderer's own berry-to-tree mapping, so the check and the game can
+// never disagree about which sheet a berry grows on.
+import { treeFor } from '../../../app/renderer/scenes/fieldevents.mjs';
 
 /**
  * @param {{assetDir: string, dataDir: string, log: (message: string) => void}} context
@@ -199,6 +202,19 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(actors.portraits).length > 50, `trainer portraits: only ${Object.keys(actors.portraits).length}`);
   note(Object.keys(actors.overworld).length > 50, `trainer field sprites: only ${Object.keys(actors.overworld).length}`);
   note(Object.keys(actors.props.berryTrees).length > 10, `berry trees: only ${Object.keys(actors.props.berryTrees).length}`);
+  // A berry tree the build could find no fruit on is a tree the harvest event
+  // would walk the companion up to and show it nothing to pick.
+  const bareTrees = Object.entries(actors.props.berryTrees)
+    .filter(([, tree]) => !Array.isArray(tree.fruit) || tree.fruit.length === 0)
+    .map(([name]) => name);
+  note(bareTrees.length === 0, `berry trees with no fruit drawn on them: ${summarize(bareTrees)}`);
+  // Every berry in the bag has to resolve to a sheet that was actually built,
+  // whether or not the decompilation drew it a tree of its own — checked
+  // through the same function the harvest event picks with.
+  const homeless = Object.entries(items)
+    .filter(([slug, item]) => item.pocket === 'berries' && !actors.props.berryTrees[treeFor(slug, actors.props.berryTrees)])
+    .map(([slug]) => slug);
+  note(homeless.length === 0, `berries with no berry tree to grow on: ${summarize(homeless)}`);
   note(Boolean(actors.props.center?.door), 'the Pokémon Center was not cut out of its town');
   note(await fileExists(join(assetDir, 'props', 'poke-center.png')), 'Pokémon Center: no building');
   note(await fileExists(join(assetDir, 'props', 'poke-center-door.png')), 'Pokémon Center: no door animation');
