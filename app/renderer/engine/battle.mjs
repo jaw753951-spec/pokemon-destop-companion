@@ -55,6 +55,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {boolean} flinched
  * @property {string|null} lockedMove the move a Choice item has it committed to
  * @property {number} turnsTaken
+ * @property {number} [enteredTurn] the battle turn it came out on
  * @property {'player'|'foe'} side
  * @property {Record<string, any>} marks what an ability or item has left on it
  * @property {Record<string, any>} volatile the states that end with the battle
@@ -135,6 +136,12 @@ const TURN_LIMIT = 200;
  */
 const STATUS_TO_AILMENT = { brn: 'burn', psn: 'poison', par: 'paralysis', slp: 'sleep', frz: 'freeze' };
 
+/**
+ * The moves that only work on the first turn after the user comes out: a Fake
+ * Out is a surprise, and a surprise works once.
+ */
+export const FIRST_TURN_ONLY = new Set(['fake-out', 'first-impression', 'mat-block']);
+
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
 
@@ -211,6 +218,9 @@ export class Battle {
    */
   enter(combatant, log) {
     const other = combatant === this.player ? this.foe : this.player;
+    // The turn it came out on, which is what a Fake Out asks: the turn after
+    // it is the only one the move works on.
+    combatant.enteredTurn = this.turn;
     // An Unburden is waiting for the item to be gone, so it has to know there
     // was one to begin with.
     combatant.marks.hadItem = Boolean(combatant.pokemon.heldItem);
@@ -850,19 +860,14 @@ export class Battle {
     // is planned.
     if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
 
-    // An item is thrown before either Pokémon moves, as it is in the games,
-    // and the companion has no move to commit to that turn.
-    if (this.pendingItem) {
-      this.pendingMoves = new Map([
-        [this.player, null],
-        [this.foe, this.chooseMove(this.foe, this.player)],
-      ]);
-      return [this.player, this.foe];
-    }
-
-    // Both sides commit before either acts, so priority can be compared and
-    // the choice cannot change once the turn is under way.
-    const playerChoice = this.chooseMove(this.player, this.foe);
+    // An item takes the companion's own action: it is used when the companion
+    // would have moved, in its place in the order, instead of a move. It used
+    // to jump the whole turn, which read as the bag acting the moment it was
+    // closed rather than on the companion's next turn.
+    //
+    // Otherwise both sides commit before either acts, so priority can be
+    // compared and the choice cannot change once the turn is under way.
+    const playerChoice = this.pendingItem ? null : this.chooseMove(this.player, this.foe);
     const foeChoice = this.chooseMove(this.foe, this.player);
     this.pendingMoves = new Map([
       [this.player, playerChoice],
@@ -1063,6 +1068,12 @@ export class Battle {
    */
   stillAllowed(attacker, usable) {
     let left = usable;
+    // A Fake Out after the first turn out is a move that fails, so it is not
+    // offered once that turn has gone — unless there is nothing else.
+    if (!this.firstTurnOut(attacker)) {
+      const others = left.filter((slot) => !FIRST_TURN_ONLY.has(slot.move));
+      if (others.length > 0) left = others;
+    }
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
     }
@@ -1075,6 +1086,14 @@ export class Battle {
       if (others.length > 0) left = others;
     }
     return left;
+  }
+
+  /**
+   * Whether this is the first turn since the combatant came out.
+   * @param {Combatant} combatant
+   */
+  firstTurnOut(combatant) {
+    return this.turn === (combatant.enteredTurn ?? 0) + 1;
   }
 
   /**
@@ -1177,6 +1196,13 @@ export class Battle {
     }
 
     log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
+
+    // Used after the first turn out, a Fake Out is only a lunge: the PP is
+    // gone and nothing happens.
+    if (FIRST_TURN_ONLY.has(moveName) && !this.firstTurnOut(attacker)) {
+      log.push({ kind: 'failed', side: attacker.side });
+      return;
+    }
 
     // A move the defender is simply sealed against — a sound at a Soundproof,
     // a bullet at a Bulletproof, a powder at a Grass type or a pair of Safety

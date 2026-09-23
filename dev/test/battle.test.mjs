@@ -339,7 +339,7 @@ test('a stored policy from either older shape becomes conditions', options, () =
   assert.equal(normalizeAutoBattle(null).conditions.heal, 'hpHalf');
 });
 
-test('an item is thrown before either side moves, and takes the turn', options, () => {
+test('an item takes the companion\'s turn instead of a move', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['flamethrower']);
   player.hp = 20;
 
@@ -371,6 +371,26 @@ test('an item is thrown before either side moves, and takes the turn', options, 
   assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'));
   // And only once: the next turn is fought normally.
   assert.equal(battle.pendingItem, null);
+});
+
+test('an item is used in the companion\'s place in the order, not ahead of everything', options, () => {
+  // A slow companion against a fast foe: the foe moves first, and the item
+  // is used when the companion's turn comes round.
+  const player = makeFixed(VENUSAUR, 50, ['tackle']);
+  const battle = new Battle({
+    rng: new Rng(3),
+    player,
+    foes: [makeFixed(CHARIZARD, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+    items: { choose: () => null, throw: () => true },
+  });
+
+  battle.queueItem('potion');
+  const log = battle.takeTurn();
+  const item = log.findIndex((entry) => entry.kind === 'item');
+  const foeMove = log.findIndex((entry) => entry.kind === 'move' && entry.side === 'foe');
+  assert.ok(item >= 0 && foeMove >= 0);
+  assert.ok(foeMove < item, 'the faster foe acts before the item is used');
 });
 
 test('a Sitrus Berry is eaten at half health, for a quarter of the bar', options, () => {
@@ -562,3 +582,36 @@ function moveFixture(damageClass, power, type) {
     meta: { ailment: 'none', ailmentChance: 0, critRate: 0, drain: 0, healing: 0, flinchChance: 0, statChance: 0 },
   };
 }
+
+test('a Fake Out works on the first turn out and fails after it', options, () => {
+  // Nothing else to use, so the second turn has to try it and find it fails.
+  const player = makeFixed(CHARIZARD, 50, ['fake-out']);
+  const battle = new Battle({
+    rng: new Rng(5),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const first = battle.takeTurn();
+  assert.ok(first.some((entry) => entry.kind === 'damage' && entry.side === 'foe'), 'the first one lands');
+  assert.ok(!first.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+
+  const second = battle.takeTurn();
+  assert.ok(second.some((entry) => entry.kind === 'failed' && entry.side === 'player'), 'the second one fails');
+  assert.ok(!second.some((entry) => entry.kind === 'damage' && entry.side === 'foe'));
+});
+
+test('after the first turn out, a Fake Out is not reached for when there is anything else', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['fake-out', 'tackle']);
+  const battle = new Battle({
+    rng: new Rng(5),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: { ...defaultAutoBattle(), order: ['fake-out', 'fake-out'], mode: 'repeatAll' },
+  });
+
+  battle.takeTurn();
+  const moves = battle.takeTurn().filter((entry) => entry.kind === 'move' && entry.side === 'player');
+  assert.deepEqual(moves.map((entry) => entry.data.move), ['tackle']);
+});

@@ -11,7 +11,7 @@ import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
 import { moveSummary } from './movecard.mjs';
-import { chooseFromList, confirm } from './dialog.mjs';
+import { chooseFromList, chooseItem, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
 const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
@@ -151,6 +151,20 @@ function afterBattleRow(app, policy, refresh) {
 }
 
 /**
+ * Every berry in the bag, whichever pocket the data files it in — a Hopo Berry
+ * is a berry the data puts among the medicine, and the restock order used to
+ * leave it out — in the order of their names.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ */
+function heldBerries(session) {
+  const pockets = new Map([...session.pocket('berries'), ...session.pocket('medicine')].map((entry) => [entry.slug, entry]));
+  return [...pockets.values()]
+    .filter((entry) => entry.item.pocket === 'berries' || entry.slug.endsWith('-berry'))
+    .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)));
+}
+
+/**
  * One rank of the restock order. Only berries the bag has ever held are
  * offered, plus the empty choice — a rank left unset is simply skipped.
  */
@@ -166,15 +180,20 @@ function berryRow(app, session, policy, index, refresh) {
       text: item ? localized(item.name, slug) : t('items.unset'),
       onClick: async () => {
         app.audio.blip('select');
-        const held = session.pocket('berries');
-        const chosen = await chooseFromList(app, t('items.priority', { rank: index + 1 }), [
-          { value: '', label: t('items.unset'), detail: '' },
-          ...held.map((entry) => ({
+        const chosen = await chooseItem(app, t('items.priority', { rank: index + 1 }),
+          heldBerries(session).map((entry) => ({
             value: entry.slug,
             label: localized(entry.item.name, entry.slug),
-            detail: t('items.count', { count: entry.count }),
+            icon: url('assets', `items/${entry.slug}.png`),
+            count: entry.count,
+            text: localized(entry.item.text, ''),
           })),
-        ]);
+          {
+            current: slug,
+            clearLabel: t('items.unset'),
+            confirmLabel: t('items.berryPick'),
+            empty: t('items.noBerries'),
+          });
         if (chosen === null) return;
         policy.berries[index] = chosen || null;
         refresh();

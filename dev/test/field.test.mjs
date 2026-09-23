@@ -3,7 +3,8 @@ import assert from 'node:assert/strict';
 
 import { boostPace, drawWalker, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
 import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
-import { CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the
@@ -262,4 +263,18 @@ test('a scene that closes itself mid-frame does not take the loop with it', asyn
   });
   assert.equal(below, 1);
   assert.equal(app.stack.length, 1);
+});
+
+// ------------------------------------------------------ the rest stop's balls
+
+test('a rest stop hands over one or two balls, and the better ones early', () => {
+  const rng = new Rng(7);
+  const counts = new Set();
+  for (let roll = 0; roll < 200; roll++) counts.add(ballSupply(rng, 10).count);
+  assert.deepEqual([...counts].sort(), [1, 2]);
+
+  assert.equal(ballSupply(rng, 5).item, 'poke-ball');
+  assert.equal(ballSupply(rng, 15).item, 'great-ball');
+  assert.equal(ballSupply(rng, 30).item, 'ultra-ball');
+  assert.equal(ballSupply(rng, 100).item, 'ultra-ball');
 });

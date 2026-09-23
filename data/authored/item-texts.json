@@ -1,0 +1,259 @@
+{
+  "_comment": "PokeAPI가 설명문을 싣지 않은(또는 한국어 설명 자리에 영어를 넣은) 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다 — 예컨대 히스이 볼은 모두 몬스터볼과 같은 포획률이므로 확정 포획 같은 말은 쓰지 않는다.",
+  "items": {
+    "booster-energy": {
+      "text": {
+        "ko": "지니게 하면 고대활성이나 쿼크차지 특성을 가진 포켓몬의 가장 높은 능력이 오른다. 한 번 쓰면 없어진다.",
+        "en": "When held by a Pokémon with Protosynthesis or Quark Drive, raises its highest stat. Consumed after use."
+      }
+    },
+    "ability-shield": {
+      "text": {
+        "ko": "지니게 하면 상대의 기술이나 특성 때문에 자신의 특성이 바뀌거나 없어지지 않는다.",
+        "en": "When held, the holder's Ability cannot be changed or suppressed by other moves or Abilities."
+      }
+    },
+    "mirror-herb": {
+      "text": {
+        "ko": "지니게 하면 상대가 능력을 올렸을 때 한 번 그대로 흉내 내서 자신의 능력도 같은 만큼 올린다.",
+        "en": "When held, copies a stat increase the opponent makes, once."
+      }
+    },
+    "punching-glove": {
+      "text": {
+        "ko": "지니게 하면 펀치 기술의 위력이 오르고, 펀치 기술로 공격해도 상대에게 닿지 않는다.",
+        "en": "When held, punching moves are more powerful and no longer make contact."
+      }
+    },
+    "fairy-feather": {
+      "text": {
+        "ko": "지니게 하면 페어리타입 기술의 위력이 오르는 신비한 깃털.",
+        "en": "A mysterious feather that boosts the power of Fairy-type moves when held."
+      }
+    },
+    "wellspring-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 우물의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Wellspring Mask form and its moves become more powerful."
+      }
+    },
+    "hearthflame-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 화덕의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Hearthflame Mask form and its moves become more powerful."
+      }
+    },
+    "cornerstone-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 주춧돌의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Cornerstone Mask form and its moves become more powerful."
+      }
+    },
+    "loaded-dice": {
+      "text": {
+        "ko": "지니게 하면 여러 번 연속으로 공격하는 기술이 더 많이 맞게 된다.",
+        "en": "When held, multistrike moves are more likely to hit many times."
+      }
+    },
+    "clear-amulet": {
+      "text": {
+        "ko": "지니게 하면 상대의 기술이나 특성 때문에 능력이 떨어지지 않는다.",
+        "en": "When held, the holder's stats cannot be lowered by the opponent's moves or Abilities."
+      }
+    },
+    "covert-cloak": {
+      "text": {
+        "ko": "지니게 하면 상대 기술의 추가 효과를 받지 않는다.",
+        "en": "When held, the holder is protected from the additional effects of moves."
+      }
+    },
+    "roseli-berry": {
+      "text": {
+        "ko": "지니게 하면 효과가 굉장한 페어리타입 기술을 받았을 때 위력을 약하게 한다.",
+        "en": "When held, weakens a supereffective Fairy-type move against the holder."
+      },
+      "name": {
+        "ko": "로셀열매",
+        "en": "Roseli Berry"
+      }
+    },
+    "malicious-armor": {
+      "text": {
+        "ko": "원한이 서린 갑옷. 카르본을 진화시키는 데 쓴다.",
+        "en": "A cursed suit of armor used to evolve Charcadet."
+      }
+    },
+    "masterpiece-teacup": {
+      "text": {
+        "ko": "걸작이라 불리는 찻잔. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "A teacup said to be a masterpiece. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "unremarkable-teacup": {
+      "text": {
+        "ko": "흔해 빠진 찻잔. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "An ordinary-looking teacup. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "syrupy-apple": {
+      "text": {
+        "ko": "꿀처럼 달콤한 사과. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "A very syrupy apple. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "linking-cord": {
+      "text": {
+        "ko": "신비한 힘이 깃든 끈. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "A string imbued with mysterious power. It makes certain species of Pokémon evolve."
+      }
+    },
+    "black-augurite": {
+      "text": {
+        "ko": "검게 빛나는 유리질의 돌. 스라크를 진화시키는 데 쓴다.",
+        "en": "A glassy black stone that splits apart easily. It makes Scyther evolve."
+      }
+    },
+    "metal-alloy": {
+      "text": {
+        "ko": "여러 금속이 섞인 특별한 금속. 두랄루돈을 진화시키는 데 쓴다.",
+        "en": "A peculiar metal made of several metals. It makes Duraludon evolve."
+      }
+    },
+    "peat-block": {
+      "text": {
+        "ko": "오랜 세월 굳어진 이탄 덩어리. 보름달이 뜬 밤에 링곰을 진화시키는 데 쓴다.",
+        "en": "A block of long-compacted peat. It makes Ursaring evolve under a full moon."
+      }
+    },
+    "blank-plate": {
+      "text": {
+        "ko": "지니게 하면 노말타입 기술의 위력이 오르는 석판.",
+        "en": "A stone tablet that boosts the power of Normal-type moves when held."
+      }
+    },
+    "legend-plate": {
+      "text": {
+        "ko": "아르세우스가 지니면 심판의뭉치가 상대에게 가장 효과가 좋은 타입으로 바뀐다.",
+        "en": "When held by Arceus, Judgment becomes the type most effective against the target."
+      }
+    },
+    "hopo-berry": {
+      "text": {
+        "ko": "기술 하나의 PP를 10만큼 회복한다.",
+        "en": "Restores 10 PP to one of a Pokémon's moves."
+      },
+      "name": {
+        "ko": "호파열매",
+        "en": "Hopo Berry"
+      }
+    },
+    "health-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 HP 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's HP by 10."
+      }
+    },
+    "muscle-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 공격 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Attack by 10."
+      }
+    },
+    "resist-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 방어 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Defense by 10."
+      }
+    },
+    "genius-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 특수공격 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Sp. Atk by 10."
+      }
+    },
+    "clever-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 특수방어 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Sp. Def by 10."
+      }
+    },
+    "swift-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 스피드 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Speed by 10."
+      }
+    },
+    "fresh-start-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 노력치를 모두 0으로 되돌리는 떡.",
+        "en": "A mochi that resets all of a Pokémon's base points to zero."
+      }
+    },
+    "lapoke-ball": {
+      "text": {
+        "ko": "히스이 지방에서 쓰이던 몬스터볼. 던져서 야생 포켓몬을 잡는다.",
+        "en": "A Poké Ball as it was made in the Hisui region. It is thrown at wild Pokémon to catch them."
+      }
+    },
+    "lagreat-ball": {
+      "text": {
+        "ko": "히스이 지방에서 쓰이던 슈퍼볼. 몬스터볼보다 잘 잡힌다.",
+        "en": "A Great Ball as it was made in the Hisui region. It catches better than a Poké Ball."
+      }
+    },
+    "laultra-ball": {
+      "text": {
+        "ko": "히스이 지방에서 쓰이던 하이퍼볼. 슈퍼볼보다 더 잘 잡힌다.",
+        "en": "An Ultra Ball as it was made in the Hisui region. It catches better than a Great Ball."
+      }
+    },
+    "laheavy-ball": {
+      "text": {
+        "ko": "히스이 지방에서 쓰이던 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 잡기 쉽다.",
+        "en": "A ball from the Hisui region. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
+      }
+    },
+    "laleaden-ball": {
+      "text": {
+        "ko": "헤비볼을 개량한 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 더 잡기 쉽다.",
+        "en": "An improved Heavy Ball. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
+      }
+    },
+    "lagigaton-ball": {
+      "text": {
+        "ko": "메가톤볼을 개량한 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 한층 잡기 쉽다.",
+        "en": "An improved Leaden Ball. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
+      }
+    },
+    "lafeather-ball": {
+      "text": {
+        "ko": "몬스터볼보다 멀리 날아가는 가벼운 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
+        "en": "A light ball that flies further than a Poké Ball. It works better on Pokémon flying high in the sky."
+      }
+    },
+    "lawing-ball": {
+      "text": {
+        "ko": "페더볼보다 멀리 날아가는 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
+        "en": "A ball that flies further than a Feather Ball. It works better on Pokémon flying high in the sky."
+      }
+    },
+    "lajet-ball": {
+      "text": {
+        "ko": "윙볼보다 더 멀리 날아가는 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
+        "en": "A ball that flies further than a Wing Ball. It works better on Pokémon flying high in the sky."
+      }
+    },
+    "lastrange-ball": {
+      "text": {
+        "ko": "어디서 어떻게 만들어졌는지 알 수 없는 신기한 볼.",
+        "en": "A mysterious ball whose origins, and makers, are unknown."
+      }
+    },
+    "laorigin-ball": {
+      "text": {
+        "ko": "시공의 균열에서 나타난 포켓몬을 붙잡기 위해 만들어진 특별한 볼. 히스이 지방에서 쓰였다.",
+        "en": "A special ball made to catch the Pokémon that emerged from the rift in space-time, used in the Hisui region."
+      }
+    }
+  }
+}

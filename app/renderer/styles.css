@@ -1556,6 +1556,11 @@ canvas {
   border-color: var(--accent);
 }
 
+/* The move held in the same place, shown but not set. */
+.auto-slot.suggested {
+  opacity: 0.55;
+}
+
 .auto-kind {
   gap: 6px;
 }
@@ -1736,4 +1741,130 @@ canvas {
   display: flex;
   gap: 6px;
   margin-top: 4px;
+}
+
+/* ---------------------------------------------------------- item picker */
+
+/* Many items at once, and the one being looked at described beside them. */
+.modal .panel.item-picker {
+  width: 440px;
+  max-width: calc(100vw - 32px);
+}
+
+.item-picker-body {
+  display: flex;
+  gap: 6px;
+  margin: 4px 0 6px;
+}
+
+.item-picker-grid {
+  flex: 3;
+  min-width: 0;
+  max-height: 172px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  align-content: start;
+  gap: 3px;
+}
+
+.item-picker-tile {
+  -webkit-app-region: no-drag;
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  min-width: 0;
+  padding: 2px 4px;
+  border: 1px solid var(--frame-light);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.6);
+  font: inherit;
+  font-size: 9px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.item-picker-tile:hover,
+.item-picker-tile:focus-visible {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.95);
+}
+
+/* The one the rank already holds. */
+.item-picker-tile.current {
+  border-color: var(--accent-dark);
+  border-width: 2px;
+}
+
+.item-picker-tile img {
+  width: 16px;
+  height: 16px;
+  flex: none;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.item-picker-lines {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  line-height: 1.15;
+}
+
+.item-picker-label {
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.item-picker-count {
+  font-size: 8px;
+  color: var(--ink-soft);
+}
+
+.item-picker-detail {
+  flex: 2;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding: 6px;
+  border: 1px solid var(--frame-light);
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.55);
+  text-align: center;
+}
+
+.item-picker-icon {
+  width: 32px;
+  height: 32px;
+  object-fit: contain;
+  image-rendering: pixelated;
+}
+
+.item-picker-name {
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.item-picker-text {
+  margin: 0;
+  font-size: 9px;
+  line-height: 1.35;
+  color: var(--ink-soft);
+}
+
+.item-picker-detail .btn {
+  margin-top: auto;
+}
+
+.item-picker-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.item-picker-actions .spacer {
+  flex: 1;
 }

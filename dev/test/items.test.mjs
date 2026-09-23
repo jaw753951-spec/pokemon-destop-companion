@@ -273,3 +273,16 @@ test('an unset restock rank is skipped, and an empty order holds nothing', withD
   assert.equal(berryToHold(session, [null, null, null]), null);
   assert.equal(berryToHold(session, ['oran-berry']), null);
 });
+
+test('every item the bag can hold says what it is, in Korean as well as English', withData, () => {
+  const blank = [];
+  const borrowed = [];
+  for (const [slug, entry] of Object.entries(gameData().items)) {
+    // A machine is described by the move it teaches.
+    if (entry.pocket === 'machines') continue;
+    if (!entry.text?.ko || !entry.text?.en) blank.push(slug);
+    else if (entry.text.ko === entry.text.en) borrowed.push(slug);
+  }
+  assert.deepEqual(blank, [], 'items with no description');
+  assert.deepEqual(borrowed, [], 'items whose Korean description is the English one');
+});

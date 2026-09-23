@@ -373,18 +373,33 @@ const SUPPLIES = [
  *
  * Which ball follows the companion's level for the same reason the potion
  * does: a Poké Ball is what you throw at what you meet at level ten and a
- * waste of a turn against what you meet at fifty.
+ * waste of a turn against what you meet at fifty. The better balls come in
+ * early, because the stop hands over only one or two — a handful of Poké
+ * Balls a visit made the pickups on the road worthless, and a couple of good
+ * ones is worth more than a pocketful of the ones that bounce off.
  *
  * @type {Array<{level: number, item: string}>} highest level last
  */
-const BALL_SUPPLIES = [
-  { level: 25, item: 'poke-ball' },
-  { level: 50, item: 'great-ball' },
+export const BALL_SUPPLIES = [
+  { level: 15, item: 'poke-ball' },
+  { level: 30, item: 'great-ball' },
   { level: Infinity, item: 'ultra-ball' },
 ];
 
-/** How many of that ball the stop hands over. */
-const BALL_SUPPLY_COUNT = 5;
+/** How many of that ball the stop hands over: one or two, even odds. */
+export const BALL_SUPPLY_COUNT = { min: 1, max: 2 };
+
+/**
+ * The balls one visit hands over, for a companion at this level.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {number} level
+ * @returns {{item: string, count: number}}
+ */
+export function ballSupply(rng, level) {
+  const entry = BALL_SUPPLIES.find((row) => level < row.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
+  return { item: entry.item, count: rng.int(BALL_SUPPLY_COUNT.min, BALL_SUPPLY_COUNT.max) };
+}
 
 /** How long the companion stays inside, out of sight, being seen to. */
 const CENTER_STAY_MS = 5000;
@@ -564,8 +579,8 @@ function restAndResupply(session, app) {
   const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
   session.addItem(supply.item, SUPPLY_COUNT);
 
-  const balls = BALL_SUPPLIES.find((entry) => level < entry.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
-  session.addItem(balls.item, BALL_SUPPLY_COUNT);
+  const balls = ballSupply(session.rng, level);
+  session.addItem(balls.item, balls.count);
 
   app.audio.playJingle(gameData().bgm.cues.heal ?? null);
   app.toast(
@@ -577,7 +592,7 @@ function restAndResupply(session, app) {
       }),
       t('event.supplied', {
         name: localized(itemOf(balls.item)?.name, balls.item),
-        count: BALL_SUPPLY_COUNT,
+        count: balls.count,
       }),
     ].join('\n'),
     3600,

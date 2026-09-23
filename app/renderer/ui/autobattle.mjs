@@ -80,6 +80,12 @@ export function autoBattleScene({ session, onClose }) {
  * Four boxes, fired left to right. Only moves the Pokémon currently holds can
  * go in them, so the order can never name something it cannot use.
  *
+ * A box with nothing in it shows, faintly, the move the Pokémon holds in the
+ * same place — what the four boxes would read if the order simply followed
+ * the moves — and offers that one first when it is opened. It is only shown:
+ * an empty box stays empty until something is put in it, so an order nobody
+ * laid out still leaves the choosing to the conditions below.
+ *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} rebuild
@@ -92,15 +98,24 @@ function orderRow(app, session, rebuild) {
     const move = policy.order?.[index] ?? null;
     const known = move && equipped.includes(move) ? move : null;
     const record = known ? moveOf(known) : null;
+    const suggested = known ? null : equipped[index] ?? null;
 
-    return el(`button.auto-slot${known ? '' : '.empty'}`, {
+    return el(`button.auto-slot${known ? '' : suggested ? '.empty.suggested' : '.empty'}`, {
       type: 'button',
-      text: record ? localized(record.name, known) : t('auto.empty'),
+      text: record
+        ? localized(record.name, known)
+        : suggested
+          ? localized(moveOf(suggested)?.name, suggested)
+          : t('auto.empty'),
+      title: suggested ? t('auto.suggested') : null,
       onClick: async () => {
         app.audio.blip('select');
+        // The move in the same place first, then the rest in the order they
+        // are held.
+        const ordered = suggested ? [suggested, ...equipped.filter((slug) => slug !== suggested)] : equipped;
         const choices = [
           { value: '', label: t('auto.empty'), detail: '' },
-          ...equipped.map((slug) => ({
+          ...ordered.map((slug) => ({
             value: slug,
             label: localized(moveOf(slug)?.name, slug),
             detail: t(`auto.kind.${categoryOf(moveOf(slug) ?? {})}`),

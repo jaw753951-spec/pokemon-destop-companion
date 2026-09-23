@@ -53,19 +53,42 @@ export async function loadGameData() {
 
   // Authored data is optional: a checkout without it still runs, just without
   // trainers or the league.
-  const [trainerClasses, leaders, leagues, credits] = await Promise.all([
+  const [trainerClasses, leaders, leagues, credits, itemTexts] = await Promise.all([
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
     // Written by the walkers step; a build from before it has nothing to credit.
     loadJson('data', 'credits.json').catch(() => ({})),
+    loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
   ]);
+  mendItems(items, itemTexts);
 
   data = {
     species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,
     trainerClasses, leaders, leagues, credits,
   };
   return data;
+}
+
+/**
+ * Put the authored descriptions — and the odd name — on the items PokeAPI
+ * publishes without them.
+ *
+ * A handful of items come through with no description in any language, and
+ * a few with the English one standing in for the Korean; the bag showed the
+ * first as a blank panel. The authored sheet fills both in, one field at a
+ * time, and names nothing that is not in the bag's data.
+ *
+ * @param {Record<string, any>} items
+ * @param {Record<string, {name?: Record<string, string>, text?: Record<string, string>}>} authored
+ */
+export function mendItems(items, authored) {
+  for (const [slug, patch] of Object.entries(authored ?? {})) {
+    const item = items?.[slug];
+    if (!item) continue;
+    if (patch.text) item.text = { ...(item.text ?? {}), ...patch.text };
+    if (patch.name) item.name = { ...(item.name ?? {}), ...patch.name };
+  }
 }
 
 /**

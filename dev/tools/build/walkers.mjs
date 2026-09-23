@@ -32,6 +32,18 @@ import { MAX_SPECIES, SPRITE_COLLAB } from '../sources.mjs';
 /** The sheets' rows run clockwise from facing the viewer; this one faces right. */
 const FACING_RIGHT = 2;
 
+/** And this one looks down and to the left: the three-quarter view a box icon is drawn in. */
+const FACING_DOWN_LEFT = 7;
+
+/**
+ * The last species the published box icons reach. Past it the sprites step
+ * falls back to a model render for the icon — the only picture there is — so
+ * the Sprite Collab's own standing frame stands in, turned the way a box icon
+ * faces, and the box, the dex and the tray show the Pokémon in the art it
+ * walks in rather than in a render at another density.
+ */
+const LAST_BOX_ICON = 898;
+
 /** The collab times its frames in the handheld's frames, sixty to the second. */
 const TICK_MS = 1000 / 60;
 
@@ -84,6 +96,8 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             : []),
         ];
 
+        /** Which palettes got an icon from the collab, past the box icons' reach. */
+        const iconed = new Set();
         for (const variant of variants) {
           const anims = parseAnimData((await fetchBuffer(`${variant.base}/AnimData.xml`, { allowMissing: true }))?.toString('utf8'));
           let built = false;
@@ -94,8 +108,21 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             variant.into[pose.key] = strip.meta;
             built = true;
           }
+          if (id > LAST_BOX_ICON) {
+            const icon = await buildIcon(variant.base, anims);
+            if (icon) {
+              await writeOut(join(assetDir, 'pokemon', String(id), `icon${variant.suffix}.png`), icon.png);
+              variant.into.icon = icon.meta;
+              iconed.add(variant.suffix);
+              built = true;
+            }
+          }
           if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
         }
+        // A shiny icon left over from the render would be the one picture in
+        // the box at another density; the ordinary colours in the right art
+        // are the better miss.
+        if (iconed.has('') && !iconed.has('-shiny')) delete entry.shiny.icon;
         if (!entry.walk) missing.push(id);
       }),
     ),
@@ -185,6 +212,35 @@ async function buildStrip(base, anims, name) {
       delay: Math.round(durations.reduce((sum, value) => sum + value, 0) / count),
     },
   };
+}
+
+/**
+ * A box icon made from the first standing frame, facing the way box icons do,
+ * trimmed to the Pokémon.
+ *
+ * @param {string} base
+ * @param {ReturnType<typeof parseAnimData>} anims
+ */
+async function buildIcon(base, anims) {
+  for (const name of ['Idle', 'Walk']) {
+    let anim = anims.get(name);
+    let file = name;
+    for (let hops = 0; anim?.copyOf && hops < 4; hops++) {
+      file = anim.copyOf;
+      anim = anims.get(anim.copyOf);
+    }
+    if (!anim || !anim.width || !anim.height) continue;
+    const source = await fetchBuffer(`${base}/${file}-Anim.png`, { allowMissing: true });
+    if (!source) continue;
+    const sheet = decodePng(source);
+    if (sheet.height < (FACING_DOWN_LEFT + 1) * anim.height) continue;
+    const frame = crop(sheet, 0, FACING_DOWN_LEFT * anim.height, anim.width, anim.height);
+    const bounds = opaqueBounds(frame);
+    if (!bounds) continue;
+    const icon = crop(frame, bounds.x, bounds.y, bounds.width, bounds.height);
+    return { png: encodePng(icon.width, icon.height, icon.data), meta: { width: icon.width, height: icon.height } };
+  }
+  return null;
 }
 
 /**
