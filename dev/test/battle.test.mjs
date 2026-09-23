@@ -731,3 +731,32 @@ test('a Burning Jealousy burns only a target whose stats went up this turn', opt
   battle.applySecondaryEffects(battle.player, battle.foe, move, []);
   assert.equal(battle.foe.pokemon.status, STATUS.BURN);
 });
+
+test('an Explosion takes its user down with it, hit or not', options, () => {
+  // Level 5 against level 100: the blast cannot finish the foe, so whatever
+  // ends the fight is the user going down.
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 5, ['explosion']),
+    foes: [makeFixed(BLASTOISE, 100, ['splash'])],
+    policy: defaultAutoBattle(),
+  });
+  const log = battle.takeTurn();
+  assert.equal(battle.player.pokemon.hp, 0);
+  assert.ok(log.some((entry) => entry.kind === 'faint' && entry.side === 'player'));
+  assert.equal(battle.outcome, 'lost');
+});
+
+test('a Damp keeps an Explosion from going off, and the user standing', options, () => {
+  const foe = makeFixed(BLASTOISE, 100, ['splash']);
+  foe.ability = 'damp';
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 5, ['explosion']),
+    foes: [foe],
+    policy: defaultAutoBattle(),
+  });
+  const log = battle.takeTurn();
+  assert.ok(battle.player.pokemon.hp > 0);
+  assert.ok(log.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+});

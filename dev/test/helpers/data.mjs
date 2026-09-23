@@ -32,6 +32,7 @@ export async function useRealGameData() {
     ]);
     // The same authored descriptions the game lays over the generated items.
     mendItems(items, JSON.parse(await readFile(join(AUTHORED, 'item-texts.json'), 'utf8')).items);
+    mendItems(moves, JSON.parse(await readFile(join(AUTHORED, 'move-texts.json'), 'utf8')).moves);
     setGameData(
       /** @type {any} */ ({
         species,

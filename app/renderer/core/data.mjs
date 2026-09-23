@@ -53,15 +53,19 @@ export async function loadGameData() {
 
   // Authored data is optional: a checkout without it still runs, just without
   // trainers or the league.
-  const [trainerClasses, leaders, leagues, credits, itemTexts] = await Promise.all([
+  const [trainerClasses, leaders, leagues, credits, itemTexts, moveTexts] = await Promise.all([
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
     // Written by the walkers step; a build from before it has nothing to credit.
     loadJson('data', 'credits.json').catch(() => ({})),
     loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
+    loadJson('authored', 'move-texts.json').then((file) => file.moves ?? {}).catch(() => ({})),
   ]);
   mendItems(items, itemTexts);
+  // Moves take the same patch: the newest ones come through with only the
+  // English description, and the Korean screen showed it as it was.
+  mendItems(moves, moveTexts);
 
   data = {
     species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,

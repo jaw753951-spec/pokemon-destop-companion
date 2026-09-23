@@ -286,3 +286,16 @@ test('every item the bag can hold says what it is, in Korean as well as English'
   assert.deepEqual(blank, [], 'items with no description');
   assert.deepEqual(borrowed, [], 'items whose Korean description is the English one');
 });
+
+test('every move says what it does in Korean, not in English', withData, () => {
+  const blank = [];
+  const borrowed = [];
+  for (const [slug, move] of Object.entries(gameData().moves)) {
+    // Colosseum's Shadow moves, which the next dex build leaves out.
+    if (move.type === 'shadow') continue;
+    if (!move.text?.ko) blank.push(slug);
+    else if (move.text.ko === move.text.en || !/[가-힣]/.test(move.text.ko)) borrowed.push(slug);
+  }
+  assert.deepEqual(blank, [], 'moves with no Korean description');
+  assert.deepEqual(borrowed, [], 'moves whose Korean description is the English one');
+});

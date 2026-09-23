@@ -104,20 +104,12 @@ export const HOLD_BOOST_GLIDE_MS = 800;
  * Damage the player's own Pokémon takes, as a share of what the formula says.
  *
  * The companion fights on its own for hours at a time with nobody to switch it
- * out, so it is given a standing thirty per cent off everything aimed at it.
- * What it deals is untouched — this is armour, not strength.
+ * out, so it is given a standing seventy per cent off everything aimed at it.
+ * The cut comes last, after type effectiveness has done its work, so a hit it
+ * is weak to still lands twice as hard as a neutral one — only both are
+ * smaller. What it deals is untouched — this is armour, not strength.
  */
-export const COMPANION_DAMAGE_TAKEN = 0.7;
-
-/**
- * And what a hit it is weak to costs it on top of that.
- *
- * Flat damage reduction makes type matchups matter less, so the thing the
- * matchup is *about* is sharpened to compensate: a super-effective hit lands
- * half again as hard on the companion. Resisted and neutral hits are unchanged
- * beyond the reduction above.
- */
-export const COMPANION_WEAKNESS_TAKEN = 1.5;
+export const COMPANION_DAMAGE_TAKEN = 0.3;
 
 /**
  * How long to wait before trying again when a roll came due while an event was

@@ -14,7 +14,7 @@ import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE, strideFrame, WALK_
 import { BATTLE_ZOOM, fitScale, FOE_DEPTH } from '../../app/renderer/render/battler.mjs';
 import { companionArmour } from '../../app/renderer/engine/battle.mjs';
 import { treeFor } from '../../app/renderer/scenes/fieldevents.mjs';
-import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS_TAKEN, FIELD_ZOOM } from '../../app/shared/constants.mjs';
+import { COMPANION_DAMAGE_TAKEN, FIELD_ZOOM } from '../../app/shared/constants.mjs';
 
 /** Heights in decimetres, as PokeAPI files them. */
 setGameData(
@@ -90,19 +90,16 @@ test('the walk steps with the road, not with the clock', () => {
   assert.equal(frames.size, 4, 'a second of road is a whole walk cycle and then some');
 });
 
-test('the companion takes less of everything, and more of what beats it', () => {
+test('the companion takes seventy per cent less of everything', () => {
   const player = /** @type {any} */ ({ side: 'player' });
   const foe = /** @type {any} */ ({ side: 'foe' });
 
-  assert.equal(companionArmour(player, 1), COMPANION_DAMAGE_TAKEN);
-  assert.equal(companionArmour(player, 0.5), COMPANION_DAMAGE_TAKEN);
-  assert.equal(companionArmour(player, 2), COMPANION_DAMAGE_TAKEN * COMPANION_WEAKNESS_TAKEN);
-  assert.equal(companionArmour(player, 4), COMPANION_DAMAGE_TAKEN * COMPANION_WEAKNESS_TAKEN);
+  assert.equal(COMPANION_DAMAGE_TAKEN, 0.3);
+  assert.equal(companionArmour(player), COMPANION_DAMAGE_TAKEN);
 
   // What the companion deals is untouched, whoever it is hitting.
-  assert.equal(companionArmour(foe, 1), 1);
-  assert.equal(companionArmour(foe, 2), 1);
-  assert.equal(companionArmour(null, 2), 1);
+  assert.equal(companionArmour(foe), 1);
+  assert.equal(companionArmour(null), 1);
 });
 
 test('every berry grows on a tree, and always the same one', () => {

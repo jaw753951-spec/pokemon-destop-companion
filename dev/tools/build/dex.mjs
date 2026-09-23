@@ -244,6 +244,10 @@ async function buildMoves(pool, log) {
           allowMissing: true,
         });
         if (!move || !move.type) return;
+        // Colosseum's Shadow moves belong to Shadow Pokémon, which this game
+        // does not have; nothing learns them and nothing ever named them in
+        // Korean.
+        if (move.type.name === 'shadow') return;
         out[move.name] = {
           id: move.id,
           name: nameBundle(move.names, move.name),

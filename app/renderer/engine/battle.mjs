@@ -7,7 +7,7 @@
  * of the turn. Battles are fought automatically, so the engine produces a list
  * of log entries per turn which the battle scene plays back as animation.
  */
-import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS_TAKEN } from '../../shared/constants.mjs';
+import { COMPANION_DAMAGE_TAKEN } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect } from './abilities.mjs';
 import { formeFor } from './forms.mjs';
@@ -147,6 +147,13 @@ export const FIRST_TURN_ONLY = new Set(['fake-out', 'first-impression', 'mat-blo
  * turn: a Burning Jealousy burns the one that just powered up, and nobody else.
  */
 export const RAISED_THIS_TURN_ONLY = new Set(['burning-jealousy', 'alluring-voice']);
+
+/**
+ * The moves whose user goes down for using them. An Explosion costs its user
+ * everything whether it hit, missed or went into a Ghost — only a Damp in
+ * front of it stops it going off at all, and then it costs nothing.
+ */
+export const SELF_KNOCKOUT = new Set(['self-destruct', 'explosion', 'misty-explosion', 'memento']);
 
 /** The status moves the type chart still applies to. */
 const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
@@ -680,6 +687,7 @@ export class Battle {
       const defender = attacker === this.player ? this.foe : this.player;
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
+      this.collectSelfKnockout(attacker, log);
       this.checkFaint(log);
       // Checked between the two sides' moves as well as at the end of the
       // turn: a berry that waits until the turn is over is a berry that lets
@@ -712,6 +720,21 @@ export class Battle {
     }
 
     return log;
+  }
+
+  /**
+   * An Explosion's user going down with it, once the move has played out.
+   *
+   * @param {Combatant} attacker
+   * @param {LogEntry[]} log
+   */
+  collectSelfKnockout(attacker, log) {
+    if (!attacker.marks.spent) return;
+    attacker.marks.spent = false;
+    if (attacker.pokemon.hp <= 0) return;
+    const amount = attacker.pokemon.hp;
+    attacker.pokemon.hp = 0;
+    log.push({ kind: 'damage', side: attacker.side, data: { amount, recoil: true } });
   }
 
   /**
@@ -1229,6 +1252,18 @@ export class Battle {
     if (FIRST_TURN_ONLY.has(moveName) && !this.firstTurnOut(attacker)) {
       log.push({ kind: 'failed', side: attacker.side });
       return;
+    }
+
+    if (SELF_KNOCKOUT.has(moveName)) {
+      // A Damp keeps the thing from going off at all.
+      if (moveName !== 'memento' && this.abilityOf(defender, attacker)?.dampens) {
+        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'failed', side: attacker.side });
+        return;
+      }
+      // Paid however the rest of the move goes: `takeTurn` collects it once
+      // the move is over, whichever way out of here it took.
+      attacker.marks.spent = true;
     }
 
     // A move the defender is simply sealed against — a sound at a Soundproof,
@@ -2145,28 +2180,24 @@ export class Battle {
     );
     // An Infiltrator is not stopped by anything the other side put up.
     const screen = attackerAbility?.infiltrates ? 1 : this.screenMultiplier(defender, move, critical);
-    const armour = companionArmour(defender, effectiveness);
-
-    const damage = Math.max(
-      1,
-      Math.floor(
-        base *
-          stab *
-          effectiveness *
-          burn *
-          spread *
-          criticalBonus *
-          held *
-          resisted *
-          abilityPower *
-          abilityTaken *
-          weather *
-          terrain *
-          screen *
-          charged *
-          armour,
-      ),
+    const formula = Math.floor(
+      base *
+        stab *
+        effectiveness *
+        burn *
+        spread *
+        criticalBonus *
+        held *
+        resisted *
+        abilityPower *
+        abilityTaken *
+        weather *
+        terrain *
+        screen *
+        charged,
     );
+    // The companion's armour comes off the finished hit, weakness and all.
+    const damage = Math.max(1, Math.floor(formula * companionArmour(defender)));
     return { damage, effectiveness, critical };
   }
 
@@ -3194,20 +3225,18 @@ function doubled(held) {
  *
  * The companion travels alone: there is no party to switch to, no second
  * chance at a bad matchup, and nobody watching to pull it out of one. So it
- * takes thirty per cent less of everything aimed at it — and, because a flat
- * reduction would make type matchups matter thirty per cent less too, a hit it
- * is actually weak to lands half again as hard. The sum of the two is a
- * companion that survives the ordinary exchange it cannot answer and still
- * loses to the thing it should lose to.
+ * takes seventy per cent less of everything aimed at it. The cut is taken off
+ * the finished number — after type effectiveness, STAB and the rest — so the
+ * matchup keeps every bit of its meaning: a weakness still doubles the hit,
+ * the hit is just a smaller one.
  *
  * Only what it *takes* is touched. What it deals goes through the formula
  * untouched, so nothing about the player's own damage changes.
  *
- * @param {Combatant} defender
- * @param {number} effectiveness
+ * @param {Combatant|null|undefined} defender
  * @returns {number}
  */
-export function companionArmour(defender, effectiveness) {
+export function companionArmour(defender) {
   if (defender?.side !== 'player') return 1;
-  return COMPANION_DAMAGE_TAKEN * (effectiveness > 1 ? COMPANION_WEAKNESS_TAKEN : 1);
+  return COMPANION_DAMAGE_TAKEN;
 }
