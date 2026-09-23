@@ -7,7 +7,7 @@
  */
 import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilitySlot, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
+import { abilitySlot, createPokemon, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
 import { settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
@@ -734,11 +734,40 @@ let signature = /** @type {Map<string, string[]>|null} */ (null);
  */
 export function signatureFind(session) {
   signature ??= signatureItems();
-  const species = speciesOf(session.active?.speciesId)?.slug ?? '';
+  const species = speciesOf(session.active?.speciesId);
+  const slug = species?.slug ?? '';
   const held = new Set([session.active, ...session.box].map((pokemon) => pokemon?.heldItem).filter(Boolean));
-  const wanted = [...signature]
-    .filter(([item, owners]) => owners.includes(species) && itemOf(item) && !held.has(item) && session.countOf(item) === 0)
-    .map(([item]) => item);
+  // And what it evolves by, where the ordinary finds never hand that out: a
+  // Galarica Cuff, a Leader's Crest, an apple for an Applin.
+  const ordinary = new Set(Object.values(gameData().itemTiers ?? {}).flat());
+  const evolvesBy = (species?.evolutions ?? [])
+    .flatMap((evolution) => [evolution.item, evolution.heldItem])
+    .filter((item) => item && !ordinary.has(item));
+  const wanted = [
+    ...[...signature].filter(([, owners]) => owners.includes(slug)).map(([item]) => item),
+    ...evolvesBy,
+  ].filter((item, index, all) => all.indexOf(item) === index && itemOf(item) && !held.has(item) && session.countOf(item) === 0);
   if (!wanted.length || !session.rng.chance(SIGNATURE_FIND_CHANCE)) return null;
   return session.rng.pick(wanted);
+}
+
+/**
+ * A Nincada that became a Ninjask leaves its shell behind: a Shedinja, if
+ * there is a Poké Ball in the bag to put it in and room in the box, the way
+ * the games leave one in a free party slot.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {number} fromSpeciesId the species that just evolved
+ * @param {import('./pokemon.mjs').Pokemon} evolved
+ * @returns {import('./pokemon.mjs').Pokemon|null} the Shedinja, if one was left
+ */
+export function shedAfterEvolving(session, fromSpeciesId, evolved) {
+  const shed = speciesOf(fromSpeciesId)?.evolutions?.find((evolution) => evolution.trigger === 'shed');
+  if (!shed || !speciesOf(shed.to) || session.countOf('poke-ball') <= 0 || session.boxFull) return null;
+  const shell = createPokemon(session.rng, shed.to, levelOf(evolved), { ball: 'poke-ball' });
+  shell.ivs = { ...evolved.ivs };
+  shell.nature = evolved.nature;
+  if (!session.storeInBox(shell)) return null;
+  session.removeItem('poke-ball');
+  return shell;
 }

@@ -44,6 +44,36 @@ const FACING_DOWN_LEFT = 7;
  */
 const LAST_BOX_ICON = 898;
 
+/**
+ * The collab's name for a regional variety's form, where it differs from the
+ * region's own: the Paldean Tauros breeds and the white-striped Basculin.
+ *
+ * @type {Record<string, string>}
+ */
+const COLLAB_FORM_NAMES = {
+  'tauros-paldea-combat-breed': 'Paldea',
+  'tauros-paldea-blaze-breed': 'Paldea_Blaze',
+  'tauros-paldea-aqua-breed': 'Paldea_Aqua',
+  'basculin-white-striped': 'White',
+  'darmanitan-galar-standard': 'Galar',
+};
+
+/**
+ * Which of a species' collab subgroups draws a regional variety.
+ *
+ * @param {any} record the species' tracker record
+ * @param {string} slug the variety's slug
+ * @returns {string|null} the subgroup's key
+ */
+function collabForm(record, slug) {
+  const wanted =
+    COLLAB_FORM_NAMES[slug] ??
+    ['alola', 'galar', 'hisui', 'paldea'].find((region) => slug.includes(`-${region}`))?.replace(/^./, (c) => c.toUpperCase());
+  if (!wanted) return null;
+  const found = Object.entries(record?.subgroups ?? {}).find(([, group]) => group.name === wanted);
+  return found?.[0] ?? null;
+}
+
 /** The collab times its frames in the handheld's frames, sixty to the second. */
 const TICK_MS = 1000 / 60;
 
@@ -69,8 +99,15 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   const artists = new Set();
   const missing = [];
 
+  // The regional Pokémon the dex step files under their variety ids walk in
+  // the collab's form sheets, under the species' own number.
+  /** @type {Record<string, any>} */
+  const species = JSON.parse(await readFile(join(dataDir, 'species.json'), 'utf8'));
+  const regional = Object.values(species).filter((entry) => entry.regional && entry.dex <= limit);
+  const ids = [...Array.from({ length: limit }, (_, index) => index + 1), ...regional.map((entry) => entry.id)];
+
   await Promise.all(
-    Array.from({ length: limit }, (_, index) => index + 1).map((id) =>
+    ids.map((id) =>
       pool(async () => {
         const entry = manifest[id] ?? (manifest[id] = { shiny: {} });
         entry.shiny ??= {};
@@ -79,8 +116,11 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
           delete entry.shiny[pose.key];
         }
 
-        const key = String(id).padStart(4, '0');
-        const record = tracker?.[key];
+        const dex = species[id]?.dex ?? id;
+        const key = String(dex).padStart(4, '0');
+        const form = species[id]?.regional ? collabForm(tracker?.[key], species[id].slug) : null;
+        const record = form ? tracker?.[key]?.subgroups?.[form] : tracker?.[key];
+        const path = form ? `${key}/${form}` : key;
         // The tracker lists a sheet by name whether or not it is locked, and
         // the value is only the lock: `Walk: false` is a walk that exists.
         if (!hasSheet(record, 'Walk')) {
@@ -88,11 +128,14 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
           return;
         }
 
-        const shinyRecord = record.subgroups?.['0000']?.subgroups?.['0001'];
+        // A species' shiny sits under its normal subgroup; a form's directly
+        // under the form.
+        const shinyRecord = form ? record.subgroups?.['0001'] : record.subgroups?.['0000']?.subgroups?.['0001'];
+        const shinyPath = form ? `${path}/0001` : `${path}/0000/0001`;
         const variants = [
-          { suffix: '', into: entry, base: `${SPRITE_COLLAB}/sprite/${key}`, record },
+          { suffix: '', into: entry, base: `${SPRITE_COLLAB}/sprite/${path}`, record },
           ...(hasSheet(shinyRecord, 'Walk')
-            ? [{ suffix: '-shiny', into: entry.shiny, base: `${SPRITE_COLLAB}/sprite/${key}/0000/0001`, record: shinyRecord }]
+            ? [{ suffix: '-shiny', into: entry.shiny, base: `${SPRITE_COLLAB}/sprite/${shinyPath}`, record: shinyRecord }]
             : []),
         ];
 
@@ -108,7 +151,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             variant.into[pose.key] = strip.meta;
             built = true;
           }
-          if (id > LAST_BOX_ICON) {
+          if (dex > LAST_BOX_ICON || (species[id]?.regional && !manifest[id]?.icon)) {
             const icon = await buildIcon(variant.base, anims);
             if (icon) {
               await writeOut(join(assetDir, 'pokemon', String(id), `icon${variant.suffix}.png`), icon.png);
@@ -143,7 +186,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
 
   const walking = Object.values(manifest).filter((entry) => entry.walk).length;
   const shiny = Object.values(manifest).filter((entry) => entry.shiny?.walk).length;
-  log(`walkers ${walking}/${limit} (${shiny} with shiny art), ${artists.size} artists credited`);
+  log(`walkers ${walking}/${ids.length} (${shiny} with shiny art), ${artists.size} artists credited`);
   if (missing.length) {
     log(`  on their box icon: ${missing.length} (${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ', …' : ''})`);
   }

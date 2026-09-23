@@ -77,8 +77,8 @@ export async function buildDex({ dataDir, sample, log, pool }) {
  * @param {{machines: Record<string, string>, moves: Record<string, any>, species: Record<string, any>, log: (message: string) => void}} context
  */
 function shippedItems(items, { machines, moves, species, log }) {
-  /** Items some species evolves by, held or used. */
-  const evolutionItems = new Set();
+  /** Items some species evolves by, held or used — and the Linking Cord, which stands in for a trade. */
+  const evolutionItems = new Set(['linking-cord']);
   for (const entry of Object.values(species)) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
@@ -100,8 +100,13 @@ function shippedItems(items, { machines, moves, species, log }) {
 
     const formItem = FORM_ITEMS[slug];
     if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
+    // Whatever some Pokémon evolves by stays, wherever PokeAPI filed it: a
+    // Galarica Cuff is a story item there and a Slowpoke's way on here.
+    const evolves = evolutionItems.has(slug);
+    if (evolves && item.pocket === 'key') item = { ...item, pocket: 'misc' };
 
-    const reason = KEPT_ITEMS[slug] || formItem ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+    const reason =
+      KEPT_ITEMS[slug] || formItem || evolves ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
     if (reason) {
       dropped[reason] = (dropped[reason] ?? 0) + 1;
       continue;
@@ -1291,7 +1296,12 @@ async function buildSpecies(pool, log, limit) {
           text: flavorBundle(species.flavor_text_entries),
           learnset: extractLearnset(pokemon.moves),
           evolutionChain: idFromUrl(species.evolution_chain.url),
+          evolutions: [],
           forms,
+          // The default variety's own name, which an evolution rule may use in
+          // place of the species' (`urshifu-single-strike`); dropped once the
+          // chains are walked.
+          variety: pokemon.name,
         };
 
         const chainId = out[id].evolutionChain;
@@ -1302,11 +1312,133 @@ async function buildSpecies(pool, log, limit) {
     ),
   );
 
+  await addRegionalSpecies(out, pool);
   await attachEvolutions(out, chains, pool);
-  log(`species ${Object.keys(out).length}`);
+  log(`species ${Object.keys(out).length} (${Object.values(out).filter((entry) => entry.regional).length} regional)`);
   const formSpecies = Object.values(out).filter((entry) => entry.forms.length).length;
   const formCount = Object.values(out).reduce((total, entry) => total + entry.forms.length, 0);
   log(`species forms ${formCount} across ${formSpecies} species the battle can change`);
+  return out;
+}
+
+/**
+ * The regions a regional variety can be from, and what the Korean and English
+ * games call a Pokémon from there.
+ */
+const REGIONS = {
+  alola: { ko: '알로라', en: 'Alolan' },
+  galar: { ko: '가라르', en: 'Galarian' },
+  hisui: { ko: '히스이', en: 'Hisuian' },
+  paldea: { ko: '팔데아', en: 'Paldean' },
+};
+
+/**
+ * The Korean and English names PokeAPI does not have for a regional variety:
+ * the Paldean Tauros breeds and the white-striped Basculin.
+ *
+ * @type {Record<string, {ko: string, en: string}>}
+ */
+const REGIONAL_NAMES = {
+  'tauros-paldea-combat-breed': { ko: '팔데아 켄타로스(컴뱃종)', en: 'Paldean Tauros (Combat Breed)' },
+  'tauros-paldea-blaze-breed': { ko: '팔데아 켄타로스(블레이즈종)', en: 'Paldean Tauros (Blaze Breed)' },
+  'tauros-paldea-aqua-breed': { ko: '팔데아 켄타로스(워터종)', en: 'Paldean Tauros (Aqua Breed)' },
+  'basculin-white-striped': { ko: '배쓰나이(흰줄무늬의 모습)', en: 'Basculin (White-Striped Form)' },
+};
+
+/** Varieties kept as Pokémon of their own though their name names no region. */
+const REGIONAL_EXTRAS = new Set(['basculin-white-striped']);
+
+/**
+ * Whether a variety is a regional Pokémon: its own types, stats, moves and
+ * evolutions, which the games treat as a different Pokémon under the same
+ * number. A totem, a Zen Mode or a Pikachu in a cap is a forme, not one of
+ * these.
+ *
+ * @param {string} name a variety's slug
+ */
+const isRegional = (name) =>
+  REGIONAL_EXTRAS.has(name) || (/-(alola|galar|hisui|paldea)(-|$)/.test(name) && !/totem|zen|cap/.test(name));
+
+/**
+ * Add every regional variety as a species of its own, under its variety id.
+ *
+ * An Alolan Vulpix is an Ice-type with its own moves and its own evolution,
+ * and a Galarian Linoone is the only one that becomes an Obstagoon; filed
+ * under the Kanto and Hoenn species they would be neither. Each keeps the
+ * species' Pokédex number in `dex` and points back at it in `regional`, and
+ * shares its genus, growth rate and the rest of what the species record
+ * holds; types, stats, abilities, moves and held items are the variety's.
+ *
+ * @param {Record<string, any>} out
+ * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
+ */
+async function addRegionalSpecies(out, pool) {
+  const bases = Object.values(out);
+  await Promise.all(
+    bases.map((base) =>
+      pool(async () => {
+        const species = await fetchJson(`${POKEAPI}/pokemon-species/${base.id}/index.json`);
+        for (const variety of species.varieties) {
+          if (variety.is_default || !isRegional(variety.pokemon.name)) continue;
+          const pokemon = await fetchJson(`${POKEAPI}${variety.pokemon.url.replace('/api/v2', '')}index.json`);
+          const formUrl = pokemon.forms?.[0]?.url;
+          const form = formUrl
+            ? await fetchJson(`${POKEAPI}${formUrl.replace('/api/v2', '')}index.json`, { allowMissing: true })
+            : null;
+          const id = idFromUrl(variety.pokemon.url);
+          if (!id) continue;
+          const region = Object.keys(REGIONS).find((key) => pokemon.name.includes(`-${key}`)) ?? null;
+          const formName = nameBundle(form?.form_names ?? [], '');
+          /** @type {Record<string, number>} */
+          const stats = {};
+          for (const stat of pokemon.stats) stats[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
+          out[id] = {
+            ...base,
+            id,
+            slug: pokemon.name,
+            name: REGIONAL_NAMES[pokemon.name]
+              ? { ...base.name, ...REGIONAL_NAMES[pokemon.name] }
+              : regionalName(base.name, region, formName),
+            types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
+            stats,
+            abilities: pokemon.abilities.map((entry) => ({ name: entry.ability.name, hidden: entry.is_hidden })),
+            height: pokemon.height,
+            weight: pokemon.weight,
+            baseExp: pokemon.base_experience ?? base.baseExp,
+            heldItems: wildHeldItems(pokemon.held_items),
+            learnset: extractLearnset(pokemon.moves),
+            // Filled in with the rest of the chain's edges.
+            evolvesFrom: null,
+            evolutions: [],
+            forms: [],
+            dex: base.id,
+            regional: region ?? 'other',
+          };
+        }
+      }),
+    ),
+  );
+}
+
+/**
+ * "알로라 식스테일", "Alolan Vulpix"; a Paldean Tauros adds its breed, and
+ * the White-Striped Basculin its stripe, as the games do.
+ *
+ * @param {Record<string, string>} base the species' own name bundle
+ * @param {string|null} region
+ * @param {Record<string, string>} formName the variety's form name bundle
+ */
+function regionalName(base, region, formName) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  for (const [code, name] of Object.entries(base)) {
+    const prefix = region ? REGIONS[region]?.[code === 'ko' ? 'ko' : 'en'] : null;
+    const extra = formName[code] && !/(모습|Form)$/.test(formName[code]) ? formName[code] : '';
+    // A breed or a stripe names the Pokémon more exactly than the region.
+    if (extra && !prefix) out[code] = code === 'ko' ? `${name}(${extra})` : `${name} (${extra})`;
+    else if (extra) out[code] = code === 'ko' ? `${prefix} ${name}(${extra.replace(/^팔데아\s*/, '')})` : `${prefix} ${name} (${extra.replace(/^Paldean\s*/, '')})`;
+    else out[code] = prefix ? `${prefix} ${name}` : name;
+  }
   return out;
 }
 
@@ -1749,28 +1881,142 @@ async function attachEvolutions(species, chains, pool) {
       }),
     ),
   );
+
+  // Where one of several rules for the same evolution can be met here, the
+  // others — an Eevee at Eterna Forest, a Magneton at Mt. Coronet — are
+  // dropped; where none can, one is kept to say what it would have been.
+  for (const entry of Object.values(species)) {
+    const byTarget = new Map();
+    for (const edge of entry.evolutions ?? []) byTarget.set(edge.to, [...(byTarget.get(edge.to) ?? []), edge]);
+    entry.evolutions = [...byTarget.values()].flatMap((edges) => {
+      const working = edges.filter(evolutionWorks);
+      return working.length ? working : edges.slice(0, 1);
+    });
+  }
+  for (const entry of Object.values(species)) delete entry.variety;
 }
 
-/** @param {any} node @param {Record<string, any>} species */
+/**
+ * Walk a chain and hang every way each species evolves off it.
+ *
+ * Every version's rule is kept, not only the first: a Magneton evolved at Mt.
+ * Coronet in Diamond and by a Thunder Stone in Sword, and only the second is
+ * something this game can do. A rule for a regional variety — a Galarian
+ * Linoone to Obstagoon — hangs off that variety and leads to the variety it
+ * names, rather than off the Hoenn Linoone.
+ *
+ * @param {any} node
+ * @param {Record<string, any>} species
+ */
 function walkChain(node, species) {
   const fromId = idFromUrl(node.species.url);
-  const entry = fromId ? species[fromId] : null;
-  if (entry) {
-    entry.evolutions = node.evolves_to.map((child) => {
-      const detail = child.evolution_details[0] ?? {};
-      return {
-        to: idFromUrl(child.species.url),
-        trigger: detail.trigger?.name ?? 'level-up',
-        minLevel: detail.min_level ?? null,
-        item: detail.item?.name ?? null,
-        heldItem: detail.held_item?.name ?? null,
-        happiness: detail.min_happiness ?? null,
-        timeOfDay: detail.time_of_day || null,
-        knownMove: detail.known_move?.name ?? null,
-        location: detail.location?.name ?? null,
-        gender: detail.gender ?? null,
-      };
-    });
+  const bySlug = new Map(Object.values(species).map((entry) => [entry.slug, entry.id]));
+  for (const child of node.evolves_to) {
+    const childId = idFromUrl(child.species.url);
+    for (const detail of child.evolution_details ?? []) {
+      const source = bySlug.get(detail.required_pokemon_form?.name ?? '') ?? fromId;
+      const from = source ? species[source] : null;
+      if (!from || !species[childId]) continue;
+      // A rule for a forme this game does not carry (Rapid Strike Urshifu)
+      // leads nowhere it can go.
+      const evolvedForm = detail.evolved_pokemon_form?.name;
+      const plainForm = evolvedForm === species[childId].slug || evolvedForm === species[childId].variety;
+      if (evolvedForm && !plainForm && !bySlug.has(evolvedForm)) continue;
+      let to = bySlug.get(evolvedForm ?? '') ?? childId;
+      // A regional Pokémon evolves into the same region's variety of the next
+      // one where there is one, even where the rule does not spell it out.
+      if (from.regional && to === childId) {
+        const sameRegion = bySlug.get(`${species[childId].slug}-${from.regional}`);
+        if (sameRegion) to = sameRegion;
+      }
+      const edge = reachableEvolution(detail, species[to].slug, to);
+      const key = JSON.stringify(edge);
+      from.evolutions ??= [];
+      if (!from.evolutions.some((known) => JSON.stringify(known) === key)) from.evolutions.push(edge);
+      if (species[to].regional || species[to].evolvesFrom === null || from.regional) species[to].evolvesFrom = from.id;
+    }
+  }
+  // An evolution only this game's other regions reach comes after the
+  // ordinary one, so the ordinary one is what the same stone or level gives.
+  for (const entry of [fromId].map((id) => species[id]).filter(Boolean)) {
+    entry.evolutions?.sort((a, b) => Number(Boolean(a.region)) - Number(Boolean(b.region)));
   }
   for (const child of node.evolves_to) walkChain(child, species);
 }
+
+/**
+ * One way to evolve, in the terms `pendingEvolution` reads.
+ *
+ * @param {any} detail an `evolution_details` entry
+ * @param {string} toSlug
+ * @param {number} to
+ */
+function reachableEvolution(detail, toSlug, to) {
+  const edge = {
+    to,
+    trigger: detail.trigger?.name ?? 'level-up',
+    minLevel: detail.min_level ?? null,
+    item: detail.item?.name ?? null,
+    heldItem: detail.held_item?.name ?? null,
+    happiness: detail.min_happiness ?? detail.min_affection ?? null,
+    timeOfDay: detail.time_of_day || null,
+    knownMove: detail.known_move?.name ?? null,
+    knownMoveType: detail.known_move_type?.name ?? null,
+    location: detail.location?.name ?? null,
+    gender: detail.gender ?? null,
+    relativeStats: detail.relative_physical_stats ?? null,
+    region: detail.region?.name ?? null,
+  };
+  if (evolutionWorks(edge)) return edge;
+  const fallback = EVOLUTION_FALLBACKS[toSlug];
+  if (!fallback) return edge;
+  // What stands in keeps what it can of the original: an Alcremie still wants
+  // its Sweet.
+  return { ...edge, trigger: 'level-up', location: null, ...fallback, fallback: edge.trigger };
+}
+
+/**
+ * Whether this game can ever meet a rule: a level, a friendship, a move it
+ * knows, an item it holds or is given, a trade (a Linking Cord), or a Nincada
+ * shedding.
+ *
+ * @param {any} edge
+ */
+function evolutionWorks(edge) {
+  if (edge.trigger === 'use-item' || edge.trigger === 'trade' || edge.trigger === 'shed') return true;
+  if (edge.trigger !== 'level-up') return false;
+  if (edge.location) return false;
+  return Boolean(edge.minLevel || edge.happiness || edge.knownMove || edge.knownMoveType || edge.heldItem);
+}
+
+/**
+ * What stands in for a rule this game has no way to meet — a number of steps,
+ * a move used twenty times, a tower climbed — by the Pokémon it leads to. The
+ * levels are where the species' line would otherwise be at that point; the
+ * items are ones only that line is ever given (see `signatureFind`).
+ *
+ * @type {Record<string, Record<string, any>>}
+ */
+const EVOLUTION_FALLBACKS = {
+  // Used a move enough times: knowing it is enough.
+  annihilape: { knownMove: 'rage-fist', minLevel: 35 },
+  overqwil: { knownMove: 'barb-barrage' },
+  wyrdeer: { knownMove: 'psyshield-bash' },
+  // Something that happens in a battle this game plays out on its own.
+  sirfetchd: { minLevel: 35 },
+  runerigus: { minLevel: 34 },
+  basculegion: { minLevel: 36 },
+  maushold: { minLevel: 25 },
+  // Held and levelled rather than spun, climbed or earned.
+  alcremie: { minLevel: 25 },
+  kingambit: { heldItem: 'leaders-crest' },
+  urshifu: { trigger: 'use-item', item: 'scroll-of-darkness' },
+  // Counted rather than levelled in the games.
+  melmetal: { minLevel: 48 },
+  gholdengo: { minLevel: 40 },
+  pawmot: { minLevel: 32 },
+  brambleghast: { minLevel: 30 },
+  rabsca: { minLevel: 30 },
+  // Needing a Remoraid alongside, or a Pokémon upside down.
+  mantine: { minLevel: 25 },
+};

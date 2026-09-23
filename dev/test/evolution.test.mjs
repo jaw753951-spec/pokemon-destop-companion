@@ -1,0 +1,151 @@
+/**
+ * Every way a Pokémon evolves here: the regional varieties as Pokémon of
+ * their own, the rules each version had, a Linking Cord for a trade, and a
+ * Nincada leaving its shell behind.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { gameData, speciesIdBySlug, speciesOf } from '../../app/renderer/core/data.mjs';
+import { shedAfterEvolving, useItem } from '../../app/renderer/engine/items.mjs';
+import {
+  createPokemon,
+  pendingEvolution,
+  setMove,
+  TRADE_ITEM,
+} from '../../app/renderer/engine/pokemon.mjs';
+
+const ready = await useRealGameData();
+const options = { skip: ready ? false : NEEDS_ASSETS };
+
+const id = (slug) => /** @type {number} */ (speciesIdBySlug(slug));
+
+/** @param {string} slug @param {number} level */
+function make(slug, level) {
+  const pokemon = createPokemon(new Rng(2), id(slug), level);
+  pokemon.heldItem = null;
+  return pokemon;
+}
+
+/** @param {Record<string, number>} bag @param {any} active */
+function fakeSession(bag, active) {
+  const box = [];
+  return /** @type {any} */ ({
+    bag,
+    active,
+    box,
+    rng: new Rng(1),
+    get boxFull() {
+      return false;
+    },
+    countOf: (slug) => bag[slug] ?? 0,
+    removeItem: (slug) => {
+      bag[slug] -= 1;
+      return true;
+    },
+    markCaught() {},
+    storeInBox(pokemon) {
+      box.push(pokemon);
+      return true;
+    },
+  });
+}
+
+test('a regional variety is a Pokémon of its own, under its species number', options, () => {
+  const galar = speciesOf(id('zigzagoon-galar'));
+  assert.equal(galar.dex, 263);
+  assert.deepEqual(galar.types, ['dark', 'normal']);
+  assert.match(galar.name.ko, /^가라르 /);
+
+  // Only the Galarian line reaches Obstagoon; the Hoenn Linoone stops.
+  assert.deepEqual(speciesOf(264).evolutions, []);
+  const linoone = make('linoone-galar', 40);
+  assert.equal(pendingEvolution(linoone, { timeOfDay: 'night' })?.to, id('obstagoon'));
+  assert.equal(pendingEvolution(linoone, { timeOfDay: 'day' }), null);
+  assert.equal(speciesOf(id('obstagoon')).evolvesFrom, id('linoone-galar'));
+
+  // And an Alolan Vulpix wants an Ice Stone, not a Fire Stone.
+  const vulpix = make('vulpix-alola', 20);
+  assert.equal(pendingEvolution(vulpix, { item: 'ice-stone' })?.to, id('ninetales-alola'));
+  assert.equal(pendingEvolution(vulpix, { item: 'fire-stone' }), null);
+
+  // A Corsola from Hoenn never becomes a Cursola.
+  assert.equal(pendingEvolution(make('corsola', 60)), null);
+  assert.equal(pendingEvolution(make('corsola-galar', 60))?.to, id('cursola'));
+});
+
+test("a later game's rule stands in for one this game cannot meet", options, () => {
+  // Mt. Coronet has no map here; Sword's Thunder Stone does the job.
+  assert.equal(pendingEvolution(make('magneton', 40), { item: 'thunder-stone' })?.to, id('magnezone'));
+  assert.equal(pendingEvolution(make('eevee', 20), { item: 'leaf-stone' })?.to, id('leafeon'));
+
+  // Knowing the move is enough for a Tangela.
+  const tangela = make('tangela', 30);
+  tangela.moves = [];
+  setMove(tangela, 0, 'vine-whip');
+  assert.equal(pendingEvolution(tangela), null);
+  setMove(tangela, 1, 'ancient-power');
+  assert.equal(pendingEvolution(tangela)?.to, id('tangrowth'));
+
+  // A move of a type, for a Sylveon.
+  const eevee = make('eevee', 25);
+  eevee.moves = [];
+  setMove(eevee, 0, 'tackle');
+  setMove(eevee, 1, 'baby-doll-eyes');
+  assert.equal(pendingEvolution(eevee)?.to, id('sylveon'));
+
+  // Twenty uses of Rage Fist is knowing it, from level 35.
+  const primeape = make('primeape', 40);
+  setMove(primeape, 0, 'rage-fist');
+  assert.equal(pendingEvolution(primeape)?.to, id('annihilape'));
+});
+
+test('an item that is not the one it is waiting for does not set off a levelling evolution', options, () => {
+  const charmeleon = make('charmander', 40);
+  assert.equal(pendingEvolution(charmeleon)?.to, id('charmeleon'));
+  assert.equal(pendingEvolution(charmeleon, { item: 'potion' }), null);
+});
+
+test('a Linking Cord is a trade, and the item held says which one', options, () => {
+  const kadabra = make('kadabra', 30);
+  const session = fakeSession({ [TRADE_ITEM]: 1 }, kadabra);
+  assert.ok(useItem(session, TRADE_ITEM).ok);
+  assert.equal(kadabra.speciesId, id('alakazam'));
+  assert.equal(session.bag[TRADE_ITEM], 0, 'the cord is used up');
+
+  const clamperl = make('clamperl', 30);
+  clamperl.heldItem = 'deep-sea-scale';
+  assert.equal(pendingEvolution(clamperl, { item: TRADE_ITEM })?.to, id('gorebyss'));
+  clamperl.heldItem = 'deep-sea-tooth';
+  assert.equal(pendingEvolution(clamperl, { item: TRADE_ITEM })?.to, id('huntail'));
+});
+
+test('a Nincada that becomes a Ninjask leaves a Shedinja, given a ball to put it in', options, () => {
+  const ninjask = make('ninjask', 20);
+  const session = fakeSession({ 'poke-ball': 1 }, ninjask);
+  const shell = shedAfterEvolving(session, id('nincada'), ninjask);
+  assert.equal(shell?.speciesId, id('shedinja'));
+  assert.equal(session.box.length, 1);
+  assert.equal(session.bag['poke-ball'], 0);
+  assert.equal(shedAfterEvolving(session, id('nincada'), ninjask), null, 'no ball, no Shedinja');
+  assert.equal(shedAfterEvolving(fakeSession({ 'poke-ball': 1 }, ninjask), id('charmander'), ninjask), null);
+});
+
+test('every evolution the dex carries has a way here', options, () => {
+  const unreachable = [];
+  for (const species of Object.values(gameData().species)) {
+    for (const evolution of species.evolutions ?? []) {
+      const ok =
+        evolution.trigger === 'use-item' ||
+        evolution.trigger === 'trade' ||
+        evolution.trigger === 'shed' ||
+        (evolution.trigger === 'level-up' &&
+          !evolution.location &&
+          Boolean(evolution.minLevel || evolution.happiness || evolution.knownMove || evolution.knownMoveType || evolution.heldItem));
+      if (!ok) unreachable.push(`${species.slug}->${speciesOf(evolution.to)?.slug} (${evolution.trigger})`);
+    }
+  }
+  assert.deepEqual(unreachable, []);
+});

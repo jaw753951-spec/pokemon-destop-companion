@@ -100,6 +100,7 @@ function iconCandidates(name, item, machines, moves) {
     `${SPRITES}/items/gen9/${drawn}.png`,
     `${SPRITES}/items/gen8/${drawn}.png`,
     `${POKESPRITE}/items/key-item/${drawn}.png`,
+    `${POKESPRITE}/items/evo-item/${drawn}.png`,
   ];
   if (item.pocket === 'machines') {
     const type = moves[machines[name]]?.type;
@@ -122,6 +123,18 @@ const POKESPRITE = 'https://raw.githubusercontent.com/msikma/pokesprite/master';
 const ICON_STAND_INS = {
   'adamant-crystal': 'adamant-orb',
   'lustrous-globe': 'lustrous-orb',
+  // The evolution items of the newest games, drawn by nobody yet: each shown
+  // as the nearest thing that is — an apple as an apple, an alloy as a coat
+  // of metal, a cord as silk, armour as armour.
+  'syrupy-apple': 'sweet-apple',
+  'metal-alloy': 'metal-coat',
+  'black-augurite': 'dusk-stone',
+  'peat-block': 'soft-sand',
+  'leaders-crest': 'razor-claw',
+  'linking-cord': 'silk-scarf',
+  'scroll-of-darkness': 'dread-plate',
+  'auspicious-armor': 'protector',
+  'malicious-armor': 'reaper-cloth',
 };
 
 /**

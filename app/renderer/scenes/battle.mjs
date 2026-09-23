@@ -5,7 +5,7 @@
  * produces back one entry at a time, so the fight reads at a watchable pace
  * even though it was decided instantly.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
@@ -14,7 +14,7 @@ import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, shedAfterEvolving, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { settleForme } from '../engine/forms.mjs';
 import { Battler, battlerArt, battlerScale, FOE_DEPTH, mirrorFor } from '../render/battler.mjs';
@@ -1024,13 +1024,17 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     for (const pokemon of [session.active, ...defeated]) settleForme(pokemon);
 
     if (battle.outcome === 'won') {
-      const evolution = pendingEvolution(session.active);
+      const evolution = pendingEvolution(session.active, { timeOfDay: timeOfDay() });
       if (evolution) {
         const from = nameOf(session.active);
+        const fromSpecies = session.active.speciesId;
         evolveInto(session.active, evolution.to);
         session.markCaught(evolution.to);
         app.toast(t('battle.evolving', { name: from, target: nameOf(session.active) }));
         app.audio.playCry(session.active.speciesId);
+        // And a Nincada leaves a Shedinja behind.
+        const shell = shedAfterEvolving(session, fromSpecies, session.active);
+        if (shell) app.toast(t('battle.shed', { name: nameOf(shell) }), 3200);
       }
     }
 

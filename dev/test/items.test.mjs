@@ -6,7 +6,7 @@ import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
 import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
-import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
+import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
@@ -108,7 +108,8 @@ test('an item the engine reads states what it does', withData, () => {
 
   // An evolution can name an item to hold as well as one to use, and a King's
   // Rock is filed under held items rather than under evolution.
-  const evolutionItems = new Set();
+  // The Linking Cord is what a trade evolution is given in its place.
+  const evolutionItems = new Set([TRADE_ITEM]);
   for (const entry of Object.values(gameData().species)) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);

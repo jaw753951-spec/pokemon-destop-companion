@@ -210,7 +210,7 @@ test("a legendary's own item is found only while it is the one travelling", opti
   const kyogre = make('kyogre');
   assert.equal(signatureFind(fakeSession({}, kyogre)), 'blue-orb');
   assert.equal(signatureFind(fakeSession({ 'blue-orb': 1 }, kyogre)), null, 'not twice');
-  assert.equal(signatureFind(fakeSession({}, make('pikachu'))), null);
+  assert.equal(signatureFind(fakeSession({}, make('tauros'))), null, 'nothing for a Tauros');
 
   // None of them is in the ordinary finds.
   const tiers = new Set(

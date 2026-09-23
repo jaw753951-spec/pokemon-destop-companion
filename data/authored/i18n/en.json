@@ -212,6 +212,7 @@
   "battle.stole": "{name} stole the {item}!",
   "battle.regrew": "{name} harvested its {item}!",
   "battle.typeChanged": "{name} became the {types} type!",
+  "battle.shed": "A {name} moved into an empty Poké Ball!",
   "battle.formChanged": "{name} changed form to {form}!",
   "battle.formReverted": "{name} changed back to its usual form!",
   "battle.formBroken": "{name}'s {ability} was broken!",

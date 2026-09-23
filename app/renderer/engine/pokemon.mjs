@@ -482,12 +482,19 @@ export function maxPp(slot) {
   return base + Math.floor(base * (slot.ppUp ?? 0));
 }
 
+/** The item that stands in for a trade, as Legends: Arceus's Linking Cord does. */
+export const TRADE_ITEM = 'linking-cord';
+
 /**
  * The evolution this Pokémon is ready for, if any.
  *
- * Only triggers the companion can actually satisfy on its own are considered:
- * levelling up, holding an item, or being given a stone from the bag. Trades
- * and location-specific evolutions cannot happen here.
+ * Levelling up — past a level, with enough friendship, knowing a move or a
+ * move of a type, holding an item, at the right hour — or being given an item
+ * from the bag. A trade is a Linking Cord given from the bag, the way Legends:
+ * Arceus did it; which of two a Clamperl becomes is still the item it holds.
+ * A rule this game cannot meet (a place it has no map of) never fires, and
+ * the dex step has already put a reachable one beside it wherever the games
+ * had one.
  *
  * @param {Pokemon} pokemon
  * @param {{item?: string|null, timeOfDay?: string}} [context]
@@ -500,26 +507,67 @@ export function pendingEvolution(pokemon, context = {}) {
   // An Everstone stops the levelling kind and nothing else, which is exactly
   // what it is for: a Pokémon can still be handed a stone while holding one.
   const everstone = gameData().items[pokemon.heldItem ?? '']?.held?.on === 'noEvolve';
+  const knows = (move) => pokemon.moves.some((slot) => slot.move === move);
+  const knowsType = (type) => pokemon.moves.some((slot) => moveOf(slot.move)?.type === type);
 
+  const trades = [];
+  /** @type {Array<{to: number, weight: number}>} */
+  const levelled = [];
   for (const evolution of species.evolutions ?? []) {
     if (!speciesOf(evolution.to)) continue;
 
     if (evolution.trigger === 'level-up') {
-      if (everstone) continue;
+      if (everstone || context.item) continue;
+      if (evolution.location) continue;
+      const reachable =
+        evolution.minLevel || evolution.happiness || evolution.knownMove || evolution.knownMoveType || evolution.heldItem;
+      if (!reachable) continue;
       if (evolution.minLevel && level < evolution.minLevel) continue;
-      if (!evolution.minLevel && !evolution.happiness) continue;
       if (evolution.happiness && level < 20) continue;
-      if (evolution.knownMove && !pokemon.moves.some((slot) => slot.move === evolution.knownMove)) continue;
+      if (evolution.knownMove && !knows(evolution.knownMove)) continue;
+      if (evolution.knownMoveType && !knowsType(evolution.knownMoveType)) continue;
       if (evolution.timeOfDay && context.timeOfDay && !matchesTime(evolution.timeOfDay, context.timeOfDay)) continue;
       if (evolution.heldItem && pokemon.heldItem !== evolution.heldItem) continue;
-      return { to: evolution.to, trigger: 'level-up' };
+      if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
+      if (evolution.relativeStats !== null && evolution.relativeStats !== undefined) {
+        const stats = statsOf(pokemon);
+        if (Math.sign(stats.atk - stats.def) !== evolution.relativeStats) continue;
+      }
+      // The more particular rule wins: an Eevee that knows a Fairy move
+      // becomes a Sylveon however fond of its trainer it is.
+      const weight =
+        2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
+        [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
+      levelled.push({ to: evolution.to, weight });
+      continue;
     }
 
     if (evolution.trigger === 'use-item' && context.item && evolution.item === context.item) {
+      if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
       return { to: evolution.to, trigger: 'use-item' };
     }
+
+    if (evolution.trigger === 'trade' && context.item === TRADE_ITEM) trades.push(evolution);
   }
-  return null;
+
+  if (levelled.length) {
+    const best = levelled.reduce((most, entry) => (entry.weight > most.weight ? entry : most));
+    return { to: best.to, trigger: 'level-up' };
+  }
+
+  // The trade that goes with the item the Pokémon is holding, if one does.
+  const trade = trades.find((evolution) => evolution.heldItem && evolution.heldItem === pokemon.heldItem) ?? trades[0];
+  return trade ? { to: trade.to, trigger: 'trade' } : null;
+}
+
+/**
+ * PokeAPI's gender numbers: 1 female, 2 male.
+ *
+ * @param {number} wanted
+ * @param {'male'|'female'|null} gender
+ */
+function matchesGender(wanted, gender) {
+  return wanted === 1 ? gender === 'female' : wanted === 2 ? gender === 'male' : true;
 }
 
 /**

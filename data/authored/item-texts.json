@@ -103,8 +103,8 @@
     },
     "linking-cord": {
       "text": {
-        "ko": "신비한 힘이 깃든 끈. 어떤 포켓몬을 진화시키는 데 쓴다.",
-        "en": "A string imbued with mysterious power. It makes certain species of Pokémon evolve."
+        "ko": "통신교환으로 진화하는 포켓몬에게 사용하면 진화한다. 사용하면 없어진다.",
+        "en": "Use it on a Pokémon that evolves by trade and it evolves. It is used up."
       }
     },
     "black-augurite": {
@@ -307,6 +307,24 @@
       "text": {
         "ko": "게노세크트에게 지니게 하면 번개카세트를 장착하고 테크노버스터가 전기타입이 된다.",
         "en": "When held by Genesect, it loads the Shock Drive and its Techno Blast becomes Electric type."
+      }
+    },
+    "scroll-of-darkness": {
+      "text": {
+        "ko": "치고마에게 사용하면 악의 탑의 가르침을 받아 우라오스(일격의 태세)로 진화한다.",
+        "en": "Use it on Kubfu and it takes in the teachings of the Tower of Darkness, evolving into Single Strike Urshifu."
+      }
+    },
+    "auspicious-armor": {
+      "text": {
+        "ko": "카르본에게 사용하면 카디나르마로 진화한다. 축복의 힘이 깃든 갑옷.",
+        "en": "Use it on Charcadet to evolve it into Armarouge. Armor imbued with auspicious power."
+      }
+    },
+    "leaders-crest": {
+      "text": {
+        "ko": "절각참에게 지니게 하고 레벨업하면 대도각참으로 진화한다. 우두머리의 증표.",
+        "en": "Level up a Bisharp holding it and it evolves into Kingambit. The mark of a leader."
       }
     }
   }

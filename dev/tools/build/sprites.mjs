@@ -46,8 +46,14 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
     if (entry.forms?.length) formes.set(entry.id, entry.forms);
   }
 
+  // The regional Pokémon the dex step files under their variety ids, whose
+  // pictures PokeAPI files under the same ids.
+  const regional = Object.values(species)
+    .filter((entry) => entry.regional && entry.dex <= limit)
+    .map((entry) => entry.id);
+
   await Promise.all(
-    Array.from({ length: limit }, (_, index) => index + 1).map((id) =>
+    [...Array.from({ length: limit }, (_, index) => index + 1), ...regional].map((id) =>
       pool(async () => {
         // The ordinary art hangs off the entry itself and the shiny art off a
         // `shiny` of its own, so a screen that has never heard of shininess
