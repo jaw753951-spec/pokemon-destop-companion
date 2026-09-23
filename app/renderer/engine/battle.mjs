@@ -9,7 +9,7 @@
  */
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { abilityEffect, abilityName } from './abilities.mjs';
+import { ABILITIES, abilityEffect, abilityName, auraMultiplier } from './abilities.mjs';
 import { formeFor, SIGNATURE_MOVES, signatureType, standingForme } from './forms.mjs';
 import {
   Field,
@@ -65,6 +65,8 @@ import { stageMultiplier } from './stats.mjs';
  * @property {number} repeats how many turns running that has been the move
  * @property {boolean} movedLast whether it acted second on the previous turn
  * @property {number} maxHp
+ * @property {{speciesId: number, forme: string|null, stats: Record<string, number>, moves: Array<{move: string, pp: number}>}} [transform]
+ *   what a Transform or an Imposter made it, for the rest of the battle
  */
 
 /**
@@ -157,6 +159,9 @@ export const SELF_KNOCKOUT = new Set(['self-destruct', 'explosion', 'misty-explo
 
 /** The status moves the type chart still applies to. */
 const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
+
+/** The type each terrain gives a Mimicry. @type {Record<string, string>} */
+const MIMICRY_TYPES = { electric: 'electric', grassy: 'grass', misty: 'fairy', psychic: 'psychic' };
 
 /** The forme whose Tera Starstorm is Stellar. */
 const STELLAR_FORME = 'terapagos-stellar';
@@ -255,7 +260,7 @@ export class Battle {
       usedMove: null,
     }, log);
 
-    const ability = abilityEffect(combatant.pokemon);
+    const ability = this.abilityOf(combatant);
     if (!ability?.start || !other) return;
 
     const before = log.length;
@@ -301,10 +306,10 @@ export class Battle {
    */
   weatherFor(forCombatant) {
     // A Mega Sol carries its own sunshine, whatever the sky is doing.
-    if (forCombatant && abilityEffect(forCombatant.pokemon)?.actsSunny) return WEATHER.SUN;
+    if (forCombatant && this.ownAbility(forCombatant)?.actsSunny) return WEATHER.SUN;
 
     for (const combatant of [this.player, this.foe]) {
-      if (combatant && abilityEffect(combatant.pokemon)?.suppressWeather) return null;
+      if (combatant && this.ownAbility(combatant)?.suppressWeather) return null;
     }
     if (forCombatant && heldShield(forCombatant.pokemon, 'weatherEffects')) return null;
     return this.field.weather;
@@ -322,8 +327,67 @@ export class Battle {
    * @param {Combatant} [against] who is acting on it
    */
   abilityOf(combatant, against) {
-    if (against && abilityEffect(against.pokemon)?.ignoresAbilities) return null;
-    return abilityEffect(combatant.pokemon);
+    if (against && this.ownAbility(against)?.ignoresAbilities) return null;
+    // A Neutralizing Gas on the field quiets every ability but its own.
+    const other = combatant === this.player ? this.foe : this.player;
+    const own = this.ownAbility(combatant);
+    if (other && !own?.neutralizes && this.ownAbility(other)?.neutralizes) return null;
+    return own;
+  }
+
+  /**
+   * The ability a combatant has now: one a battle gave it (a Mummy's touch,
+   * a Transform's copy) over its forme's, over its own.
+   *
+   * @param {Combatant} combatant
+   */
+  abilitySlugOf(combatant) {
+    return combatant.marks.ability ?? abilityName(combatant.pokemon);
+  }
+
+  /** @param {Combatant} combatant */
+  ownAbility(combatant) {
+    const slug = this.abilitySlugOf(combatant);
+    return slug ? ABILITIES[slug] ?? null : null;
+  }
+
+  /**
+   * The moves a combatant fights with: a Transform's copies while it is one.
+   *
+   * @param {Combatant} combatant
+   */
+  movesOf(combatant) {
+    return combatant.transform?.moves ?? combatant.pokemon.moves;
+  }
+
+  /**
+   * Become the target, the way a Transform or an Imposter does: its species'
+   * look, its types, its stats but Hit Points, its stat stages, its ability,
+   * and its moves at five PP each — for the rest of the battle.
+   *
+   * @param {Combatant} self
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   * @returns {boolean}
+   */
+  transformInto(self, target, log) {
+    if (!target || target.transform || self.transform) return false;
+    const stats = statsOf(target.pokemon, target.marks.forme ?? null);
+    self.transform = {
+      speciesId: target.pokemon.speciesId,
+      forme: target.marks.forme ?? null,
+      stats,
+      moves: target.pokemon.moves.map((slot) => ({ move: slot.move, pp: Math.min(5, moveOf(slot.move)?.pp ?? 5) })),
+    };
+    self.marks.types = [...this.typesOf(target)];
+    self.marks.ability = this.abilitySlugOf(target);
+    self.stages = { ...target.stages };
+    log.push({
+      kind: 'transformed',
+      side: self.side,
+      data: { speciesId: target.pokemon.speciesId, forme: target.marks.forme ?? null },
+    });
+    return true;
   }
 
   /**
@@ -418,6 +482,47 @@ export class Battle {
       /** @param {string} terrain */
       setTerrain: (terrain) => this.startTerrain(terrain, self, log),
 
+      /** @param {Combatant} target */
+      transform: (target) => this.transformInto(self, target, log),
+
+      /**
+       * The other Pokémon's ability becomes this one, for the rest of the
+       * battle — a Mummy's touch.
+       *
+       * @param {Combatant} target
+       * @param {string} ability
+       */
+      replaceAbility: (target, ability) => {
+        if (this.abilitySlugOf(target) === ability) return false;
+        target.marks.ability = ability;
+        log.push({ kind: 'abilityChanged', side: target.side, data: { ability } });
+        return true;
+      },
+
+      /** The two swap abilities — a Wandering Spirit's touch. */
+      swapAbilities: () => {
+        const mine = this.abilitySlugOf(self);
+        const theirs = this.abilitySlugOf(foe);
+        if (!mine || !theirs || mine === theirs) return false;
+        self.marks.ability = theirs;
+        foe.marks.ability = mine;
+        log.push({ kind: 'abilityChanged', side: foe.side, data: { ability: mine } });
+        log.push({ kind: 'abilityChanged', side: self.side, data: { ability: theirs } });
+        return true;
+      },
+
+      /**
+       * Use up the held item, the way a berry is eaten — a Booster Energy.
+       *
+       * @param {Combatant} target
+       */
+      spendItem: (target) => {
+        const item = target.pokemon.heldItem;
+        if (!item) return;
+        log.push({ kind: 'berry', side: target.side, data: { item } });
+        target.pokemon.heldItem = null;
+      },
+
       /** Weather and terrain both gone, whoever laid them. */
       clearField: () => {
         const cleared = [];
@@ -446,7 +551,7 @@ export class Battle {
       /** @param {Combatant} target @param {number} chance */
       disable(target, chance) {
         if (!battle.rng.chance(chance)) return false;
-        if (!target.lastMove || !target.pokemon.moves.some((slot) => slot.move === target.lastMove)) return false;
+        if (!target.lastMove || !battle.movesOf(target).some((slot) => slot.move === target.lastMove)) return false;
         if (battle.blocksVolatile(target, VOLATILE.DISABLE, log)) return false;
         if (!addVolatile(target, VOLATILE.DISABLE, 4, { disabledMove: target.lastMove })) return false;
         log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.DISABLE, move: target.lastMove } });
@@ -782,7 +887,7 @@ export class Battle {
    * about it has been broken, and what it last did.
    *
    * @param {Combatant} combatant
-   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null, relicSongs: number}}
+   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null, relicSongs: number, stance: string|null, hangry: boolean}}
    */
   formeState(combatant) {
     return {
@@ -794,6 +899,8 @@ export class Battle {
       broken: Boolean(combatant.marks.formeBroken),
       usedMove: combatant.lastMove,
       relicSongs: combatant.marks.relicSongs ?? 0,
+      stance: combatant.marks.stance ?? null,
+      hangry: Boolean(combatant.marks.hangry),
     };
   }
 
@@ -826,7 +933,11 @@ export class Battle {
         return true;
       }
     }
-    const wanted = formeFor(combatant.pokemon, { ...state, current });
+    const found = formeFor(combatant.pokemon, { ...state, current });
+    // The species' own slug is its ordinary shape, which the marks write as
+    // no forme at all — a Castform walking in under a clear sky has not
+    // changed into anything.
+    const wanted = found === speciesOf(combatant.pokemon.speciesId)?.slug ? null : found;
     if (wanted === current) return false;
 
     const before = current ? statsOf(combatant.pokemon, current).hp : maxHp(combatant.pokemon);
@@ -889,7 +1000,7 @@ export class Battle {
    */
   endOfTurnAbility(combatant, log) {
     const other = combatant === this.player ? this.foe : this.player;
-    const ability = abilityEffect(combatant.pokemon);
+    const ability = this.abilityOf(combatant);
     if (!ability?.turn || !other) return;
     ability.turn(this.abilityContext(combatant, other, log));
   }
@@ -1019,7 +1130,7 @@ export class Battle {
    */
   ruinFactor(combatant, stat) {
     const other = combatant === this.player ? this.foe : this.player;
-    const ruin = other ? abilityEffect(other.pokemon)?.ruin : null;
+    const ruin = other ? this.abilityOf(other)?.ruin : null;
     return ruin?.stat === stat ? ruin.multiplier : 1;
   }
 
@@ -1040,6 +1151,9 @@ export class Battle {
     const forme = combatant.marks.forme
       ? (species.forms ?? []).find((form) => form.slug === combatant.marks.forme)
       : null;
+    // A Mimicry wears the terrain's type for as long as the terrain lasts.
+    const terrainType = MIMICRY_TYPES[this.field.terrain ?? ''];
+    if (terrainType && this.abilityOf(combatant)?.mimicry) return [terrainType];
     return combatant.marks.types ?? forme?.types ?? species.types;
   }
 
@@ -1092,7 +1206,7 @@ export class Battle {
    * @returns {string} a move slug, or `struggle` when nothing has PP
    */
   chooseMove(attacker, defender) {
-    let usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
+    let usable = this.movesOf(attacker).filter((slot) => slot.pp > 0 && moveOf(slot.move));
     if (usable.length === 0) return 'struggle';
 
     const restriction = heldPassive(attacker.pokemon, 'stat');
@@ -1236,7 +1350,7 @@ export class Battle {
 
     // The charge turn: everything but the move itself, and then the wait.
     if (hasFlag(base, 'charge') && !attacker.charging && !this.skipsCharge(attacker, moveName, log)) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
       attacker.charging = moveName;
       log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
@@ -1245,7 +1359,7 @@ export class Battle {
 
     // PP was already spent on the charge turn.
     if (!attacker.charging) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
     attacker.charging = null;
@@ -1268,11 +1382,24 @@ export class Battle {
 
     // A Pressure on the other side charges a second point for being aimed at.
     if (this.abilityOf(defender)?.pressures) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
 
     log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
+
+    // An Aegislash draws its blade to strike and raises its shield to guard,
+    // before the move goes off.
+    if (this.abilityOf(attacker)?.stanceChange) {
+      const stance = move.damageClass !== 'status' ? 'blade' : moveName === 'kings-shield' ? 'shield' : null;
+      if (stance && (attacker.marks.stance ?? 'shield') !== stance) {
+        attacker.marks.stance = stance;
+        const before = log.length;
+        if (this.applyForme(attacker, this.formeState(attacker), log)) {
+          log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: this.abilitySlugOf(attacker) } });
+        }
+      }
+    }
 
     // Used after the first turn out, a Fake Out is only a lunge: the PP is
     // gone and nothing happens.
@@ -1326,7 +1453,10 @@ export class Battle {
     }
 
     const moveLogStart = log.length;
-    if (move.damageClass === 'status') {
+    // A Transform becomes the target outright.
+    if (moveOf('transform')?.id === move.id) {
+      if (!this.transformInto(attacker, defender, log)) log.push({ kind: 'failed', side: attacker.side });
+    } else if (move.damageClass === 'status') {
       this.applyStatusMove(attacker, defender, move, log);
     } else {
       this.applyDamagingMove(attacker, defender, move, log);
@@ -1397,6 +1527,10 @@ export class Battle {
     if (signature && moveOf(signature)?.id === move.id) {
       const type = signatureType(attacker.pokemon, signature);
       if (type && type !== move.type) move = { ...move, type };
+    }
+    // A hungry Morpeko's Aura Wheel is Dark.
+    if (attacker.marks.forme === 'morpeko-hangry' && moveOf('aura-wheel')?.id === move.id) {
+      move = { ...move, type: 'dark' };
     }
     // A Stellar Terapagos's Tera Starstorm is Stellar — neutral on everything
     // — and hits from whichever of its two attacking stats is higher.
@@ -2216,6 +2350,7 @@ export class Battle {
     const defendContext = this.abilityContext(defender, attacker, []);
     const abilityPower = attackerAbility?.power?.(attackContext, move, effectiveness) ?? 1;
     const abilityTaken = defenderAbility?.taken?.(defendContext, move, effectiveness) ?? 1;
+    const aura = auraMultiplier([this.abilityOf(attacker), this.abilityOf(defender)], move);
 
     const held = this.heldDamage(attacker, move, effectiveness);
     const charged = attackerAbility?.absorbCharge ? this.chargeMultiplier(attacker, move) : 1;
@@ -2240,6 +2375,7 @@ export class Battle {
         resisted *
         abilityPower *
         abilityTaken *
+        aura *
         weather *
         terrain *
         screen *
@@ -2494,7 +2630,7 @@ export class Battle {
   applyLock(attacker, defender, lock, log) {
     // A Disable and an Encore both need something to have been used first.
     if (lock.state === VOLATILE.DISABLE || lock.state === VOLATILE.ENCORE) {
-      if (!defender.lastMove || !defender.pokemon.moves.some((slot) => slot.move === defender.lastMove)) {
+      if (!defender.lastMove || !this.movesOf(defender).some((slot) => slot.move === defender.lastMove)) {
         return false;
       }
     }
@@ -2834,7 +2970,7 @@ export class Battle {
    */
   onFaint(fallen, log) {
     const other = fallen === this.player ? this.foe : this.player;
-    const ability = abilityEffect(fallen.pokemon);
+    const ability = this.ownAbility(fallen);
     if (!ability?.faint || !other) return;
 
     // A Damp on the other side is what an Aftermath runs into.
@@ -2912,7 +3048,9 @@ function makeCombatant(pokemon, side) {
 export function effectiveStat(combatant, stat, options = {}) {
   // The forme the combatant wears carries its own base stats — a Zen Mode's
   // Attack comes out of the forme, not out of the species.
-  const base = statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
+  // A Transform fights on the stats it copied, all but its own Hit Points.
+  const copied = stat !== 'hp' ? combatant.transform?.stats?.[stat] : undefined;
+  const base = copied ?? statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
   let stage = options.ignoreStages ? 0 : combatant.stages[stat] ?? 0;
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;

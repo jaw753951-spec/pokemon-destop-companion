@@ -591,6 +591,8 @@ export function restockBerry(session, pokemon) {
  * @returns {any|null}
  */
 export function heldPassive(pokemon, kind) {
+  // A Klutz carries its item and gets nothing from it.
+  if (pokemon?.ability === 'klutz') return null;
   const held = pokemon?.heldItem ? itemOf(pokemon.heldItem)?.held : null;
   return held && held.on === kind ? held : null;
 }

@@ -1593,6 +1593,9 @@ const FORM_FORME = new Map([
   ['mimikyu', ['mimikyu-busted']],
   ['eiscue', ['eiscue-noice']],
   ['cramorant', null],
+  // Stance Change and Hunger Switch.
+  ['aegislash', ['aegislash-blade']],
+  ['morpeko', ['morpeko-hangry']],
   // One forme per mask.
   ['ogerpon', null],
   // The legendaries' own: the ones a held item, a key item or a battle
@@ -1698,6 +1701,9 @@ const FORM_TRIGGER = new Map([
   ['eiscue', 'hit'],
   // A Surf or a Dive catches something, and it stays caught.
   ['cramorant', 'move'],
+  // Blade to attack, Shield to guard; hungry every other turn.
+  ['aegislash', 'move'],
+  ['morpeko', 'turn'],
   // Whichever mask it is holding.
   ['ogerpon', 'item'],
   // Held items that are the Pokémon's shape wherever it is.

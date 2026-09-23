@@ -33,6 +33,8 @@ export const FORM_ABILITY = new Map([
   ['mimikyu', 'disguise'],
   ['eiscue', 'ice-face'],
   ['cramorant', 'gulp-missile'],
+  ['aegislash', 'stance-change'],
+  ['morpeko', 'hunger-switch'],
 ]);
 
 const TYPES_WITH_PLATES = [
@@ -347,6 +349,8 @@ const FORECAST_FORMS = new Map([
  *   broken: boolean,
  *   usedMove: string|null,
  *   relicSongs?: number,
+ *   stance?: string|null,
+ *   hangry?: boolean,
  * }} state
  * @returns {string|null} the forme slug to take, or null to keep the current one
  */
@@ -417,6 +421,14 @@ export function formeFor(pokemon, state) {
       return state.usedMove === 'surf' ? find('cramorant-gulping')
         : state.usedMove === 'dive' ? find('cramorant-gorging')
         : plain;
+
+    // Blade to strike, Shield to guard; it walks in guarding.
+    case 'stance-change':
+      return state.stance === 'blade' ? find('aegislash-blade') : plain;
+
+    // Full, then hungry, then full again, a turn at a time.
+    case 'hunger-switch':
+      return state.hangry ? find('morpeko-hangry') : plain;
 
     default:
       return null;

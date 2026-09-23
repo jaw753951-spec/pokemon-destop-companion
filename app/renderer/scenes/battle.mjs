@@ -17,6 +17,10 @@ import { Battle } from '../engine/battle.mjs';
 import { healingItemFor, healingItems, shedAfterEvolving, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
 import { settleForme } from '../engine/forms.mjs';
+import { abilityName, afterBattle } from '../engine/abilities.mjs';
+
+/** How often a Pickup finds something after a win, as Emerald's one in ten does. */
+const PICKUP_CHANCE = 0.1;
 import { Battler, battlerArt, battlerScale, FOE_DEPTH, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -813,6 +817,28 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         }));
         break;
 
+      case 'transformed': {
+        // It looks like what it copied from here on; the nameplate keeps its
+        // own name, as the games' does.
+        const self = entry.side === 'player' ? player : foe;
+        if (self) {
+          const look = /** @type {any} */ ({ ...self, speciesId: entry.data?.speciesId, forme: entry.data?.forme ?? undefined });
+          loadBattler(entry.side, look);
+        }
+        say(t('battle.transformed', {
+          name: nameOf(self),
+          target: localized(speciesOf(entry.data?.speciesId)?.name, ''),
+        }));
+        break;
+      }
+
+      case 'abilityChanged':
+        say(t('battle.abilityChanged', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+          ability: localized(abilityOf(entry.data?.ability)?.name, entry.data?.ability ?? ''),
+        }));
+        break;
+
       case 'abilityTraced':
         say(t('battle.abilityTraced', {
           name: nameOf(player),
@@ -1022,6 +1048,18 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // Terapagos, a Zen Mode — is let go of; a held mask or a chosen Sky Forme
     // stays on.
     for (const pokemon of [session.active, ...defeated]) settleForme(pokemon);
+
+    // A Natural Cure and a Regenerator do on the way out what they do on
+    // being switched out; a Pickup now and then finds something after a win.
+    afterBattle(session.active, maxHp(session.active));
+    if (battle.outcome === 'won' && abilityName(session.active) === 'pickup' && session.rng.chance(PICKUP_CHANCE)) {
+      const pool = gameData().itemTiers?.['poke-ball'] ?? [];
+      const found = pool.length ? session.rng.pick(pool) : null;
+      if (found) {
+        session.addItem(found);
+        app.toast(t('battle.pickup', { name: nameOf(session.active), item: localized(gameData().items[found]?.name, found) }), 3200);
+      }
+    }
 
     if (battle.outcome === 'won') {
       const evolution = pendingEvolution(session.active, { timeOfDay: timeOfDay() });

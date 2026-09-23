@@ -101,9 +101,9 @@ test('Forecast wears one shape per weather and none without', options, () => {
   assert.equal(form(WEATHER.SUN), 'castform-sunny');
   assert.equal(form(WEATHER.RAIN), 'castform-rainy');
   assert.equal(form(WEATHER.SNOW), 'castform-snowy');
-  // No weather at all, and the shape the species was filed under comes back.
-  assert.equal(form(null), 'castform');
-  assert.equal(battle.player.marks.forme, 'castform');
+  // No weather at all, and the species' own shape comes back — marked as no
+  // forme, which is also why walking in under a clear sky announces nothing.
+  assert.equal(form(null), null);
   // And the types moved with the shape: a sunny Castform is a Fire type.
   battle.field.setWeather(WEATHER.SUN, 5);
   battle.evaluateFormes([]);
@@ -114,8 +114,8 @@ test('Zen Mode takes hold below half and lets go above it', options, () => {
   const darmanitan = fixed(DARMANITAN, 50, [], 'zen-mode');
   const battle = fight(darmanitan);
 
-  assert.equal(battle.player.marks.forme, 'darmanitan');
-  assert.equal(spriteKey(battle.player.pokemon), `${DARMANITAN}:darmanitan`);
+  assert.equal(battle.player.marks.forme ?? null, null);
+  assert.equal(spriteKey(battle.player.pokemon), `${DARMANITAN}`);
 
   const max = maxHp(darmanitan);
   darmanitan.hp = Math.floor(max / 2);
@@ -128,7 +128,7 @@ test('Zen Mode takes hold below half and lets go above it', options, () => {
 
   darmanitan.hp = max - 1;
   battle.evaluateFormes([]);
-  assert.equal(battle.player.marks.forme, 'darmanitan', 'back to the ordinary shape above half');
+  assert.equal(battle.player.marks.forme ?? null, null, 'back to the ordinary shape above half');
   assert.ok(zenAttack < battle.stat(battle.player, 'atk'), 'zen is the special forme, plain hits harder');
 });
 
@@ -140,7 +140,7 @@ test('Schooling scatters below a quarter, Shields Down opens below half', option
   assert.equal(battle.player.marks.forme, 'wishiwashi-school');
   wishiwashi.hp = Math.floor(maxHp(wishiwashi) / 4);
   battle.evaluateFormes([]);
-  assert.equal(battle.player.marks.forme, 'wishiwashi', 'scattered below a quarter');
+  assert.equal(battle.player.marks.forme ?? null, null, 'scattered below a quarter');
 
   wishiwashi.hp = maxHp(wishiwashi) - 1;
   battle.evaluateFormes([]);
@@ -148,7 +148,7 @@ test('Schooling scatters below a quarter, Shields Down opens below half', option
 
   const minior = fixed(MINIOR, 50, [], 'shields-down');
   const meteor = fight(minior);
-  assert.equal(meteor.player.marks.forme, 'minior', 'the meteor is the start');
+  assert.equal(meteor.player.marks.forme ?? null, null, 'the meteor is the start');
   minior.hp = Math.floor(maxHp(minior) / 2);
   meteor.evaluateFormes([]);
   assert.equal(meteor.player.marks.forme, 'minior-red');
@@ -203,7 +203,7 @@ test('Gulp Missile catches something on Surf and lets it go after', options, () 
   // Walked in with nothing caught: the bird's own shape, marked plain.
   assert.equal(battle.player.lastMove, null);
   battle.evaluateFormes([]);
-  assert.equal(battle.player.marks.forme, 'cramorant');
+  assert.equal(battle.player.marks.forme ?? null, null);
 
   // The move goes off, the catch is worn, and the combatant is what carries
   // the move it last used.
@@ -214,8 +214,8 @@ test('Gulp Missile catches something on Surf and lets it go after', options, () 
   // The turn the bird does something else, the catch is gone.
   battle.player.lastMove = 'tackle';
   battle.evaluateFormes([]);
-  assert.equal(battle.player.marks.forme, 'cramorant');
-  assert.equal(spriteKey(cramorant), `${CRAMORANT}:cramorant`);
+  assert.equal(battle.player.marks.forme ?? null, null);
+  assert.equal(spriteKey(cramorant), `${CRAMORANT}`);
 });
 
 test('a forme that left never sticks: the revert is a change like any other', options, () => {
@@ -228,7 +228,7 @@ test('a forme that left never sticks: the revert is a change like any other', op
   darmanitan.hp = maxHp(darmanitan);
   battle.evaluateFormes(log);
 
-  assert.equal(battle.player.marks.forme, 'darmanitan');
+  assert.equal(battle.player.marks.forme ?? null, null);
   assert.equal(
     log.filter((entry) => entry.kind === 'formChanged' && entry.side === 'player').length,
     2,
