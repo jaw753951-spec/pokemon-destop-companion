@@ -17,7 +17,7 @@ import {
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { restockBerry } from '../engine/items.mjs';
+import { healAfterBattle, restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
 import {
   actorHeight,
@@ -281,6 +281,7 @@ export function fieldScene(session) {
       app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null, { intro: true });
     }
 
+    patchUp(app);
     restock(app);
     refreshArt(app);
   }
@@ -355,6 +356,25 @@ export function fieldScene(session) {
   function restock(app) {
     const berry = restockBerry(session, session.active);
     if (berry) app.toast(t('items.restocked', { name: localized(gameData().items[berry]?.name, berry) }));
+  }
+
+  /**
+   * Top the companion back up from the bag after a win, as far as the bag's
+   * after-battle setting asks. Only after a win: a loss sends it to the next
+   * Pokémon Center, which heals it for nothing.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function patchUp(app) {
+    const used = healAfterBattle(session, session.active, session.itemPolicy?.afterBattle ?? 'full');
+    if (used.length === 0) return;
+    const items = used
+      .map(({ slug, count }) => {
+        const name = localized(gameData().items[slug]?.name, slug);
+        return count > 1 ? `${name} ${t('items.count', { count })}` : name;
+      })
+      .join(', ');
+    app.toast(t('items.afterBattleUsed', { items }));
   }
 
   return {

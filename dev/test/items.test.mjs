@@ -4,7 +4,8 @@ import assert from 'node:assert/strict';
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
-import { berryToHold, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
 import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
@@ -173,6 +174,10 @@ function fakeSession(bag) {
   return /** @type {any} */ ({
     bag,
     countOf: (slug) => bag[slug] ?? 0,
+    removeItem: (slug) => {
+      bag[slug] -= 1;
+      if (bag[slug] <= 0) delete bag[slug];
+    },
     pocket: (pocket) =>
       Object.entries(bag)
         .filter(([slug]) => itemOf(slug)?.pocket === pocket)
@@ -212,6 +217,54 @@ test('the automatic throw takes the smallest potion that covers the damage', wit
   // bag still has one.
   assert.equal(healingItemFor(session, pokemon, 'potion'), 'potion');
   assert.equal(healingItemFor(session, pokemon, 'full-restore'), null);
+});
+
+test('a win tops the companion up to full, smallest potion first', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 5, 'super-potion': 2, 'max-potion': 1 });
+
+  // Fifteen short: one Potion closes it, and nothing bigger is touched.
+  pokemon.hp = maxHp(pokemon) - 15;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'potion', count: 1 }]);
+  assert.equal(pokemon.hp, maxHp(pokemon));
+  assert.equal(session.bag['super-potion'], 2);
+
+  // At full already, the bag is left alone.
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), []);
+  assert.equal(session.bag.potion, 4);
+});
+
+test('a top-up stops at the target the player set, and never is never', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const max = maxHp(pokemon);
+  const session = fakeSession({ potion: 20 });
+
+  pokemon.hp = 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never'), []);
+  assert.equal(pokemon.hp, 1);
+
+  healAfterBattle(session, pokemon, 'hpHalf');
+  assert.ok(pokemon.hp >= max / 2, `healed to ${pokemon.hp} of ${max}`);
+  // A Potion at a time, so it lands within one Potion past the half.
+  assert.ok(pokemon.hp < max / 2 + 20, `overshot to ${pokemon.hp} of ${max}`);
+});
+
+test('a top-up spends what the bag has when it cannot reach the target', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 2 });
+
+  pokemon.hp = 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'potion', count: 2 }]);
+  assert.equal(pokemon.hp, 41);
+  assert.equal(session.countOf('potion'), 0);
+});
+
+test('the after-battle top-up defaults to full, for new and old saves alike', () => {
+  assert.equal(defaultItemPolicy().afterBattle, 'full');
+  assert.equal(normalizeItemPolicy(null).afterBattle, 'full');
+  // A save written before the setting existed.
+  assert.equal(normalizeItemPolicy({ berries: [], healing: { item: null, condition: 'hpHalf' } }).afterBattle, 'full');
+  assert.equal(normalizeItemPolicy({ afterBattle: 'hpHalf' }).afterBattle, 'hpHalf');
 });
 
 test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {

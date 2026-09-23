@@ -463,6 +463,47 @@ export function healingItemFor(session, pokemon, preferred) {
 }
 
 /**
+ * How far a win tops the companion back up from the bag, as a share of its
+ * full health. `never` leaves it as the fight left it.
+ */
+export const AFTER_BATTLE_TARGETS = { never: 0, hpHalf: 1 / 2, hpTwoThirds: 2 / 3, full: 1 };
+
+/** A backstop on one top-up, so a bag that somehow stops helping cannot spin. */
+const MAX_TOP_UP_ITEMS = 12;
+
+/**
+ * Top a Pokémon up from the bag after a battle, as far as `target` asks.
+ *
+ * Each item is the smallest that closes what is left of the gap, and the
+ * largest on hand when none does — the same "whatever fits" the automatic
+ * throw uses, aimed at the target rather than at a full bar, so a Potion is
+ * not spent where a Potion's worth is not missing and a Hyper Potion is not
+ * spent on a scratch.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string} target a key of {@link AFTER_BATTLE_TARGETS}
+ * @returns {Array<{slug: string, count: number}>} what was used, in order
+ */
+export function healAfterBattle(session, pokemon, target) {
+  const share = AFTER_BATTLE_TARGETS[target] ?? 0;
+  if (share <= 0 || pokemon.hp <= 0) return [];
+  const goal = Math.ceil(maxHp(pokemon) * share);
+
+  /** @type {Map<string, number>} */
+  const used = new Map();
+  for (let step = 0; step < MAX_TOP_UP_ITEMS && pokemon.hp < goal; step++) {
+    const available = healingItems(session, pokemon);
+    if (available.length === 0) break;
+    const gap = goal - pokemon.hp;
+    const pick = available.find((entry) => entry.power >= gap) ?? available[available.length - 1];
+    if (!throwItem(session, pick.slug, pokemon)) break;
+    used.set(pick.slug, (used.get(pick.slug) ?? 0) + 1);
+  }
+  return [...used].map(([slug, count]) => ({ slug, count }));
+}
+
+/**
  * Take one healing item from the bag and apply it, wherever it was thrown
  * from.
  *

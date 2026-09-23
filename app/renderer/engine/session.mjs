@@ -296,13 +296,16 @@ export function defaultAutoBattle() {
  * `berries` are the restock choices in order of preference, any of which may
  * be left unset; `healing` names an item to throw, or null for whatever fits
  * the damage taken, and the health it is thrown at — `never` for a player who
- * would rather do it by hand.
+ * would rather do it by hand. `afterBattle` is how far a win tops the
+ * companion back up from the bag: a key of `AFTER_BATTLE_TARGETS`, a full bar
+ * unless the player says otherwise.
  */
 export function defaultItemPolicy() {
   return {
     /** @type {Array<string|null>} */
     berries: [null, null, null],
     healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
+    afterBattle: 'full',
   };
 }
 
@@ -320,6 +323,8 @@ export function normalizeItemPolicy(policy) {
       item: policy.healing?.item ?? null,
       condition: policy.healing?.condition ?? fresh.healing.condition,
     },
+    // A save from before the setting existed takes the default, like a new one.
+    afterBattle: typeof policy.afterBattle === 'string' ? policy.afterBattle : fresh.afterBattle,
   };
 }
 

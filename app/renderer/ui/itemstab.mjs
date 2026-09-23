@@ -9,7 +9,7 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { equipItem, itemActions, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
 import { moveSummary } from './movecard.mjs';
 import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
 
@@ -98,6 +98,36 @@ function optionsPane(app, session, refresh) {
     el('p.meta', { text: t('items.healingUseNote') }),
     healingItemRow(app, session, policy, refresh),
     healingConditionRow(app, policy, refresh),
+
+    el('div.section-title', { text: t('items.afterBattle') }),
+    el('p.meta', { text: t('items.afterBattleNote') }),
+    afterBattleRow(app, policy, refresh),
+  ]);
+}
+
+/** How far a win tops the companion back up, fullest last. */
+function afterBattleRow(app, policy, refresh) {
+  const target = policy.afterBattle;
+
+  return el('div.setting.item-option', {}, [
+    el('span.label', { text: t('items.afterBattleTarget') }),
+    el('span.spacer'),
+    el(`button.chip${target === 'never' ? '.off' : ''}`, {
+      type: 'button',
+      text: t(`items.afterBattle.${target}`),
+      onClick: async () => {
+        app.audio.blip('select');
+        const chosen = await chooseFromList(app, t('items.afterBattleTarget'),
+          Object.keys(AFTER_BATTLE_TARGETS).map((value) => ({
+            value,
+            label: t(`items.afterBattle.${value}`),
+            detail: value === target ? t('auto.current') : '',
+          })));
+        if (chosen === null) return;
+        policy.afterBattle = chosen;
+        refresh();
+      },
+    }),
   ]);
 }
 
