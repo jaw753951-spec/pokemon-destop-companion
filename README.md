@@ -746,7 +746,7 @@ HTTPS 호스트에서 파일 하나, 다른 어디에도 없는 한 가지를 �
 | 내용 | 출처 |
 | --- | --- |
 | 룰 데이터 · 언어별 공식 명칭/설명 | [`PokeAPI/api-data`](https://github.com/PokeAPI/api-data) |
-| PokeAPI에 없는 8·9세대 기술의 한국어 설명 (`data/authored/move-texts.json`) | 스칼렛·바이올렛 1.0.1 공식 텍스트 [`Pokemon-Project-com/sv-text`](https://github.com/Pokemon-Project-com/sv-text), 그 덤프에 없는 DLC 기술 21개는 PokeRogue 번역 [`pagefaultgames/pokerogue-locales`](https://github.com/pagefaultgames/pokerogue-locales) (AGPL-3.0) |
+| PokeAPI에 없는 8·9세대 기술의 한국어 설명 (`data/authored/move-texts.json`) | 스칼렛·바이올렛 1.0.1 공식 텍스트 [`Pokemon-Project-com/sv-text`](https://github.com/Pokemon-Project-com/sv-text), 그 덤프에 없는 DLC 기술 21개는 개발자가 직접 모은 한국어 설명 |
 | 기술 분류(접촉 · 소리 · 가루 · 구슬…) | [`smogon/pokemon-showdown`](https://github.com/smogon/pokemon-showdown) |
 | 포켓몬 스프라이트 (BW·Showdown 애니메이션, 이로치 포함) | [`PokeAPI/sprites`](https://github.com/PokeAPI/sprites) |
 | 포켓몬 울음소리 | [`PokeAPI/cries`](https://github.com/PokeAPI/cries) |
