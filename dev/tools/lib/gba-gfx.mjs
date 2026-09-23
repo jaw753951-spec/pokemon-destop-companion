@@ -23,6 +23,23 @@ export const TILES_IN_PRIMARY = 512;
 export const METATILES_IN_PRIMARY = 512;
 
 /**
+ * Where a map's primary tileset ends and its secondary begins, per game.
+ *
+ * Emerald gives the primary 512 tiles, 512 metatiles and six palettes; Fire
+ * Red gives it 640, 640 and seven (`include/fieldmap.h` in each). The formats
+ * are otherwise the same, which is what lets Kanto be drawn by this module at
+ * all — but a Kanto map drawn with Emerald's split reads its secondary tiles
+ * from the middle of its primary.
+ *
+ * @typedef {{tilesInPrimary: number, metatilesInPrimary: number, palettesInPrimary: number}} Geometry
+ * @type {Record<'emerald'|'firered', Geometry>}
+ */
+export const GEOMETRY = {
+  emerald: { tilesInPrimary: TILES_IN_PRIMARY, metatilesInPrimary: METATILES_IN_PRIMARY, palettesInPrimary: PALETTES_IN_PRIMARY },
+  firered: { tilesInPrimary: 640, metatilesInPrimary: 640, palettesInPrimary: 7 },
+};
+
+/**
  * `gTileset_PetalburgWoods` -> `petalburg_woods`
  * @param {string} symbol
  */
@@ -86,18 +103,20 @@ export function sliceTiles(png) {
  * Combine a primary and a secondary tileset into the address space a map sees.
  * @param {Tileset} primary
  * @param {Tileset|null} secondary
+ * @param {Geometry} [geometry] the game's split; Emerald's by default
  */
-export function combineTilesets(primary, secondary) {
+export function combineTilesets(primary, secondary, geometry = GEOMETRY.emerald) {
+  const { tilesInPrimary, palettesInPrimary } = geometry;
   /** @type {Uint8Array[]} */
-  const tiles = new Array(TILES_IN_PRIMARY + (secondary?.tiles.length ?? 0));
+  const tiles = new Array(tilesInPrimary + (secondary?.tiles.length ?? 0));
   for (let i = 0; i < tiles.length; i++) tiles[i] = EMPTY_TILE;
-  primary.tiles.forEach((tile, i) => { if (i < TILES_IN_PRIMARY) tiles[i] = tile; });
-  secondary?.tiles.forEach((tile, i) => { tiles[TILES_IN_PRIMARY + i] = tile; });
+  primary.tiles.forEach((tile, i) => { if (i < tilesInPrimary) tiles[i] = tile; });
+  secondary?.tiles.forEach((tile, i) => { tiles[tilesInPrimary + i] = tile; });
 
   /** @type {Array<Array<[number, number, number]>>} */
   const palettes = new Array(16);
-  for (let i = 0; i < PALETTES_IN_PRIMARY; i++) palettes[i] = primary.palettes[i] ?? FALLBACK_PALETTE;
-  for (let i = PALETTES_IN_PRIMARY; i < 16; i++) {
+  for (let i = 0; i < palettesInPrimary; i++) palettes[i] = primary.palettes[i] ?? FALLBACK_PALETTE;
+  for (let i = palettesInPrimary; i < 16; i++) {
     palettes[i] = secondary?.palettes[i] ?? primary.palettes[i] ?? FALLBACK_PALETTE;
   }
   return { tiles, palettes };
@@ -112,17 +131,19 @@ const FALLBACK_PALETTE = /** @type {Array<[number, number, number]>} */ (
  * Combine primary and secondary metatile tables.
  * @param {Buffer} primary
  * @param {Buffer|null} secondary
+ * @param {Geometry} [geometry] the game's split; Emerald's by default
  * @returns {Uint16Array} 8 entries per metatile
  */
-export function combineMetatiles(primary, secondary) {
-  const total = METATILES_IN_PRIMARY + (secondary ? secondary.length / 16 : 0);
+export function combineMetatiles(primary, secondary, geometry = GEOMETRY.emerald) {
+  const inPrimary = geometry.metatilesInPrimary;
+  const total = inPrimary + (secondary ? secondary.length / 16 : 0);
   const out = new Uint16Array(total * 8);
-  for (let i = 0; i < Math.min(primary.length / 2, METATILES_IN_PRIMARY * 8); i++) {
+  for (let i = 0; i < Math.min(primary.length / 2, inPrimary * 8); i++) {
     out[i] = primary.readUInt16LE(i * 2);
   }
   if (secondary) {
     for (let i = 0; i < secondary.length / 2; i++) {
-      out[METATILES_IN_PRIMARY * 8 + i] = secondary.readUInt16LE(i * 2);
+      out[inPrimary * 8 + i] = secondary.readUInt16LE(i * 2);
     }
   }
   return out;

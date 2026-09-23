@@ -12,6 +12,9 @@ import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
 
+/** How often moving on to a new area crosses to the other region. */
+export const REGION_CROSSING_CHANCE = 0.2;
+
 export class Session {
   /**
    * @param {{slot: number, save: any}} options
@@ -135,7 +138,14 @@ export class Session {
   /** Move to a different area, never repeating the current one. */
   rotateArea() {
     const options = gameData().areas.filter((area) => area.id !== this.area.id);
-    if (options.length) this.area = this.rng.pick(options);
+    // The road mostly stays in the region it is in — a walk from Route 101 to
+    // Route 1 and back to Route 102 reads as teleporting, not travelling — and
+    // now and then crosses to the other one.
+    const region = this.area.region ?? 'hoenn';
+    const here = options.filter((area) => (area.region ?? 'hoenn') === region);
+    const away = options.filter((area) => (area.region ?? 'hoenn') !== region);
+    const pool = here.length && (!away.length || !this.rng.chance(REGION_CROSSING_CHANCE)) ? here : away;
+    if (pool.length) this.area = this.rng.pick(pool);
     this.eventsHere = EVENTS_PER_AREA;
     return this.area;
   }

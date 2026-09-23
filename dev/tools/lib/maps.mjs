@@ -11,13 +11,13 @@ import { decodePng } from './png.mjs';
 import {
   combineMetatiles,
   combineTilesets,
-  METATILES_IN_PRIMARY,
+  GEOMETRY,
   parseJascPal,
   renderMap,
   sliceTiles,
   tilesetDirName,
 } from './gba-gfx.mjs';
-import { EMERALD } from '../sources.mjs';
+import { EMERALD, FIRERED } from '../sources.mjs';
 
 /** How many palettes a tileset can carry. */
 const PALETTE_COUNT = 16;
@@ -35,15 +35,40 @@ export const SURFABLE_BEHAVIORS = new Set([
 ]);
 
 /**
+ * What differs between the two decompilations a map can come from.
+ *
+ * Fire Red numbers its behaviours a little differently (fast water where
+ * Emerald has interior deep water, the Cycling Road's water) and stores each
+ * metatile's attributes as a u32 with the behaviour in the low nine bits,
+ * where Emerald's is a u16 with it in the low eight.
+ *
+ * @type {Record<'emerald'|'firered', {base: string, geometry: import('./gba-gfx.mjs').Geometry,
+ *   attributeBytes: number, behaviorMask: number, surfable: Set<number>}>}
+ */
+export const GAMES = {
+  emerald: { base: EMERALD, geometry: GEOMETRY.emerald, attributeBytes: 2, behaviorMask: 0xff, surfable: SURFABLE_BEHAVIORS },
+  firered: {
+    base: FIRERED,
+    geometry: GEOMETRY.firered,
+    attributeBytes: 4,
+    behaviorMask: 0x1ff,
+    surfable: new Set([0x10, 0x11, 0x12, 0x13, 0x15, 0x19, 0x1a, 0x1b, 0x22, 0x50, 0x51, 0x52, 0x53]),
+  },
+};
+
+/**
  * Open the map index, ready to draw any map in it.
  *
  * Tilesets are fetched once however many maps share them, which most of Hoenn
  * does — the thirty areas between them use a handful.
  *
  * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
+ * @param {'emerald'|'firered'} [game] which decompilation the maps come from
  */
-export async function openMaps(pool) {
-  const { layouts } = await fetchJson(`${EMERALD}/data/layouts/layouts.json`);
+export async function openMaps(pool, game = 'emerald') {
+  const profile = GAMES[game];
+  const { base } = profile;
+  const { layouts } = await fetchJson(`${base}/data/layouts/layouts.json`);
   const index = new Map(layouts.filter((layout) => layout && layout.id).map((layout) => [layout.id, layout]));
   const cache = new Map();
 
@@ -61,33 +86,36 @@ export async function openMaps(pool) {
      * }>}
      */
     async render(dir) {
-      const map = await fetchJson(`${EMERALD}/data/maps/${dir}/map.json`);
+      const map = await fetchJson(`${base}/data/maps/${dir}/map.json`);
       const layout = index.get(map.layout);
       if (!layout) throw new Error(`No layout ${map.layout} for map ${dir}`);
 
-      const primary = await loadTileset(cache, pool, 'primary', layout.primary_tileset);
+      const primary = await loadTileset(cache, pool, base, 'primary', layout.primary_tileset);
       const secondary = layout.secondary_tileset
-        ? await loadTileset(cache, pool, 'secondary', layout.secondary_tileset)
+        ? await loadTileset(cache, pool, base, 'secondary', layout.secondary_tileset)
         : null;
 
-      const tileset = combineTilesets(primary, secondary);
-      const metatiles = combineMetatiles(primary.metatiles, secondary ? secondary.metatiles : null);
-      const blockdata = await fetchBuffer(`${EMERALD}/${layout.blockdata_filepath}`);
+      const tileset = combineTilesets(primary, secondary, profile.geometry);
+      const metatiles = combineMetatiles(primary.metatiles, secondary ? secondary.metatiles : null, profile.geometry);
+      const blockdata = await fetchBuffer(`${base}/${layout.blockdata_filepath}`);
 
       // A block's behaviour lives with its metatile, in whichever tileset the
       // metatile's number falls in: the primary's first, then the secondary's.
+      const inPrimary = profile.geometry.metatilesInPrimary;
+      const size = profile.attributeBytes;
       const behaviorOf = (metatileId) => {
         const [attributes, index] =
-          metatileId < METATILES_IN_PRIMARY
+          metatileId < inPrimary
             ? [primary.attributes, metatileId]
-            : [secondary?.attributes ?? null, metatileId - METATILES_IN_PRIMARY];
-        if (!attributes || (index + 1) * 2 > attributes.length) return 0;
-        return attributes.readUInt16LE(index * 2) & 0xff;
+            : [secondary?.attributes ?? null, metatileId - inPrimary];
+        if (!attributes || (index + 1) * size > attributes.length) return 0;
+        const value = size === 4 ? attributes.readUInt32LE(index * size) : attributes.readUInt16LE(index * size);
+        return value & profile.behaviorMask;
       };
       const isWater = (x, y) => {
         const offset = (y * layout.width + x) * 2;
         if (x < 0 || y < 0 || x >= layout.width || offset + 1 >= blockdata.length) return false;
-        return SURFABLE_BEHAVIORS.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
+        return profile.surfable.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
       };
 
       return {
@@ -104,15 +132,16 @@ export async function openMaps(pool) {
 /**
  * @param {Map<string, any>} cache
  * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
+ * @param {string} root the decompilation's base URL
  * @param {'primary'|'secondary'} role
  * @param {string} symbol
  */
-async function loadTileset(cache, pool, role, symbol) {
+async function loadTileset(cache, pool, root, role, symbol) {
   const key = `${role}/${symbol}`;
   const cached = cache.get(key);
   if (cached) return cached;
 
-  const base = `${EMERALD}/data/tilesets/${role}/${tilesetDirName(symbol)}`;
+  const base = `${root}/data/tilesets/${role}/${tilesetDirName(symbol)}`;
   const tiles = sliceTiles(decodePng(await fetchBuffer(`${base}/tiles.png`)));
 
   /** @type {Array<Array<[number, number, number]>>} */

@@ -90,9 +90,10 @@ export const VERSION_GROUP_PRIORITY = [
  * the map directory (which yields its layout, music and weather), `location`
  * is the PokeAPI location whose official Korean name we display, and `tags`
  * drive wild-encounter fallbacks for species the game has no encounter data
- * for. Sticking to one region keeps the art consistent and, crucially, keeps
- * every area name available in official Korean — PokeAPI carries Korean names
- * for Hoenn locations but not for Kanto ones.
+ * for. Only the two Game Boy Advance regions are here — Hoenn from Emerald and
+ * Kanto from Fire Red, drawn by the same hand in the same engine — so every
+ * area shares one look. PokeAPI carries Korean names for Hoenn locations but
+ * not for Kanto ones, so a Kanto area names itself in `ko`.
  *
  * Only places under the sky, or in a cave, which reads as the same road
  * underfoot. The insides of buildings are left out: New Mauville's floor tiles
@@ -100,7 +101,7 @@ export const VERSION_GROUP_PRIORITY = [
  * through one looked as though it had wandered indoors. The cartridge files
  * both as underground, alongside the caves, so they are named out by hand.
  *
- * @type {Array<{id: string, dir: string, location: string, tags: string[]}>}
+ * @type {Array<{id: string, dir: string, location: string, tags: string[], game?: 'emerald'|'firered', region?: string, ko?: string}>}
  */
 export const AREAS = [
   { id: 'route101', dir: 'Route101', location: 'hoenn-route-101', tags: ['grass', 'plain'] },
@@ -131,6 +132,41 @@ export const AREAS = [
   { id: 'victory-road', dir: 'VictoryRoad_1F', location: 'hoenn-victory-road', tags: ['cave', 'rough'] },
   { id: 'seafloor-cavern', dir: 'SeafloorCavern_Room1', location: 'seafloor-cavern', tags: ['cave', 'water'] },
   { id: 'cave-of-origin', dir: 'CaveOfOrigin_1F', location: 'cave-of-origin', tags: ['cave', 'ruins'] },
+
+  // Kanto, from the Fire Red decompilation: the same engine and the same hand
+  // as Emerald, so the two regions share one look. PokeAPI carries no Korean
+  // names for Kanto, so `ko` gives the official one. The sea routes (19-21)
+  // are nearly all water, and the Sevii Islands never had a Korean release to
+  // name them, so neither is here.
+  { id: 'kanto-route-1', dir: 'Route1', location: 'kanto-route-1', tags: ['grass', 'plain'], game: 'firered', region: 'kanto', ko: '1번도로' },
+  { id: 'kanto-route-2', dir: 'Route2', location: 'kanto-route-2', tags: ['grass', 'forest'], game: 'firered', region: 'kanto', ko: '2번도로' },
+  { id: 'kanto-route-3', dir: 'Route3', location: 'kanto-route-3', tags: ['mountain', 'rough'], game: 'firered', region: 'kanto', ko: '3번도로' },
+  { id: 'kanto-route-4', dir: 'Route4', location: 'kanto-route-4', tags: ['mountain', 'grass'], game: 'firered', region: 'kanto', ko: '4번도로' },
+  { id: 'kanto-route-5', dir: 'Route5', location: 'kanto-route-5', tags: ['grass', 'urban'], game: 'firered', region: 'kanto', ko: '5번도로' },
+  { id: 'kanto-route-6', dir: 'Route6', location: 'kanto-route-6', tags: ['grass', 'water'], game: 'firered', region: 'kanto', ko: '6번도로' },
+  { id: 'kanto-route-7', dir: 'Route7', location: 'kanto-route-7', tags: ['grass', 'urban'], game: 'firered', region: 'kanto', ko: '7번도로' },
+  { id: 'kanto-route-8', dir: 'Route8', location: 'kanto-route-8', tags: ['grass', 'urban'], game: 'firered', region: 'kanto', ko: '8번도로' },
+  { id: 'kanto-route-9', dir: 'Route9', location: 'kanto-route-9', tags: ['mountain', 'rough'], game: 'firered', region: 'kanto', ko: '9번도로' },
+  { id: 'kanto-route-10', dir: 'Route10', location: 'kanto-route-10', tags: ['mountain', 'electric'], game: 'firered', region: 'kanto', ko: '10번도로' },
+  { id: 'kanto-route-11', dir: 'Route11', location: 'kanto-route-11', tags: ['grass', 'plain'], game: 'firered', region: 'kanto', ko: '11번도로' },
+  { id: 'kanto-route-12', dir: 'Route12', location: 'kanto-route-12', tags: ['grass', 'water'], game: 'firered', region: 'kanto', ko: '12번도로' },
+  { id: 'kanto-route-13', dir: 'Route13', location: 'kanto-route-13', tags: ['grass', 'meadow'], game: 'firered', region: 'kanto', ko: '13번도로' },
+  { id: 'kanto-route-14', dir: 'Route14', location: 'kanto-route-14', tags: ['grass', 'meadow'], game: 'firered', region: 'kanto', ko: '14번도로' },
+  { id: 'kanto-route-15', dir: 'Route15', location: 'kanto-route-15', tags: ['grass', 'meadow'], game: 'firered', region: 'kanto', ko: '15번도로' },
+  { id: 'kanto-route-16', dir: 'Route16', location: 'kanto-route-16', tags: ['grass', 'plain'], game: 'firered', region: 'kanto', ko: '16번도로' },
+  { id: 'kanto-route-17', dir: 'Route17', location: 'kanto-route-17', tags: ['beach', 'plain'], game: 'firered', region: 'kanto', ko: '17번도로' },
+  { id: 'kanto-route-18', dir: 'Route18', location: 'kanto-route-18', tags: ['beach', 'grass'], game: 'firered', region: 'kanto', ko: '18번도로' },
+  { id: 'kanto-route-22', dir: 'Route22', location: 'kanto-route-22', tags: ['grass', 'plain'], game: 'firered', region: 'kanto', ko: '22번도로' },
+  { id: 'kanto-route-23', dir: 'Route23', location: 'kanto-route-23', tags: ['mountain', 'rough'], game: 'firered', region: 'kanto', ko: '23번도로' },
+  { id: 'kanto-route-24', dir: 'Route24', location: 'kanto-route-24', tags: ['grass', 'water'], game: 'firered', region: 'kanto', ko: '24번도로' },
+  { id: 'kanto-route-25', dir: 'Route25', location: 'kanto-route-25', tags: ['grass', 'beach'], game: 'firered', region: 'kanto', ko: '25번도로' },
+  { id: 'viridian-forest', dir: 'ViridianForest', location: 'viridian-forest', tags: ['forest'], game: 'firered', region: 'kanto', ko: '상록숲' },
+  { id: 'mt-moon', dir: 'MtMoon_1F', location: 'mt-moon', tags: ['cave', 'rough'], game: 'firered', region: 'kanto', ko: '달맞이산' },
+  { id: 'rock-tunnel', dir: 'RockTunnel_1F', location: 'rock-tunnel', tags: ['cave', 'rough'], game: 'firered', region: 'kanto', ko: '돌산터널' },
+  { id: 'digletts-cave', dir: 'DiglettsCave_B1F', location: 'digletts-cave', tags: ['cave', 'sand'], game: 'firered', region: 'kanto', ko: '디그다의굴' },
+  { id: 'seafoam-islands', dir: 'SeafoamIslands_1F', location: 'seafoam-islands', tags: ['cave', 'ice'], game: 'firered', region: 'kanto', ko: '쌍둥이섬' },
+  { id: 'kanto-victory-road', dir: 'VictoryRoad_1F', location: 'kanto-victory-road-2', tags: ['cave', 'rough'], game: 'firered', region: 'kanto', ko: '챔피언로드' },
+  { id: 'cerulean-cave', dir: 'CeruleanCave_1F', location: 'cerulean-cave', tags: ['cave', 'ruins'], game: 'firered', region: 'kanto', ko: '블루시티동굴' },
 ];
 
 /** The three Kanto starters the game opens with, in Pokédex order. */
