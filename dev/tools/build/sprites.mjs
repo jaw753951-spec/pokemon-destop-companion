@@ -114,12 +114,15 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
         // No icon is published for any forme; those stay the default's.
         const forms = formes.get(id);
         for (const forme of forms ?? []) {
+          // A forme is filed under its variety's id, or — for the type formes,
+          // which are forms of a single variety — under its own name.
+          const art = forme.art ?? forme.id;
           const sources = [
-            `${SPRITES}/pokemon/other/showdown/${forme.id}.gif`,
-            `${SPRITES}/pokemon/versions/generation-v/black-white/animated/${forme.id}.gif`,
-            `${SPRITES}/pokemon/other/showdown/${forme.id}.png`,
-            `${SPRITES}/pokemon/other/home/${forme.id}.png`,
-            `${SPRITES}/pokemon/${forme.id}.png`,
+            `${SPRITES}/pokemon/other/showdown/${art}.gif`,
+            `${SPRITES}/pokemon/versions/generation-v/black-white/animated/${art}.gif`,
+            `${SPRITES}/pokemon/other/showdown/${art}.png`,
+            `${SPRITES}/pokemon/other/home/${art}.png`,
+            `${SPRITES}/pokemon/${art}.png`,
           ];
           for (const variant of VARIANTS) {
             const strip = await buildStrip(sources.map((path) => shinyPath(path, variant.shiny)));
@@ -134,7 +137,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
             const into = variant.shiny ? entry.shiny : entry;
             into[`form-${forme.slug}`] = strip.meta;
 
-            const back = await buildStrip(BACK_SOURCES.map((path) => path(forme.id, variant.shiny)));
+            const back = await buildStrip(BACK_SOURCES.map((path) => path(art, variant.shiny)));
             if (back) {
               await writeOut(
                 join(assetDir, 'pokemon', String(id), `back-form-${forme.slug}${variant.suffix}.png`),

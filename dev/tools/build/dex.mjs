@@ -91,14 +91,17 @@ function shippedItems(items, { machines, moves, species, log }) {
   /** @type {Record<string, number>} */
   const dropped = {};
 
-  for (const [slug, item] of Object.entries(items)) {
+  for (let [slug, item] of Object.entries(items)) {
     // A machine is only worth carrying if the move it teaches was shipped.
     if (item.pocket === 'machines' && !moves[machines[slug]]) {
       dropped['unknown move'] = (dropped['unknown move'] ?? 0) + 1;
       continue;
     }
 
-    const reason = KEPT_ITEMS[slug] ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+    const formItem = FORM_ITEMS[slug];
+    if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
+
+    const reason = KEPT_ITEMS[slug] || formItem ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
     if (reason) {
       dropped[reason] = (dropped[reason] ?? 0) + 1;
       continue;
@@ -171,6 +174,47 @@ const KEPT_ITEMS = {
 };
 
 /**
+ * The legendaries' own items: what each does in this game, and the pocket it
+ * goes in. PokeAPI files most of them as story or key items, which would
+ * retire them; here they are how a legendary changes its shape (see
+ * `forms.mjs`), so they are kept, put in the tools pocket where the bag can
+ * hand them over or use them, and marked with the rule the engine reads.
+ *
+ * `held.on: 'forme'` is a held item whose whole effect is the forme it puts
+ * its holder in; `use.forme` is a key item used from the bag, and kept.
+ *
+ * @type {Record<string, {held?: any, use?: any}>}
+ */
+const FORM_ITEMS = {
+  'tera-orb': { held: { on: 'forme' } },
+  'adamant-crystal': { held: { on: 'damage', species: ['dialga'], moveTypes: ['dragon', 'steel'], multiplier: 1.2 } },
+  'lustrous-globe': { held: { on: 'damage', species: ['palkia'], moveTypes: ['dragon', 'water'], multiplier: 1.2 } },
+  'griseous-orb': {},
+  'blue-orb': { held: { on: 'forme' } },
+  'red-orb': { held: { on: 'forme' } },
+  'rusted-sword': { held: { on: 'forme' } },
+  'rusted-shield': { held: { on: 'forme' } },
+  'ultranecrozium-z--held': { held: { on: 'forme' } },
+  'burn-drive': { held: { on: 'forme' } },
+  'chill-drive': { held: { on: 'forme' } },
+  'douse-drive': { held: { on: 'forme' } },
+  'shock-drive': { held: { on: 'forme' } },
+  ...Object.fromEntries(
+    ['bug', 'dark', 'dragon', 'electric', 'fairy', 'fighting', 'fire', 'flying', 'ghost', 'grass', 'ground', 'ice',
+      'poison', 'psychic', 'rock', 'steel', 'water'].map((type) => [`${type}-memory`, { held: { on: 'forme' } }]),
+  ),
+  'n-solarizer--merge': { use: { forme: true } },
+  'n-lunarizer--merge': { use: { forme: true } },
+  'dna-splicers': { use: { forme: true } },
+  'prison-bottle': { use: { forme: true } },
+  gracidea: { use: { forme: true } },
+  'reveal-glass': { use: { forme: true } },
+  'reins-of-unity': { use: { forme: true } },
+  meteorite: { use: { forme: true } },
+  'zygarde-cube': { use: { forme: true } },
+};
+
+/**
  * The few that go on their own account rather than by category.
  *
  * @type {Record<string, string>}
@@ -216,7 +260,17 @@ async function buildTypes(pool, log) {
     index.results.map((entry) =>
       pool(async () => {
         const type = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`);
-        if (type.name === 'unknown' || type.name === 'shadow' || type.name === 'stellar') return;
+        if (type.name === 'unknown' || type.name === 'shadow') return;
+        // Stellar is no type a Pokémon has — it is what a Stellar Terapagos's
+        // Tera Starstorm becomes, and it lands neutrally on everything. It is
+        // kept for its name and marked so the lists of types leave it out.
+        if (type.name === 'stellar') {
+          const name = Object.fromEntries(
+            Object.entries(nameBundle(type.names, type.name)).map(([code, text]) => [code, String(text).trim()]),
+          );
+          out[type.name] = { name, effectiveness: {}, special: true };
+          return;
+        }
         const relations = type.damage_relations;
         /** @type {Record<string, number>} */
         const effectiveness = {};
@@ -416,12 +470,10 @@ async function buildAbilities(pool, log) {
 
         const effect = (ability.effect_entries ?? []).find((item) => item.language?.name === 'en');
         // A few abilities belong to mechanics this game will not have, so
-        // keeping them would be keeping a rule that can never fire. The
-        // Primal weathers belong to Primordial Groudon and Kyogre, which are
-        // not forms this game can reach; Battle Bond's and Power Construct's
-        // formes were removed from the games that would carry them here; and
-        // the Mega-exclusive abilities hang off Mega Stones, which the item
-        // filter below already retires.
+        // keeping them would be keeping a rule that can never fire. Battle
+        // Bond's and Power Construct's formes were removed from the games that
+        // would carry them here; and the Mega-exclusive abilities hang off Mega
+        // Stones, which the item filter below already retires.
         if (FORM_ONLY_ABILITIES.has(ability.name)) return;
         out[ability.name] = {
           id: ability.id,
@@ -441,9 +493,7 @@ async function buildAbilities(pool, log) {
  * The abilities that belong to a forme this game cannot reach, dropped at the
  * source so no species ever rolls one and no screen ever shows one.
  *
- * Each is a mechanic rather than a rule: the Primal weathers ride on the two
- * Primal reversions (which would need Red Orb and Blue Orb to be form-change
- * items, a system the bag has no pocket for), and the two Bond abilities ride
+ * Each is a mechanic rather than a rule. The two Bond abilities ride
  * on Ash-Greninja and Complete Zygarde — formes the games themselves retired
  * from general play and this companion has no cutscene to earn. Zero to Hero
  * is the one that cannot follow the same road: it is Palafin's only ability,
@@ -455,8 +505,6 @@ async function buildAbilities(pool, log) {
  * @type {Set<string>}
  */
 const FORM_ONLY_ABILITIES = new Set([
-  'desolate-land',
-  'primordial-sea',
   'delta-stream',
   'battle-bond',
   'power-construct',
@@ -1214,7 +1262,7 @@ async function buildSpecies(pool, log, limit) {
         // ones the battle can actually trigger are worth carrying; the rest
         // (regional forms, Mega, Gigantamax) would need a system this game
         // does not have, so they are not fetched at all.
-        const forms = await buildForms(species, pool);
+        const forms = await buildForms(species);
 
         out[id] = {
           id,
@@ -1274,62 +1322,122 @@ async function buildSpecies(pool, log, limit) {
  * this game retires, so they stay out of the data rather than in it dead.
  *
  * @param {any} species the `pokemon-species` record
- * @param {<T>(task: () => Promise<T>) => Promise<T>} pool
  * @returns {Promise<Array<any>>}
  */
-async function buildForms(species, pool) {
+async function buildForms(species) {
   const trigger = FORM_TRIGGER.get(species.name);
   if (!trigger) return [];
 
-  // Only the one alternate forme the engine knows is kept, by the slug
-  // `forms.mjs` names for it — a species like Minior publishes a forme per
+  // A type-forme species (Arceus, Silvally, Genesect) has one variety and a
+  // pokemon-form per plate, memory or drive; those are its formes.
+  if (TYPE_FORMS.has(species.name)) return buildTypeForms(species, trigger);
+
+  // Only the alternate formes the engine knows are kept, by the slugs
+  // `forms.mjs` names for them — a species like Minior publishes a forme per
   // colour, all of which share the one behaviour, and keeping all of them
   // would be thirteen entries the battle can never tell apart.
-  const formeSlug = FORM_FORME.get(species.name);
+  const formeSlugs = FORM_FORME.get(species.name);
   const wanted = species.varieties.filter(
     (variety) => !variety.is_default && idFromUrl(variety.pokemon.url) !== null,
   );
-  const chosen = formeSlug
-    ? wanted.filter((variety) => variety.pokemon.name === formeSlug)
-    : wanted;
+  const chosen = formeSlugs ? wanted.filter((variety) => formeSlugs.includes(variety.pokemon.name)) : wanted;
   if (!chosen.length) return [];
 
+  // Fetched one after another rather than through the pool: this already
+  // runs inside a pool task, and a species task waiting on tasks queued
+  // behind the other species tasks is a deadlock once enough of them do.
   return Promise.all(
-    chosen.map((variety) =>
-      pool(async () => {
-        const pokemon = await fetchJson(
-          `${POKEAPI}${variety.pokemon.url.replace('/api/v2', '')}index.json`,
-        );
-        // A variety has no names of its own; the forme it wears does — "우물의
-        // 가면" for a masked Ogerpon — and the battle says it by that.
-        const formUrl = pokemon.forms?.[0]?.url;
-        const form = formUrl
-          ? await fetchJson(`${POKEAPI}${formUrl.replace('/api/v2', '')}index.json`, { allowMissing: true })
-          : null;
-        const ability =
-          trigger === 'item' ? pokemon.abilities?.find((entry) => !entry.is_hidden)?.ability?.name ?? null : null;
-        return {
-          slug: pokemon.name,
-          name: nameBundle(form?.form_names?.length ? form.form_names : pokemon.names, pokemon.name),
-          // What a held-item forme carries in place of the species' ability: a
-          // masked Ogerpon's Water Absorb, Mold Breaker or Sturdy. A forme an
-          // ability triggers keeps that ability, so it carries none of its own.
-          ...(ability ? { ability } : {}),
-          // The variety's numeric id, which is where the sprite step finds the
-          // forme's picture — most alternate formes live under ids above
-          // 10000 rather than beside the default one.
-          id: idFromUrl(variety.pokemon.url),
-          trigger,
-          types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
-          stats: pokemon.stats.reduce((record, stat) => {
-            record[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
-            return record;
-          }, {}),
-          sprite: Boolean(pokemon.sprites?.other?.showdown?.front_default || pokemon.sprites?.front_default),
-        };
-      }),
+    chosen.map(async (variety) => {
+      const pokemon = await fetchJson(
+        `${POKEAPI}${variety.pokemon.url.replace('/api/v2', '')}index.json`,
+      );
+      // A variety has no names of its own; the forme it wears does — "우물의
+      // 가면" for a masked Ogerpon — and the battle says it by that.
+      const formUrl = pokemon.forms?.[0]?.url;
+      const form = formUrl
+        ? await fetchJson(`${POKEAPI}${formUrl.replace('/api/v2', '')}index.json`, { allowMissing: true })
+        : null;
+      const formeTrigger = FORME_TRIGGER.get(pokemon.name) ?? trigger;
+      return {
+        slug: pokemon.name,
+        name: koreanForme(
+          nameBundle(form?.form_names?.length ? form.form_names : pokemon.names, pokemon.name),
+          pokemon.name,
+          pokemon.types.map((entry) => entry.type.name),
+        ),
+        // The abilities a forme brings in place of the species' own, slot for
+        // slot: a masked Ogerpon's Water Absorb, a Therian Landorus's
+        // Intimidate. A forme an ability triggers keeps that ability, so it
+        // carries none of its own.
+        ...(OWN_ABILITY_TRIGGERS.has(formeTrigger) ? { abilities: abilityList(pokemon) } : {}),
+        // The variety's numeric id, which is where the sprite step finds the
+        // forme's picture — most alternate formes live under ids above
+        // 10000 rather than beside the default one.
+        id: idFromUrl(variety.pokemon.url),
+        trigger: formeTrigger,
+        types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
+        stats: pokemon.stats.reduce((record, stat) => {
+          record[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
+          return record;
+        }, {}),
+        sprite: Boolean(pokemon.sprites?.other?.showdown?.front_default || pokemon.sprites?.front_default),
+      };
+    }),
+  );
+}
+
+/**
+ * @param {any} pokemon a `pokemon` record
+ * @returns {Array<{name: string, hidden: boolean}>}
+ */
+function abilityList(pokemon) {
+  return (pokemon.abilities ?? [])
+    .sort((a, b) => a.slot - b.slot)
+    .map((entry) => ({ name: entry.ability.name, hidden: entry.is_hidden }));
+}
+
+/**
+ * The formes of a species whose shapes are pokemon-forms of its one variety:
+ * an Arceus per plate, a Silvally per memory, a Genesect per drive.
+ *
+ * They share the species' stats and ability. Arceus and Silvally take the
+ * forme's type; a Genesect stays Bug and Steel whichever drive it carries.
+ * Their pictures are filed by the form's own name (`493-fire`), which the
+ * sprite step reads from `art`.
+ *
+ * @param {any} species
+ * @param {string} trigger
+ */
+async function buildTypeForms(species, trigger) {
+  const base = species.varieties.find((variety) => variety.is_default);
+  const pokemon = await fetchJson(`${POKEAPI}${base.pokemon.url.replace('/api/v2', '')}index.json`);
+  const stats = pokemon.stats.reduce((record, stat) => {
+    record[STAT_KEYS[stat.stat.name] ?? stat.stat.name] = stat.base_stat;
+    return record;
+  }, {});
+  const baseTypes = pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name);
+  const forms = await Promise.all(
+    (pokemon.forms ?? []).map((entry) =>
+      fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`, { allowMissing: true }),
     ),
   );
+  return forms
+    .filter((form) => form && !form.is_default && form.form_name && form.form_name !== 'unknown')
+    .map((form) => {
+      const types = form.types?.length
+        ? form.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name)
+        : baseTypes;
+      return {
+        slug: form.name,
+        name: koreanForme(nameBundle(form.form_names, form.name), form.name, types),
+        id: idFromUrl(`/${form.id}/`),
+        art: `${species.id}-${form.form_name}`,
+        trigger,
+        types,
+        stats,
+        sprite: Boolean(form.sprites?.front_default),
+      };
+    });
 }
 
 /**
@@ -1343,18 +1451,94 @@ async function buildForms(species, pool) {
  * exception: those wear a different shape per weather or per catch, and all
  * of them are reachable.
  *
- * @type {Map<string, string|null>}
+ * @type {Map<string, string[]|null>}
  */
 const FORM_FORME = new Map([
   ['castform', null],
-  ['darmanitan', 'darmanitan-zen'],
-  ['wishiwashi', 'wishiwashi-school'],
-  ['minior', 'minior-red'],
-  ['mimikyu', 'mimikyu-busted'],
-  ['eiscue', 'eiscue-noice'],
+  ['darmanitan', ['darmanitan-zen']],
+  ['wishiwashi', ['wishiwashi-school']],
+  ['minior', ['minior-red']],
+  ['mimikyu', ['mimikyu-busted']],
+  ['eiscue', ['eiscue-noice']],
   ['cramorant', null],
   // One forme per mask.
   ['ogerpon', null],
+  // The legendaries' own: the ones a held item, a key item or a battle
+  // brings on (see `forms.mjs` for which is which).
+  ['terapagos', null],
+  ['necrozma', null],
+  ['kyurem', null],
+  ['hoopa', null],
+  ['shaymin', null],
+  ['tornadus', null],
+  ['thundurus', null],
+  ['landorus', null],
+  ['enamorus', null],
+  ['calyrex', null],
+  ['deoxys', null],
+  ['zygarde', ['zygarde-10']],
+  ['meloetta', null],
+  ['dialga', null],
+  ['palkia', null],
+  ['giratina', null],
+  ['kyogre', null],
+  ['groudon', null],
+  ['zacian', null],
+  ['zamazenta', null],
+  ['arceus', null],
+  ['silvally', null],
+  ['genesect', null],
+]);
+
+/**
+ * Korean names for the formes PokeAPI names only in English — the newest
+ * ones — as the Korean games write them.
+ *
+ * @type {Record<string, string>}
+ */
+const FORME_NAMES_KO = {
+  'dialga-origin': '오리진폼',
+  'palkia-origin': '오리진폼',
+  'enamorus-therian': '영물폼',
+  'terapagos-terastal': '테라스탈폼',
+  'terapagos-stellar': '스텔라폼',
+};
+
+/** Arceus's formes are named by their type. @type {Record<string, string>} */
+const TYPE_NAMES_KO = {
+  normal: '노말', fire: '불꽃', water: '물', electric: '전기', grass: '풀', ice: '얼음', fighting: '격투',
+  poison: '독', ground: '땅', flying: '비행', psychic: '에스퍼', bug: '벌레', rock: '바위', ghost: '고스트',
+  dragon: '드래곤', dark: '악', steel: '강철', fairy: '페어리',
+};
+
+/**
+ * @param {Record<string, string>} name a forme's name bundle
+ * @param {string} slug
+ * @param {string[]} types
+ */
+function koreanForme(name, slug, types) {
+  if (name.ko && /[가-힣]/.test(name.ko)) return name;
+  const ko = FORME_NAMES_KO[slug] ?? (slug.startsWith('arceus-') ? `${TYPE_NAMES_KO[types[0]]}타입` : null);
+  return ko ? { ...name, ko } : name;
+}
+
+/** The species whose formes are pokemon-forms rather than varieties. */
+const TYPE_FORMS = new Set(['arceus', 'silvally', 'genesect']);
+
+/**
+ * The triggers whose formes bring their own abilities: a held item, a key
+ * item used from the bag, and the battle's opening.
+ */
+const OWN_ABILITY_TRIGGERS = new Set(['item', 'use', 'start']);
+
+/**
+ * A forme whose trigger is not its species': Necrozma fuses from the bag but
+ * bursts in battle.
+ *
+ * @type {Map<string, string>}
+ */
+const FORME_TRIGGER = new Map([
+  ['necrozma-ultra', 'start'],
 ]);
 
 /**
@@ -1384,6 +1568,33 @@ const FORM_TRIGGER = new Map([
   ['cramorant', 'move'],
   // Whichever mask it is holding.
   ['ogerpon', 'item'],
+  // Held items that are the Pokémon's shape wherever it is.
+  ['dialga', 'item'],
+  ['palkia', 'item'],
+  ['giratina', 'item'],
+  ['arceus', 'item'],
+  ['silvally', 'item'],
+  ['genesect', 'item'],
+  // Held items that only take hold once a battle opens, and Tera Shift.
+  ['terapagos', 'start'],
+  ['kyogre', 'start'],
+  ['groudon', 'start'],
+  ['zacian', 'start'],
+  ['zamazenta', 'start'],
+  // Key items used from the bag.
+  ['necrozma', 'use'],
+  ['kyurem', 'use'],
+  ['hoopa', 'use'],
+  ['shaymin', 'use'],
+  ['tornadus', 'use'],
+  ['thundurus', 'use'],
+  ['landorus', 'use'],
+  ['enamorus', 'use'],
+  ['calyrex', 'use'],
+  ['deoxys', 'use'],
+  ['zygarde', 'use'],
+  // Relic Song turns it, and turns it back.
+  ['meloetta', 'move'],
 ]);
 
 /**

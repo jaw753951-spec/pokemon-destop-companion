@@ -23,6 +23,7 @@
   --type-flying: #8fa8dd; --type-psychic: #f97176; --type-bug: #90c12c;
   --type-rock: #c7b78b; --type-ghost: #5269ac; --type-dragon: #0b6dc3;
   --type-dark: #5a5465; --type-steel: #5a8ea1; --type-fairy: #ec8fe6;
+  --type-stellar: linear-gradient(90deg, #5ec8e6, #b58ee8, #f28fb8, #f2c96b);
 }
 
 * {

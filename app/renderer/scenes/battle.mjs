@@ -16,6 +16,7 @@ import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { healingItemFor, healingItems, throwItem } from '../engine/items.mjs';
 import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
+import { settleForme } from '../engine/forms.mjs';
 import { Battler, battlerArt, battlerScale, FOE_DEPTH, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -1016,6 +1017,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   function finishUp(app) {
     if (finished) return;
     finished = true;
+
+    // Whatever shape the battle put anyone in — a Primal Kyogre, a Terastal
+    // Terapagos, a Zen Mode — is let go of; a held mask or a chosen Sky Forme
+    // stays on.
+    for (const pokemon of [session.active, ...defeated]) settleForme(pokemon);
 
     if (battle.outcome === 'won') {
       const evolution = pendingEvolution(session.active);

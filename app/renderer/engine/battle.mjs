@@ -10,7 +10,7 @@
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect, abilityName } from './abilities.mjs';
-import { formeFor, heldForme } from './forms.mjs';
+import { formeFor, SIGNATURE_MOVES, signatureType, standingForme } from './forms.mjs';
 import {
   Field,
   FIELD_MOVES,
@@ -158,8 +158,8 @@ export const SELF_KNOCKOUT = new Set(['self-destruct', 'explosion', 'misty-explo
 /** The status moves the type chart still applies to. */
 const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
 
-/** Ivy Cudgel's number, which is how a move object is told apart. */
-const IVY_CUDGEL_ID = 904;
+/** The forme whose Tera Starstorm is Stellar. */
+const STELLAR_FORME = 'terapagos-stellar';
 
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
@@ -417,6 +417,25 @@ export class Battle {
       setWeather: (weather) => this.startWeather(weather, self, log),
       /** @param {string} terrain */
       setTerrain: (terrain) => this.startTerrain(terrain, self, log),
+
+      /** Weather and terrain both gone, whoever laid them. */
+      clearField: () => {
+        const cleared = [];
+        if (this.field.weather) {
+          log.push({ kind: 'weatherEnded', data: { value: this.field.weather } });
+          this.field.weather = null;
+          this.field.weatherTurns = 0;
+          cleared.push('weather');
+        }
+        if (this.field.terrain) {
+          log.push({ kind: 'terrainEnded', data: { value: this.field.terrain } });
+          this.field.terrain = null;
+          this.field.terrainTurns = 0;
+          cleared.push('terrain');
+        }
+        if (cleared.includes('weather')) this.evaluateFormes(log);
+        return cleared.length > 0;
+      },
 
       /** @param {Combatant} target @param {number} chance */
       infatuate: (target, chance) => battle.rng.chance(chance) && battle.infatuate(self, target, log),
@@ -763,7 +782,7 @@ export class Battle {
    * about it has been broken, and what it last did.
    *
    * @param {Combatant} combatant
-   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null}}
+   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null, relicSongs: number}}
    */
   formeState(combatant) {
     return {
@@ -774,6 +793,7 @@ export class Battle {
       maxhp: combatant.maxHp,
       broken: Boolean(combatant.marks.formeBroken),
       usedMove: combatant.lastMove,
+      relicSongs: combatant.marks.relicSongs ?? 0,
     };
   }
 
@@ -810,9 +830,9 @@ export class Battle {
     if (wanted === current) return false;
 
     const before = current ? statsOf(combatant.pokemon, current).hp : maxHp(combatant.pokemon);
-    // A mask is worn on the road as well; walking into a battle already in it
-    // is not a change anybody sees.
-    const alreadyWorn = Boolean(wanted) && combatant.pokemon.forme === wanted && Boolean(heldForme(combatant.pokemon));
+    // A mask, an Origin Forme, a Sky Forme is worn on the road as well;
+    // walking into a battle already in it is not a change anybody sees.
+    const alreadyWorn = Boolean(wanted) && combatant.pokemon.forme === wanted && standingForme(combatant.pokemon) === wanted;
     combatant.marks.forme = wanted;
     // The Pokémon wears the slug too, so every screen that holds one — the
     // health bars, the nameplates, the sprite cache keys — reads the shape it
@@ -1305,6 +1325,7 @@ export class Battle {
       log.push({ kind: 'status', side: attacker.side, data: { status: null, thawed: true } });
     }
 
+    const moveLogStart = log.length;
     if (move.damageClass === 'status') {
       this.applyStatusMove(attacker, defender, move, log);
     } else {
@@ -1320,6 +1341,13 @@ export class Battle {
     }
 
     this.afterUse(attacker, defender, move, log);
+
+    // A Relic Song that went off turns a Meloetta, and the next one turns it
+    // back.
+    const landed = log.slice(moveLogStart).some((entry) => entry.kind === 'damage' && entry.side === defender.side);
+    if (moveName === 'relic-song' && landed) {
+      attacker.marks.relicSongs = (attacker.marks.relicSongs ?? 0) + 1;
+    }
 
     // Whatever a move caught in its mouth, or a shape its health had just
     // crossed into, is a shape change worth showing as it happens rather than
@@ -1362,10 +1390,19 @@ export class Battle {
    * @param {any} move
    */
   effectiveMove(attacker, defender, move) {
-    // An Ivy Cudgel is whatever type the mask swinging it is.
-    if (move.id === IVY_CUDGEL_ID) {
-      const mask = heldForme(attacker.pokemon);
-      if (mask && mask.type !== move.type) move = { ...move, type: mask.type };
+    // A signature move is whatever type the item behind it says: an Ivy
+    // Cudgel the mask, a Judgment the plate, a Multi-Attack the memory, a
+    // Techno Blast the drive.
+    const signature = SIGNATURE_MOVES.get(speciesOf(attacker.pokemon.speciesId)?.slug ?? '');
+    if (signature && moveOf(signature)?.id === move.id) {
+      const type = signatureType(attacker.pokemon, signature);
+      if (type && type !== move.type) move = { ...move, type };
+    }
+    // A Stellar Terapagos's Tera Starstorm is Stellar — neutral on everything
+    // — and hits from whichever of its two attacking stats is higher.
+    if (attacker.marks.forme === STELLAR_FORME && moveOf('tera-starstorm')?.id === move.id) {
+      const physical = this.stat(attacker, 'atk') > this.stat(attacker, 'spa');
+      move = { ...move, type: 'stellar', damageClass: physical ? 'physical' : 'special' };
     }
     const ability = this.abilityOf(attacker);
     const retyped = ability?.moveType?.(this.abilityContext(attacker, defender, []), move);

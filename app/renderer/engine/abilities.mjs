@@ -137,6 +137,11 @@ export const ABILITIES = {
     taken: (ctx, move) => (move.type === 'fire' ? 2 : hasFlag(move, 'contact') ? 0.5 : 1),
   },
   multiscale: { taken: (ctx) => (fullHealth(ctx.self) ? 0.5 : 1) },
+  // At full health every hit on a Terastal Terapagos lands as not very
+  // effective: whatever the chart said, half.
+  'tera-shell': {
+    taken: (ctx, move, effectiveness) => (fullHealth(ctx.self) && effectiveness > 0.5 ? 0.5 / effectiveness : 1),
+  },
   'shadow-shield': { taken: (ctx) => (fullHealth(ctx.self) ? 0.5 : 1) },
   'solid-rock': { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 0.75 : 1) },
   filter: { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 0.75 : 1) },
@@ -259,6 +264,17 @@ export const ABILITIES = {
   'sand-stream': { start: (ctx) => ctx.setWeather(WEATHER.SANDSTORM), weatherImmune: true },
   'snow-warning': { start: (ctx) => ctx.setWeather(WEATHER.SNOW) },
   forecast: {},
+  // The primal weathers, as the ordinary ones: this game's weather set a
+  // Pokémon calls up already lasts the battle.
+  'primordial-sea': { start: (ctx) => ctx.setWeather(WEATHER.RAIN) },
+  'desolate-land': { start: (ctx) => ctx.setWeather(WEATHER.SUN) },
+  // A Stellar Terapagos clears the sky and the ground on its way in.
+  'teraform-zero': { start: (ctx) => ctx.clearField() },
+  // These three are the forme change itself, which `forms.mjs` makes; the
+  // ability has nothing left to do in the battle.
+  'tera-shift': {},
+  multitype: {},
+  'rks-system': {},
 
   // The Cramorant that dived after something: the forme it wears is the
   // engine's business (a forme read off the move it just used), so this

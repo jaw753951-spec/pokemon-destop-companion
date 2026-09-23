@@ -245,7 +245,9 @@ export function resolveLeague(session) {
  * @param {import('../engine/session.mjs').Session} session
  */
 function generatedLeague(session) {
-  const types = session.rng.shuffle(Object.keys(gameData().types)).slice(0, 4);
+  // Stellar is a move's type, not a trainer's.
+  const chart = Object.entries(gameData().types).filter(([, entry]) => !entry.special).map(([slug]) => slug);
+  const types = session.rng.shuffle(chart).slice(0, 4);
   return {
     region: 'unknown',
     name: { ko: t('league.enter'), en: t('league.enter') },

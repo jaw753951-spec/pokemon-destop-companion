@@ -6,7 +6,7 @@
  * from it on demand rather than stored twice.
  */
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { HELD_FORMES, settleHeldForme } from './forms.mjs';
+import { HELD_FORMES, settleForme } from './forms.mjs';
 import {
   addEffort,
   computeStats,
@@ -35,8 +35,11 @@ import {
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
- * @property {string} [forme] the battle-only alternate forme it is wearing, if
- *   any — set by the battle as its shape changes and gone when the battle is
+ * @property {string} [standing] the shape a key item left it in — a Sky Forme
+ *   Shaymin's, a fused Necrozma's — kept until the item is used again
+ * @property {string} [forme] the alternate forme it is wearing, if any — the
+ *   one it stands in (a held mask, a chosen Sky Forme) outside a battle, and
+ *   whatever the battle has changed it into inside one, let go of after
  */
 
 /**
@@ -114,7 +117,7 @@ export function createPokemon(rng, speciesId, level, options = {}) {
   const masks = HELD_FORMES.get(species.slug);
   if (masks) {
     pokemon.heldItem = rng.pick([null, ...masks.keys()]) ?? null;
-    settleHeldForme(pokemon);
+    settleForme(pokemon);
   }
 
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
@@ -322,14 +325,14 @@ export function levelOf(pokemon) {
  *
  * An alternate forme carries its own set, and a battle reads them through the
  * forme the combatant is marked with — a Zen Mode below half really is twice
- * the attack and half the speed on its card. Outside a battle no forme is
- * marked, so this is the species' own numbers, which is what the screens
- * should be showing anyway.
+ * the attack and half the speed on its card. Left out, it is the forme the
+ * Pokémon is wearing: outside a battle the shape it stands in (a Sky Forme
+ * Shaymin, a 10% Zygarde), inside one whatever the battle has put it in.
  *
  * @param {Pokemon} pokemon
- * @param {string} [forme] the alternate forme it is currently wearing, if any
+ * @param {string|null} [forme] the alternate forme to read, if any
  */
-export function statsOf(pokemon, forme) {
+export function statsOf(pokemon, forme = pokemon.forme) {
   const species = speciesOf(pokemon.speciesId);
   const base = forme
     ? (species.forms ?? []).find((form) => form.slug === forme)?.stats ?? species.stats

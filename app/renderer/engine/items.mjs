@@ -9,7 +9,7 @@ import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilitySlot, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
-import { settleHeldForme } from './forms.mjs';
+import { settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -47,6 +47,22 @@ export function useItem(session, slug) {
     }
     if (!session.machines.includes(move)) session.machines.push(move);
     return { used: true, ok: true, message: t('items.taught', { move: localized(moveOf(move)?.name, move) }) };
+  }
+
+  // A legendary's key item changes its shape and stays in the bag.
+  if (item.use?.forme) {
+    const forme = useFormeItem(pokemon, slug);
+    if (forme === false) {
+      return { used: false, ok: false, message: t('items.formeNothing', { name: nameOf(pokemon), item: label }) };
+    }
+    const form = speciesOf(pokemon.speciesId)?.forms?.find((entry) => entry.slug === forme);
+    return {
+      used: true,
+      ok: true,
+      message: form
+        ? t('items.formeChanged', { name: nameOf(pokemon), form: localized(form.name, forme ?? '') })
+        : t('items.formeReverted', { name: nameOf(pokemon) }),
+    };
   }
 
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
@@ -145,7 +161,7 @@ export function equipItem(session, slug) {
   if (pokemon.heldItem) session.addItem(pokemon.heldItem);
   if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip') };
   pokemon.heldItem = slug;
-  settleHeldForme(pokemon);
+  settleForme(pokemon);
   return {
     used: true,
     ok: true,
@@ -166,7 +182,7 @@ export function unequipItem(session) {
 
   session.addItem(slug);
   pokemon.heldItem = null;
-  settleHeldForme(pokemon);
+  settleForme(pokemon);
   return {
     used: true,
     ok: true,
@@ -199,6 +215,13 @@ export function itemActions(session, slug) {
   if (item.pocket === 'pokeballs') return { use: false, equip: false };
   if (item.pocket === 'machines') return { use: true, equip: false };
   if (item.pocket === 'medicine') return { use: Boolean(item.use), equip: false };
+
+  // A key item for a legendary's shape is used, not held — and only offered
+  // to the species it is for.
+  if (item.use?.forme) {
+    const species = speciesOf(session.active?.speciesId)?.slug ?? '';
+    return { use: Boolean(USE_FORMES.get(slug)?.has(species)), equip: false };
+  }
 
   return {
     use: Boolean(pendingEvolution(session.active, { item: slug })),
@@ -687,4 +710,35 @@ export function applyHeldEffect(pokemon, held) {
  */
 function emptyMove(pokemon) {
   return pokemon.moves.find((slot) => slot.pp <= 0 && moveOf(slot.move)) ?? null;
+}
+
+/**
+ * How often an item find is a legendary's own item, while that legendary is
+ * the one travelling and does not have it yet.
+ *
+ * A Blue Orb is no use to a Pikachu, and a bag that filled up with seventeen
+ * memories and four drives for Pokémon the player never met would be clutter.
+ * So those items are only ever found by the Pokémon they are for — and rarely,
+ * a tenth of the finds, which is something like one an hour of walking.
+ */
+export const SIGNATURE_FIND_CHANCE = 0.1;
+
+/** Built once: which species each signature item is for. */
+let signature = /** @type {Map<string, string[]>|null} */ (null);
+
+/**
+ * The legendary's own item an item find turns out to be, if it does.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @returns {string|null}
+ */
+export function signatureFind(session) {
+  signature ??= signatureItems();
+  const species = speciesOf(session.active?.speciesId)?.slug ?? '';
+  const held = new Set([session.active, ...session.box].map((pokemon) => pokemon?.heldItem).filter(Boolean));
+  const wanted = [...signature]
+    .filter(([item, owners]) => owners.includes(species) && itemOf(item) && !held.has(item) && session.countOf(item) === 0)
+    .map(([item]) => item);
+  if (!wanted.length || !session.rng.chance(SIGNATURE_FIND_CHANCE)) return null;
+  return session.rng.pick(wanted);
 }

@@ -11,6 +11,7 @@ import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
+import { settleForme } from './forms.mjs';
 
 /** How often moving on to a new area crosses to the other region. */
 export const REGION_CROSSING_CHANCE = 0.2;
@@ -33,6 +34,10 @@ export class Session {
     // the way in, rather than finding out mid-battle.
     for (const pokemon of [this.active, ...this.box]) {
       if (pokemon) ensureAttack(pokemon);
+      // And in the shape it stands in: a battle forme a save caught mid-way
+      // (a Zen Mode, a Primal Kyogre) is let go of, and a held or chosen one
+      // put back on.
+      if (pokemon) settleForme(pokemon);
     }
     /**
      * The bag, less anything the game no longer carries: a save written before

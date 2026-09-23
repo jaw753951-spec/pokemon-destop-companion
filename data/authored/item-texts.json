@@ -1,5 +1,5 @@
 {
-  "_comment": "PokeAPI가 설명문이나 한국어 이름을 싣지 않은 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다. 이름은 확인된 공식 명칭만 쓴다: 로셀열매는 PokeAPI의 item_names.csv, 순백떡은 한국어 포켓몬 위키.",
+  "_comment": "PokeAPI가 설명문이나 한국어 이름을 싣지 않은 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다. 이름은 확인된 공식 명칭만 쓴다: 로셀열매는 PokeAPI의 item_names.csv, 순백떡은 한국어 포켓몬 위키. 전설 포켓몬의 폼체인지 도구는 이 게임에서 실제로 하는 일(지니게 하면/사용하면 어떤 모습이 되는지)로 설명을 바꿔 쓴다.",
   "items": {
     "booster-energy": {
       "text": {
@@ -175,6 +175,138 @@
       "name": {
         "ko": "순백떡",
         "en": "Fresh-Start Mochi"
+      }
+    },
+    "tera-orb": {
+      "text": {
+        "ko": "테라파고스에게 지니게 하면 전투가 시작될 때 스텔라폼이 된다. 테라스탈 현상이 없는 이 세계에서 테라스탈의 힘을 담아 둔 구슬.",
+        "en": "When held by Terapagos, it takes its Stellar Form as a battle begins. An orb holding the power of Terastallization in a world without the phenomenon."
+      }
+    },
+    "adamant-crystal": {
+      "text": {
+        "ko": "디아루가에게 지니게 하면 오리진폼이 되고 드래곤과 강철타입 기술의 위력이 올라간다.",
+        "en": "When held by Dialga, it takes its Origin Forme and its Dragon- and Steel-type moves grow stronger."
+      }
+    },
+    "lustrous-globe": {
+      "text": {
+        "ko": "펄기아에게 지니게 하면 오리진폼이 되고 드래곤과 물타입 기술의 위력이 올라간다.",
+        "en": "When held by Palkia, it takes its Origin Forme and its Dragon- and Water-type moves grow stronger."
+      }
+    },
+    "griseous-orb": {
+      "text": {
+        "ko": "기라티나에게 지니게 하면 오리진폼이 되고 드래곤과 고스트타입 기술의 위력이 올라간다.",
+        "en": "When held by Giratina, it takes its Origin Forme and its Dragon- and Ghost-type moves grow stronger."
+      }
+    },
+    "blue-orb": {
+      "text": {
+        "ko": "가이오가에게 지니게 하면 전투가 시작될 때 원시회귀해서 원시가이오가가 된다.",
+        "en": "When held by Kyogre, it undergoes Primal Reversion as a battle begins."
+      }
+    },
+    "red-orb": {
+      "text": {
+        "ko": "그란돈에게 지니게 하면 전투가 시작될 때 원시회귀해서 원시그란돈이 된다.",
+        "en": "When held by Groudon, it undergoes Primal Reversion as a battle begins."
+      }
+    },
+    "rusted-sword": {
+      "text": {
+        "ko": "자시안에게 지니게 하면 전투가 시작될 때 검왕의 모습이 된다.",
+        "en": "When held by Zacian, it becomes the Crowned Sword as a battle begins."
+      }
+    },
+    "rusted-shield": {
+      "text": {
+        "ko": "자마젠타에게 지니게 하면 전투가 시작될 때 방패왕의 모습이 된다.",
+        "en": "When held by Zamazenta, it becomes the Crowned Shield as a battle begins."
+      }
+    },
+    "ultranecrozium-z--held": {
+      "text": {
+        "ko": "황혼의 갈기나 새벽의 날개 네크로즈마에게 지니게 하면 전투가 시작될 때 울트라버스트해서 울트라네크로즈마가 된다.",
+        "en": "When held by Dusk Mane or Dawn Wings Necrozma, it Ultra Bursts into Ultra Necrozma as a battle begins."
+      }
+    },
+    "n-solarizer--merge": {
+      "text": {
+        "ko": "네크로즈마에게 사용하면 황혼의 갈기 모습이 된다. 한 번 더 사용하면 원래 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Necrozma to turn it into Dusk Mane Necrozma; use it again to return it to normal. It is not used up."
+      }
+    },
+    "n-lunarizer--merge": {
+      "text": {
+        "ko": "네크로즈마에게 사용하면 새벽의 날개 모습이 된다. 한 번 더 사용하면 원래 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Necrozma to turn it into Dawn Wings Necrozma; use it again to return it to normal. It is not used up."
+      }
+    },
+    "dna-splicers": {
+      "text": {
+        "ko": "큐레무에게 사용할 때마다 블랙큐레무, 화이트큐레무, 원래 모습 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Kyurem turns it into Black Kyurem, then White Kyurem, then back to normal. It is not used up."
+      }
+    },
+    "prison-bottle": {
+      "text": {
+        "ko": "후파에게 사용하면 굴레를 벗어난 모습이 된다. 한 번 더 사용하면 굴레에 갇힌 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Hoopa to unbind it; use it again to confine it. It is not used up."
+      }
+    },
+    "gracidea": {
+      "text": {
+        "ko": "쉐이미에게 사용하면 스카이폼이 된다. 한 번 더 사용하면 랜드폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Shaymin to change it into its Sky Forme; use it again to return it to its Land Forme. It is not used up."
+      }
+    },
+    "reveal-glass": {
+      "text": {
+        "ko": "토네로스, 볼트로스, 랜드로스, 러브로스에게 사용하면 영물폼이 된다. 한 번 더 사용하면 화신폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Tornadus, Thundurus, Landorus or Enamorus to change it into its Therian Forme; use it again to return it to its Incarnate Forme. It is not used up."
+      }
+    },
+    "reins-of-unity": {
+      "text": {
+        "ko": "버드렉스에게 사용할 때마다 백마 탄 모습, 흑마 탄 모습, 원래 모습 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Calyrex makes it the Ice Rider, then the Shadow Rider, then itself again. It is not used up."
+      }
+    },
+    "meteorite": {
+      "text": {
+        "ko": "테오키스에게 사용할 때마다 어택폼, 디펜스폼, 스피드폼, 노말폼 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Deoxys changes it into its Attack, Defense, then Speed Forme, then back to Normal. It is not used up."
+      }
+    },
+    "zygarde-cube": {
+      "text": {
+        "ko": "지가르데에게 사용하면 10%폼이 된다. 한 번 더 사용하면 50%폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Zygarde to change it into its 10% Forme; use it again to return it to its 50% Forme. It is not used up."
+      }
+    },
+    "burn-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 블레이즈카세트를 장착하고 테크노버스터가 불꽃타입이 된다.",
+        "en": "When held by Genesect, it loads the Burn Drive and its Techno Blast becomes Fire type."
+      }
+    },
+    "chill-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 프리즈카세트를 장착하고 테크노버스터가 얼음타입이 된다.",
+        "en": "When held by Genesect, it loads the Chill Drive and its Techno Blast becomes Ice type."
+      }
+    },
+    "douse-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 아쿠아카세트를 장착하고 테크노버스터가 물타입이 된다.",
+        "en": "When held by Genesect, it loads the Douse Drive and its Techno Blast becomes Water type."
+      }
+    },
+    "shock-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 번개카세트를 장착하고 테크노버스터가 전기타입이 된다.",
+        "en": "When held by Genesect, it loads the Shock Drive and its Techno Blast becomes Electric type."
       }
     }
   }

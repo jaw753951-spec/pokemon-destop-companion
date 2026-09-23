@@ -14,6 +14,7 @@ import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
+import { signatureFind } from '../engine/items.mjs';
 import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, walkerArt } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
@@ -334,7 +335,8 @@ function startBall(session, spawnAt) {
   const tier = session.rng.weighted(BALL_TIERS.map((entry) => ({ value: entry, weight: entry.chance })))
     ?? BALL_TIERS[0];
   const pool = gameData().itemTiers[tier.ball] ?? [];
-  const item = pool.length ? session.rng.pick(pool) : 'poke-ball';
+  // Now and then, the item the travelling legendary is waiting on.
+  const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 
   const state = {
     kind: 'ball',
