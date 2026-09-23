@@ -615,3 +615,68 @@ test('after the first turn out, a Fake Out is not reached for when there is anyt
   const moves = battle.takeTurn().filter((entry) => entry.kind === 'move' && entry.side === 'player');
   assert.deepEqual(moves.map((entry) => entry.data.move), ['tackle']);
 });
+
+test('inside a Trick Room the slower side moves first, and a second one takes it down', options, () => {
+  // Venusaur is slower than Charizard at the same level.
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  assert.equal(battle.orderOfPlay()[0], battle.foe, 'the faster foe first, normally');
+
+  assert.equal(battle.field.toggleTrickRoom(), 'started');
+  assert.equal(battle.orderOfPlay()[0], battle.player, 'the slower companion first, in the room');
+  assert.ok(!battle.field.quiet, 'a room standing is something going on');
+
+  assert.equal(battle.field.toggleTrickRoom(), 'ended');
+  assert.equal(battle.orderOfPlay()[0], battle.foe);
+});
+
+test('a Trick Room runs out after five turns', options, () => {
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  battle.field.toggleTrickRoom();
+  const ended = [];
+  for (let turn = 0; turn < 5; turn++) ended.push(...battle.field.tick());
+  assert.deepEqual(ended.map((entry) => entry.kind), ['trickRoom']);
+  assert.equal(battle.field.trickRoom, 0);
+});
+
+test('a Tailwind doubles the Speed of the side it blows behind, for four turns', options, () => {
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const before = battle.speedOf(battle.player);
+  assert.ok(battle.field.setTailwind('player'));
+  assert.equal(battle.speedOf(battle.player), before * 2);
+  assert.ok(!battle.field.setTailwind('player'), 'one already blowing is not restarted');
+  // Twice as fast is faster than the Charizard.
+  assert.equal(battle.orderOfPlay()[0], battle.player);
+
+  const ended = [];
+  for (let turn = 0; turn < 4; turn++) ended.push(...battle.field.tick());
+  assert.deepEqual(ended.map((entry) => [entry.kind, entry.side]), [['tailwind', 'player']]);
+  assert.equal(battle.speedOf(battle.player), before);
+});
+
+test('using Trick Room and Tailwind puts them up', options, () => {
+  const player = makeFixed(VENUSAUR, 50, ['trick-room']);
+  const battle = new Battle({
+    rng: new Rng(4),
+    player,
+    foes: [makeFixed(CHARIZARD, 50, ['tailwind'])],
+    policy: { ...defaultAutoBattle(), order: ['trick-room'], mode: 'repeatAll' },
+  });
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'trickRoom' && entry.data.state === 'started'));
+  assert.ok(battle.field.trickRoom > 0);
+});

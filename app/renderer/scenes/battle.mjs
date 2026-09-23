@@ -859,6 +859,24 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(t('screen.ended'));
         break;
 
+      case 'trickRoom':
+        say(t(entry.data?.state === 'ended' ? 'field.trickRoomEnded' : 'field.trickRoom', {
+          name: nameOf(entry.side === 'player' ? player : foe),
+        }));
+        break;
+
+      case 'trickRoomEnded':
+        say(t('field.trickRoomEnded'));
+        break;
+
+      case 'tailwind':
+        say(t(entry.side === 'player' ? 'field.tailwind' : 'field.tailwindFoe'));
+        break;
+
+      case 'tailwindEnded':
+        say(t(entry.side === 'player' ? 'field.tailwindEnded' : 'field.tailwindFoeEnded'));
+        break;
+
       case 'charging':
         say(t('battle.charging', {
           name: nameOf(entry.side === 'player' ? player : foe),

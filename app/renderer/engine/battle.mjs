@@ -910,7 +910,10 @@ export class Battle {
     if (playerSpeed === foeSpeed) {
       return this.rng.chance(0.5) ? [this.player, this.foe] : [this.foe, this.player];
     }
-    return playerSpeed > foeSpeed ? [this.player, this.foe] : [this.foe, this.player];
+    // Inside a Trick Room the slower one goes first. Priority still comes
+    // before it: a Quick Attack is quick in any room.
+    const playerFirst = this.field.trickRoom > 0 ? playerSpeed < foeSpeed : playerSpeed > foeSpeed;
+    return playerFirst ? [this.player, this.foe] : [this.foe, this.player];
   }
 
   /**
@@ -925,9 +928,14 @@ export class Battle {
     return effectiveStat(combatant, stat, { ...options, battle: this });
   }
 
-  /** @param {Combatant} combatant */
+  /**
+   * The Speed the turn order is decided on: doubled by a Tailwind at the
+   * combatant's back.
+   * @param {Combatant} combatant
+   */
   speedOf(combatant) {
-    return this.stat(combatant, 'spe');
+    const tailwind = this.field.tailwind?.[combatant.side] > 0 ? 2 : 1;
+    return this.stat(combatant, 'spe') * tailwind;
   }
 
   /**
@@ -2300,6 +2308,17 @@ export class Battle {
           log.push({ kind: 'screen', side: attacker.side, data: { screen: field.screen, turns } });
           did = true;
         }
+      }
+      // A Trick Room twists the order of the turn for everyone, and a
+      // Tailwind blows behind the side that called it.
+      if (field.room) {
+        const state = this.field.toggleTrickRoom();
+        log.push({ kind: 'trickRoom', side: attacker.side, data: { state } });
+        did = true;
+      }
+      if (field.tailwind && this.field.setTailwind(attacker.side)) {
+        log.push({ kind: 'tailwind', side: attacker.side });
+        did = true;
       }
       // A hazard is laid at the other side's feet, not at the user's.
       if (field.hazard && this.field.addHazard(defender.side, field.hazard)) {
