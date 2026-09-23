@@ -25,7 +25,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
   const manifest = [];
 
   for (const area of AREAS) {
-    const { map, layout, blockdata, image: rendered } = await maps.render(area.dir);
+    const { map, layout, blockdata, image: rendered, isWater } = await maps.render(area.dir);
     // Two of the thirty maps are shorter than the window; they give what they
     // have and the field fills the remainder from their own top row.
     const bandBlocks = Math.min(wantedBlocks, layout.height);
@@ -33,7 +33,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     // strip is cut to a stretch of map the companion can cross end to end, so
     // the loop it walks has no hillside or tree in it at any point. See
     // `pickWalkPath` for why a whole-width strip could not manage that.
-    const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks);
+    const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks, isWater);
     const band = crop(
       rendered,
       path.column * METATILE_SIZE,

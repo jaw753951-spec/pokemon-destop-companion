@@ -11,7 +11,7 @@
 
 import { actorScale, walkerArt } from './field.mjs';
 
-/** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
+/** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
 
 /**
  * Shrink a battler that would not fit where it stands.
@@ -98,7 +98,7 @@ export function battlerScale(sprite, pokemon, room, depth = 1) {
 }
 
 /** How long each pose runs before falling back to idle. */
-const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
+const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700, emerge: 340 };
 
 /**
  * The arrows over a stat change: how long they run, how many there are, and
@@ -112,6 +112,23 @@ const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 const STAT_EFFECT_MS = 620;
 const STAT_ARROWS = 4;
 const STAT_COLOURS = { up: '#6ee06a', down: '#ff6b6b' };
+
+/** @type {HTMLCanvasElement|null} */
+let sharedTint = null;
+
+/**
+ * A scratch canvas at least this big, shared by every tint, since only one is
+ * ever being painted at a time.
+ *
+ * @param {number} width
+ * @param {number} height
+ */
+function tintCanvas(width, height) {
+  sharedTint ??= document.createElement('canvas');
+  if (sharedTint.width < width) sharedTint.width = width;
+  if (sharedTint.height < height) sharedTint.height = height;
+  return sharedTint;
+}
 
 export class Battler {
   /**
@@ -224,6 +241,7 @@ export class Battler {
     context.restore();
 
     if (transform.flash > 0) this.drawFlash(context, transform.flash);
+    if (transform.glow > 0) this.drawTint(context, '#ffffff', transform.glow);
     if (this.statDirection !== 0) this.drawStatChange(context);
   }
 
@@ -293,19 +311,37 @@ export class Battler {
    */
   drawTint(context, colour, strength) {
     if (!this.sprite || strength <= 0) return;
+    const sprite = this.sprite;
     const transform = this.transform();
+
+    // The silhouette is coloured on a canvas of its own and then laid over
+    // the sprite. Colouring it in place, with \`source-atop\` on the battle's
+    // canvas, coloured everything already drawn there too — the backdrop
+    // included — so every hit washed the whole screen red.
+    const tint = tintCanvas(sprite.width, sprite.height);
+    const paint = /** @type {CanvasRenderingContext2D} */ (tint.getContext('2d'));
+    paint.globalCompositeOperation = 'copy';
+    paint.drawImage(sprite.image, sprite.frameAt(this.elapsed) * sprite.width, 0, sprite.width, sprite.height, 0, 0, sprite.width, sprite.height);
+    paint.globalCompositeOperation = 'source-atop';
+    paint.fillStyle = colour;
+    paint.fillRect(0, 0, sprite.width, sprite.height);
+
+    const scale = this.scale * transform.scale;
+    const width = sprite.width * scale;
+    const height = sprite.height * scale;
+    const left = Math.round(this.x - width / 2);
+    const top = Math.round(this.y - height);
+
     context.save();
     context.globalAlpha = strength;
-    context.globalCompositeOperation = 'source-atop';
-    context.translate(this.x + transform.dx * this.facing, this.y + transform.dy);
-    context.translate(-this.x, -this.y);
-    this.sprite.draw(context, this.x, this.y, {
-      frame: this.sprite.frameAt(this.elapsed),
-      flip: this.flip,
-      scale: this.scale * transform.scale,
-    });
-    context.fillStyle = colour;
-    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+    context.translate(transform.dx * this.facing, transform.dy);
+    if (this.flip) {
+      context.translate(left + width, top);
+      context.scale(-1, 1);
+      context.drawImage(tint, 0, 0, sprite.width, sprite.height, 0, 0, width, height);
+    } else {
+      context.drawImage(tint, 0, 0, sprite.width, sprite.height, left, top, width, height);
+    }
     context.restore();
   }
 
@@ -324,10 +360,10 @@ export class Battler {
   /**
    * The offset, scale, rotation, alpha and tint for the pose at its current
    * point in time.
-   * @returns {{dx: number, dy: number, scale: number, rotate: number, alpha: number, flash: number}}
+   * @returns {{dx: number, dy: number, scale: number, rotate: number, alpha: number, flash: number, glow: number}}
    */
   transform() {
-    const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0 };
+    const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0, glow: 0 };
     if (this.pose === 'idle') return still;
 
     const duration = POSE_DURATION[this.pose];
@@ -355,6 +391,12 @@ export class Battler {
         // `draw` does the cutting; the height it has to travel is its own.
         const height = (this.sprite?.height ?? 0) * this.scale;
         return { ...still, dy: progress * (height + 4), alpha: 1 };
+      }
+      case 'emerge': {
+        // Out of the ball: from a speck to its full size, white at first and
+        // coming into its own colours as it grows.
+        const eased = 1 - (1 - progress) ** 3;
+        return { ...still, scale: 0.12 + 0.88 * eased, alpha: Math.min(1, 0.4 + progress), glow: (1 - progress) * 0.9 };
       }
       default:
         return still;

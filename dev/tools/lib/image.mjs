@@ -231,13 +231,16 @@ const MIN_RUN_BLOCKS = 12;
  * @param {number} widthInBlocks
  * @param {number} heightInBlocks
  * @param {number} bandBlocks how many block rows the strip spans
+ * @param {(x: number, y: number) => boolean} [isWater] blocks the collision
+ *   leaves open but a Pokémon could only cross by surfing — Route 103's lake
+ *   among them, which the walk used to stroll across
  * @returns {{bandRow: number, laneRow: number, column: number, columns: number, clearance: number}}
  */
-export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlocks) {
+export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlocks, isWater = () => false) {
   const passable = (x, y) => {
     const offset = (y * widthInBlocks + x) * 2;
     if (offset + 1 >= blockdata.length) return false;
-    return ((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0;
+    return ((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0 && !isWater(x, y);
   };
 
   /**

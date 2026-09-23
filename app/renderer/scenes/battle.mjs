@@ -7,7 +7,7 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { weatherForArea } from '../../shared/area-tags.mjs';
-import { loadSprite } from '../core/assets.mjs';
+import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
 import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
@@ -27,7 +27,17 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100 };
+const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100, go: 1050 };
+
+/**
+ * A Pokémon sent out of its ball: how long the ball is in the air, how high it
+ * arcs, how big it is drawn, and how long the light it opens in lasts. All in
+ * field pixels and milliseconds.
+ */
+const TOSS_MS = 520;
+const TOSS_ARC = 34;
+const TOSS_BALL_SIZE = 12;
+const BURST_MS = 260;
 
 /** How much of a beat a click skips, as a share of the full wait. */
 const CLICK_SPEEDUP = 0.5;
@@ -158,6 +168,99 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   let loadedFoeId = '';
   /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
   let loadedPlayerId = '';
+
+  /**
+   * Whether each side's Pokémon has come out of its ball yet. A battler that
+   * finishes loading before its ball lands stays hidden until it does. A wild
+   * Pokémon was never in one: it is standing there from the start.
+   */
+  const sentOut = { player: false, foe: !trainer };
+  /**
+   * Balls in the air, and the light each opens in once it lands.
+   * @type {Array<{side: 'player'|'foe', pokemon: any, image: HTMLImageElement|null,
+   *   from: {x: number, y: number}, to: {x: number, y: number}, elapsed: number, landed: boolean}>}
+   */
+  let tosses = [];
+
+  /**
+   * Throw a side's Pokémon out in the ball it lives in — the one it was caught
+   * in, for anything the player caught, and a Poké Ball for everything else.
+   *
+   * @param {'player'|'foe'} side
+   * @param {import('../engine/pokemon.mjs').Pokemon|null} pokemon
+   */
+  const toss = (side, pokemon) => {
+    const ball = pokemon?.ball && gameData().items[pokemon.ball] ? pokemon.ball : 'poke-ball';
+    const spot = side === 'player' ? PLAYER_SPOT : FOE_SPOT;
+    const entry = {
+      side,
+      pokemon,
+      image: /** @type {HTMLImageElement|null} */ (null),
+      // The companion's trainer stands off the bottom left; a foe's off the top right.
+      from: side === 'player' ? { x: -8, y: spot.y - 44 } : { x: FIELD_WIDTH + 8, y: spot.y - 52 },
+      to: { x: spot.x, y: spot.y - 8 },
+      elapsed: 0,
+      landed: false,
+    };
+    loadImage(`items/${ball}.png`).then((image) => { entry.image = image; }).catch(() => {});
+    sentOut[side] = false;
+    const battler = side === 'player' ? playerBattler : foeBattler;
+    if (battler) battler.visible = false;
+    tosses.push(entry);
+  };
+
+  /**
+   * @param {number} deltaMs
+   * @param {import('../core/app.mjs').App} app
+   */
+  const updateTosses = (deltaMs, app) => {
+    for (const entry of tosses) {
+      entry.elapsed += deltaMs;
+      if (entry.landed || entry.elapsed < TOSS_MS) continue;
+      // The ball opens: the Pokémon comes out in a flash of light, and calls.
+      entry.landed = true;
+      sentOut[entry.side] = true;
+      const battler = entry.side === 'player' ? playerBattler : foeBattler;
+      if (battler) {
+        battler.visible = true;
+        battler.setPose('emerge');
+      }
+      app.audio.blip('confirm');
+      if (entry.pokemon && entry.side === 'player') app.audio.playCry(entry.pokemon.speciesId);
+    }
+    tosses = tosses.filter((entry) => entry.elapsed < TOSS_MS + BURST_MS);
+  };
+
+  /** @param {CanvasRenderingContext2D} context field space */
+  const drawTosses = (context) => {
+    for (const entry of tosses) {
+      if (!entry.landed) {
+        const progress = Math.min(1, entry.elapsed / TOSS_MS);
+        const x = entry.from.x + (entry.to.x - entry.from.x) * progress;
+        const y = entry.from.y + (entry.to.y - entry.from.y) * progress - Math.sin(progress * Math.PI) * TOSS_ARC;
+        if (!entry.image) continue;
+        context.save();
+        context.translate(Math.round(x), Math.round(y));
+        // Spinning as it flies, the way a thrown ball does.
+        context.rotate(progress * Math.PI * 3 * (entry.side === 'player' ? 1 : -1));
+        const scale = TOSS_BALL_SIZE / Math.max(entry.image.naturalWidth, entry.image.naturalHeight);
+        const width = entry.image.naturalWidth * scale;
+        const height = entry.image.naturalHeight * scale;
+        context.drawImage(entry.image, -width / 2, -height / 2, width, height);
+        context.restore();
+        continue;
+      }
+      // The burst it opens in: a ring of light, widening and fading.
+      const burst = Math.min(1, (entry.elapsed - TOSS_MS) / BURST_MS);
+      context.save();
+      context.globalAlpha = (1 - burst) * 0.85;
+      context.fillStyle = '#ffffff';
+      context.beginPath();
+      context.arc(entry.to.x, entry.to.y, 4 + burst * 18, 0, Math.PI * 2);
+      context.fill();
+      context.restore();
+    }
+  };
   /**
    * The foe whose name and bar are on screen.
    *
@@ -226,6 +329,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
               flip: mirrorFor(sprite, 'right'),
             }),
       });
+      // Hidden until its ball has landed, if it is still in the air.
+      battler.visible = sentOut[side];
       if (side === 'player') playerBattler = battler;
       else foeBattler = battler;
     });
@@ -321,6 +426,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       playerBattler?.update(deltaMs);
       foeBattler?.update(deltaMs);
+      updateTosses(deltaMs, app);
       playerBar.update(deltaMs);
       foeBar.update(deltaMs);
 
@@ -370,6 +476,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         if (backdropImage) drawBackdrop(field, backdropImage);
         foeBattler?.draw(field);
         playerBattler?.draw(field);
+        drawTosses(field);
       });
 
       if (step < 1) drawEntryShutters(context, step);
@@ -457,14 +564,16 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(trainer
           ? t(leader ? 'event.leader' : 'event.trainer', { trainer: localized(trainer.name, '') })
           : t('event.wild', { name: nameOf(foe) }));
+        // A trainer's Pokémon comes out of a ball; a wild one is already there.
+        if (trainer) toss('foe', foe);
         return BEAT_MS.intro;
 
       // The companion is sent out after whatever it is being sent out against
       // has been named, which is the order the games read in.
       case 'go':
         say(t('battle.go', { name: nameOf(player) }));
-        playerBattler?.setPose('win');
-        break;
+        toss('player', player);
+        return BEAT_MS.go;
 
       case 'move': {
         const attacker = entry.side === 'player' ? player : foe;
@@ -824,6 +933,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       case 'sendOut': {
         loadedFoeId = '';
         loadedPlayerId = '';
+        if (trainer) toss('foe', entry.data?.pokemon ?? battle.foe?.pokemon ?? null);
         loadFoeSprite();
         loadBattler('player', player);
         updateBars();
