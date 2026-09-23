@@ -680,3 +680,54 @@ test('using Trick Room and Tailwind puts them up', options, () => {
   assert.ok(log.some((entry) => entry.kind === 'trickRoom' && entry.data.state === 'started'));
   assert.ok(battle.field.trickRoom > 0);
 });
+
+test('a flinch landed by the slower side does not carry into the next turn', options, () => {
+  // Every hit flinches, and the slower side lands it after the faster one has
+  // already moved: it must not take the faster one's next turn instead.
+  const battle = new Battle({
+    rng: new Rng(9),
+    player: makeFixed(CHARIZARD, 50, ['tackle']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const flinchingTackle = { ...moveOf('tackle'), meta: { ...moveOf('tackle').meta, flinchChance: 100 } };
+  battle.effectiveMove = (attacker, defender, base) => (attacker.side === 'foe' ? flinchingTackle : base);
+
+  battle.takeTurn();
+  assert.equal(battle.player.flinched, false, 'the flinch is gone once the turn is over');
+  const next = battle.takeTurn();
+  assert.ok(!next.some((entry) => entry.kind === 'flinch' && entry.side === 'player'));
+  assert.ok(next.some((entry) => entry.kind === 'move' && entry.side === 'player'));
+});
+
+test('Thunder Wave does nothing to a Ground type', options, () => {
+  const DIGLETT = 50;
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 50, ['thunder-wave']),
+    foes: [makeFixed(DIGLETT, 50, ['scratch'])],
+    policy: { ...defaultAutoBattle(), order: ['thunder-wave'], mode: 'repeatAll' },
+  });
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'noEffect' && entry.side === 'foe'));
+  assert.equal(battle.foe.pokemon.status, null);
+});
+
+test('a Burning Jealousy burns only a target whose stats went up this turn', options, () => {
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 50, ['burning-jealousy']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const move = moveOf('burning-jealousy');
+  battle.player.lastMove = 'burning-jealousy';
+  battle.turn = 3;
+
+  battle.applySecondaryEffects(battle.player, battle.foe, move, []);
+  assert.equal(battle.foe.pokemon.status, null, 'nothing went up: no burn');
+
+  battle.foe.marks.raisedTurn = 3;
+  battle.applySecondaryEffects(battle.player, battle.foe, move, []);
+  assert.equal(battle.foe.pokemon.status, STATUS.BURN);
+});

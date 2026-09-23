@@ -142,6 +142,15 @@ const STATUS_TO_AILMENT = { brn: 'burn', psn: 'poison', par: 'paralysis', slp: '
  */
 export const FIRST_TURN_ONLY = new Set(['fake-out', 'first-impression', 'mat-block']);
 
+/**
+ * The moves whose side effect only lands on a target whose stats went up this
+ * turn: a Burning Jealousy burns the one that just powered up, and nobody else.
+ */
+export const RAISED_THIS_TURN_ONLY = new Set(['burning-jealousy', 'alluring-voice']);
+
+/** The status moves the type chart still applies to. */
+const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
+
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
 
@@ -506,6 +515,8 @@ export class Battle {
 
     const before = target.stages[stat] ?? 0;
     const after = Math.max(-6, Math.min(6, before + shift));
+    // What a Burning Jealousy looks for.
+    if (after > before) target.marks.raisedTurn = this.turn;
     // Already as high or as low as it goes. The games say so rather than
     // letting the move look like it did nothing at all.
     if (after === before) {
@@ -675,6 +686,14 @@ export class Battle {
       // its holder faint first.
       this.eatHeldBerry(log);
     }
+
+    // A flinch is for the turn it happened in: it stops a Pokémon that has not
+    // moved yet, and is gone once the turn is over. One landed by the slower
+    // side — on a Pokémon that had already moved — used to wait for its
+    // target's next turn and take that instead, so every slow Pokémon with a
+    // Bite flinched its opponent far more often than the move says.
+    this.player.flinched = false;
+    if (this.foe) this.foe.flinched = false;
 
     if (this.running) {
       for (const combatant of [this.player, this.foe]) {
@@ -1214,7 +1233,8 @@ export class Battle {
 
     // A move the defender is simply sealed against — a sound at a Soundproof,
     // a bullet at a Bulletproof, a powder at a Grass type or a pair of Safety
-    // Goggles — never gets as far as an accuracy roll.
+    // Goggles, a Thunder Wave at a Ground type — never gets as far as an
+    // accuracy roll.
     if (this.movePrevented(attacker, defender, move)) {
       log.push({ kind: 'noEffect', side: defender.side });
       return;
@@ -1320,6 +1340,12 @@ export class Battle {
     // Powder does nothing to a Grass type, which is the one classification the
     // games gate on a type rather than on an ability.
     if (hasFlag(move, 'powder') && this.typesOf(defender).includes('grass')) return true;
+
+    // Status moves ignore the type chart, all but Thunder Wave: electricity
+    // still has to reach its target, and a Ground type is out of its way.
+    if (TYPE_CHECKED_STATUS.has(attacker.lastMove ?? '') && typeEffectiveness(move.type, this.typesOf(defender)) === 0) {
+      return true;
+    }
 
     const shield = heldShield(defender.pokemon, 'flags');
     if (shield && move.flags?.some((flag) => shield.includes(flag))) return true;
@@ -2262,7 +2288,8 @@ export class Battle {
     // Serene Grace doubles the odds of whatever a move was already going to do.
     const odds = ability?.secondary ?? 1;
 
-    if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0) {
+    const jealous = !RAISED_THIS_TURN_ONLY.has(attacker.lastMove ?? '') || defender.marks.raisedTurn === this.turn;
+    if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0 && jealous) {
       if (this.rng.next() < (meta.ailmentChance / 100) * odds) this.inflictAilment(attacker, defender, meta.ailment, log);
     }
 

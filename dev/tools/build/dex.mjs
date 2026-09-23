@@ -276,6 +276,8 @@ async function buildMoves(pool, log) {
             change: change.change,
           })),
         };
+        const patch = MOVE_EFFECT_PATCHES[move.name];
+        if (patch) out[move.name].meta = { ...(out[move.name].meta ?? EMPTY_META), ...patch };
       }),
     ),
   );
@@ -283,6 +285,52 @@ async function buildMoves(pool, log) {
   log(`moves ${Object.keys(out).length}`);
   return out;
 }
+
+/** A move PokeAPI files with no effect data at all. */
+const EMPTY_META = {
+  ailment: 'none',
+  ailmentChance: 0,
+  category: 'damage',
+  critRate: 0,
+  drain: 0,
+  healing: 0,
+  flinchChance: 0,
+  statChance: 0,
+  minHits: null,
+  maxHits: null,
+  minTurns: null,
+  maxTurns: null,
+};
+
+/**
+ * Side effects PokeAPI leaves off the newest moves, checked move by move
+ * against Pokémon Showdown's table: every other move's chance of a condition
+ * or a flinch agrees between the two. Without these a Wildbolt Storm never
+ * paralyses and a Mountain Gale never flinches.
+ *
+ * @type {Record<string, Record<string, any>>}
+ */
+const MOVE_EFFECT_PATCHES = {
+  'mountain-gale': { flinchChance: 30 },
+  'triple-arrows': { flinchChance: 30 },
+  'barb-barrage': { ailment: 'poison', ailmentChance: 50, category: 'damage-ailment' },
+  'infernal-parade': { ailment: 'burn', ailmentChance: 30, category: 'damage-ailment' },
+  'wildbolt-storm': { ailment: 'paralysis', ailmentChance: 20, category: 'damage-ailment' },
+  'sandsear-storm': { ailment: 'burn', ailmentChance: 20, category: 'damage-ailment' },
+  'axe-kick': { ailment: 'confusion', ailmentChance: 30, category: 'damage-ailment' },
+  'mortal-spin': { ailment: 'poison', ailmentChance: 100, category: 'damage-ailment' },
+  'matcha-gotcha': { ailment: 'burn', ailmentChance: 20, category: 'damage-ailment' },
+  'malignant-chain': { ailment: 'poison', ailmentChance: 50, category: 'damage-ailment' },
+  'blazing-torque': { ailment: 'burn', ailmentChance: 30, category: 'damage-ailment' },
+  'wicked-torque': { ailment: 'sleep', ailmentChance: 10, category: 'damage-ailment' },
+  'noxious-torque': { ailment: 'poison', ailmentChance: 30, category: 'damage-ailment' },
+  'combat-torque': { ailment: 'paralysis', ailmentChance: 30, category: 'damage-ailment' },
+  'magical-torque': { ailment: 'confusion', ailmentChance: 30, category: 'damage-ailment' },
+  // These two only land on a target whose stats went up this turn; the
+  // battle checks for that (\`RAISED_THIS_TURN_ONLY\`).
+  'burning-jealousy': { ailment: 'burn', ailmentChance: 100, category: 'damage-ailment' },
+  'alluring-voice': { ailment: 'confusion', ailmentChance: 100, category: 'damage-ailment' },
+};
 
 /**
  * Hang each move's classification off it: contact, punch, sound, powder and
