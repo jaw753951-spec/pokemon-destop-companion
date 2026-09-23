@@ -9,12 +9,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH } from '../../app/shared/constants.mjs';
+import { snapZoom, VIEW_HEIGHT, VIEW_WIDTH, windowZoom } from '../../app/shared/constants.mjs';
 
 /** `windowSize`, with the screen it reads handed to it rather than looked up. */
 function windowSize(scale, screenWidth, screenHeight) {
-  const target = Math.min(screenWidth / 4, (screenHeight / 4) * (VIEW_WIDTH / VIEW_HEIGHT));
-  const zoom = snapZoom(Math.max(0.5, (target * scale) / VIEW_WIDTH));
+  const zoom = windowZoom(scale, screenWidth, screenHeight);
   return { width: Math.round(VIEW_WIDTH * zoom), height: Math.round(VIEW_HEIGHT * zoom) };
 }
 
@@ -67,4 +66,27 @@ test('the zoom snaps to quarters above 1:1 and is left alone below it', () => {
   // Below 1:1 a snap would throw away most of a small window.
   assert.equal(snapZoom(0.8875), 0.8875);
   assert.equal(snapZoom(0.5), 0.5);
+});
+
+test('every scale setting is a window of its own size', () => {
+  for (const [screenWidth, screenHeight] of SCREENS) {
+    const widths = STEPS.map((scale) => windowSize(scale, screenWidth, screenHeight).width);
+    for (let index = 1; index < widths.length; index++) {
+      // A step up is a visibly bigger window, not the same one give or take a
+      // few pixels — which is what 1.25x used to be on a 1080p screen.
+      assert.ok(
+        widths[index] >= widths[index - 1] * 1.1,
+        `${screenWidth}x${screenHeight}: ${STEPS[index]}x is ${widths[index]}px after ${widths[index - 1]}px`,
+      );
+    }
+  }
+});
+
+test('no scale asks for a window bigger than the screen', () => {
+  for (const [screenWidth, screenHeight] of SCREENS) {
+    for (const scale of STEPS) {
+      const { width, height } = windowSize(scale, screenWidth, screenHeight);
+      assert.ok(width <= screenWidth && height <= screenHeight);
+    }
+  }
 });

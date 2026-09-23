@@ -94,6 +94,12 @@ export const VERSION_GROUP_PRIORITY = [
  * every area name available in official Korean — PokeAPI carries Korean names
  * for Hoenn locations but not for Kanto ones.
  *
+ * Only places under the sky, or in a cave, which reads as the same road
+ * underfoot. The insides of buildings are left out: New Mauville's floor tiles
+ * and Sky Pillar's corridors are rooms, and a companion walking the road
+ * through one looked as though it had wandered indoors. The cartridge files
+ * both as underground, alongside the caves, so they are named out by hand.
+ *
  * @type {Array<{id: string, dir: string, location: string, tags: string[]}>}
  */
 export const AREAS = [
@@ -123,8 +129,6 @@ export const AREAS = [
   { id: 'safari-zone', dir: 'SafariZone_South', location: 'hoenn-safari-zone', tags: ['grass', 'safari'] },
   { id: 'shoal-cave', dir: 'ShoalCave_LowTideEntranceRoom', location: 'shoal-cave', tags: ['cave', 'ice'] },
   { id: 'victory-road', dir: 'VictoryRoad_1F', location: 'hoenn-victory-road', tags: ['cave', 'rough'] },
-  { id: 'sky-pillar', dir: 'SkyPillar_1F', location: 'sky-pillar', tags: ['ruins', 'sky'] },
-  { id: 'new-mauville', dir: 'NewMauville_Inside', location: 'new-mauville', tags: ['urban', 'electric'] },
   { id: 'seafloor-cavern', dir: 'SeafloorCavern_Room1', location: 'seafloor-cavern', tags: ['cave', 'water'] },
   { id: 'cave-of-origin', dir: 'CaveOfOrigin_1F', location: 'cave-of-origin', tags: ['cave', 'ruins'] },
 ];

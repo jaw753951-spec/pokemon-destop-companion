@@ -30,6 +30,29 @@ export const FIELD_ZOOM = 2;
  */
 export const snapZoom = (zoom) => (zoom >= 1 ? Math.floor(zoom * 4) / 4 : zoom);
 
+/**
+ * The zoom a window is sized for, at a scale setting, on a screen this big.
+ *
+ * Scale 1 is a window about a quarter of the screen across. The zoom that
+ * asks for is taken to the **nearest** quarter step rather than down to one:
+ * rounding down swallowed most of a step, so on a 1080p screen 1.25x asked for
+ * a zoom of 1.2 and got 1 — the same window as 1x, give or take four per cent.
+ * Nearest keeps every scale setting its own size. A zoom that would not fit on
+ * the screen comes down a step at a time until it does.
+ *
+ * @param {number} scale the setting
+ * @param {number} screenWidth the work area, in pixels
+ * @param {number} screenHeight
+ */
+export function windowZoom(scale, screenWidth, screenHeight) {
+  const target = Math.min(screenWidth / 4, (screenHeight / 4) * (VIEW_WIDTH / VIEW_HEIGHT));
+  const wanted = Math.max(0.5, (target * scale) / VIEW_WIDTH);
+  if (wanted < 1) return wanted;
+  let zoom = Math.max(1, Math.round(wanted * 4) / 4);
+  while (zoom > 1 && (VIEW_WIDTH * zoom > screenWidth || VIEW_HEIGHT * zoom > screenHeight)) zoom -= 0.25;
+  return zoom;
+}
+
 /** The field's own coordinate space, which the zoom scales up to the window. */
 export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
 export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;

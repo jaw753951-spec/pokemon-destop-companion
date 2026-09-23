@@ -180,6 +180,30 @@ const RETIRED_ITEMS = {
   'exp-share-gen6': 'nothing to share with',
   'amulet-coin': 'selling',
   'luck-incense': 'selling',
+  // Story and event items PokeAPI files among the ordinary ones: the Origin
+  // Ball and the Legend Plate are handed over by the plot of Legends: Arceus,
+  // a Park Ball only exists inside Pal Park's transfer, a Cherish Ball only
+  // around an event Pokémon, and a Strange Ball only around one HOME moved.
+  'laorigin-ball': 'a story',
+  'legend-plate': 'a story',
+  'park-ball': 'a story',
+  'cherish-ball': 'a story',
+  'lastrange-ball': 'a story',
+  // Hisui's own balls and berry. Three of the balls share their names with
+  // the ordinary Poké, Great and Ultra Balls — the bag listed each twice —
+  // and the rest are about throwing distance and being unnoticed, neither of
+  // which a companion's battle has. The Hopo Berry is fed from the satchel
+  // and has never been held.
+  'lapoke-ball': 'Hisui only',
+  'lagreat-ball': 'Hisui only',
+  'laultra-ball': 'Hisui only',
+  'laheavy-ball': 'Hisui only',
+  'laleaden-ball': 'Hisui only',
+  'lagigaton-ball': 'Hisui only',
+  'lafeather-ball': 'Hisui only',
+  'lawing-ball': 'Hisui only',
+  'lajet-ball': 'Hisui only',
+  'hopo-berry': 'Hisui only',
 };
 
 /** The 18 battle types with their Korean names and full damage relations. */

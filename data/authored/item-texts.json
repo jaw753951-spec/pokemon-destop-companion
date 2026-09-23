@@ -1,5 +1,5 @@
 {
-  "_comment": "PokeAPI가 설명문을 싣지 않은(또는 한국어 설명 자리에 영어를 넣은) 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다 — 예컨대 히스이 볼은 모두 몬스터볼과 같은 포획률이므로 확정 포획 같은 말은 쓰지 않는다.",
+  "_comment": "PokeAPI가 설명문이나 한국어 이름을 싣지 않은 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다. 이름은 확인된 공식 명칭만 쓴다: 로셀열매는 PokeAPI의 item_names.csv, 순백떡은 한국어 포켓몬 위키.",
   "items": {
     "booster-energy": {
       "text": {
@@ -131,22 +131,6 @@
         "en": "A stone tablet that boosts the power of Normal-type moves when held."
       }
     },
-    "legend-plate": {
-      "text": {
-        "ko": "아르세우스가 지니면 심판의뭉치가 상대에게 가장 효과가 좋은 타입으로 바뀐다.",
-        "en": "When held by Arceus, Judgment becomes the type most effective against the target."
-      }
-    },
-    "hopo-berry": {
-      "text": {
-        "ko": "기술 하나의 PP를 10만큼 회복한다.",
-        "en": "Restores 10 PP to one of a Pokémon's moves."
-      },
-      "name": {
-        "ko": "호파열매",
-        "en": "Hopo Berry"
-      }
-    },
     "health-mochi": {
       "text": {
         "ko": "포켓몬 1마리의 HP 노력치를 10 올리는 떡.",
@@ -187,72 +171,10 @@
       "text": {
         "ko": "포켓몬 1마리의 노력치를 모두 0으로 되돌리는 떡.",
         "en": "A mochi that resets all of a Pokémon's base points to zero."
-      }
-    },
-    "lapoke-ball": {
-      "text": {
-        "ko": "히스이 지방에서 쓰이던 몬스터볼. 던져서 야생 포켓몬을 잡는다.",
-        "en": "A Poké Ball as it was made in the Hisui region. It is thrown at wild Pokémon to catch them."
-      }
-    },
-    "lagreat-ball": {
-      "text": {
-        "ko": "히스이 지방에서 쓰이던 슈퍼볼. 몬스터볼보다 잘 잡힌다.",
-        "en": "A Great Ball as it was made in the Hisui region. It catches better than a Poké Ball."
-      }
-    },
-    "laultra-ball": {
-      "text": {
-        "ko": "히스이 지방에서 쓰이던 하이퍼볼. 슈퍼볼보다 더 잘 잡힌다.",
-        "en": "An Ultra Ball as it was made in the Hisui region. It catches better than a Great Ball."
-      }
-    },
-    "laheavy-ball": {
-      "text": {
-        "ko": "히스이 지방에서 쓰이던 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 잡기 쉽다.",
-        "en": "A ball from the Hisui region. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
-      }
-    },
-    "laleaden-ball": {
-      "text": {
-        "ko": "헤비볼을 개량한 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 더 잡기 쉽다.",
-        "en": "An improved Heavy Ball. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
-      }
-    },
-    "lagigaton-ball": {
-      "text": {
-        "ko": "메가톤볼을 개량한 볼. 멀리 날아가지 않지만 들키지 않은 포켓몬을 한층 잡기 쉽다.",
-        "en": "An improved Leaden Ball. It doesn't fly far, but works better on a Pokémon that hasn't noticed the thrower."
-      }
-    },
-    "lafeather-ball": {
-      "text": {
-        "ko": "몬스터볼보다 멀리 날아가는 가벼운 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
-        "en": "A light ball that flies further than a Poké Ball. It works better on Pokémon flying high in the sky."
-      }
-    },
-    "lawing-ball": {
-      "text": {
-        "ko": "페더볼보다 멀리 날아가는 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
-        "en": "A ball that flies further than a Feather Ball. It works better on Pokémon flying high in the sky."
-      }
-    },
-    "lajet-ball": {
-      "text": {
-        "ko": "윙볼보다 더 멀리 날아가는 볼. 하늘 높이 나는 포켓몬을 잡기 쉽다.",
-        "en": "A ball that flies further than a Wing Ball. It works better on Pokémon flying high in the sky."
-      }
-    },
-    "lastrange-ball": {
-      "text": {
-        "ko": "어디서 어떻게 만들어졌는지 알 수 없는 신기한 볼.",
-        "en": "A mysterious ball whose origins, and makers, are unknown."
-      }
-    },
-    "laorigin-ball": {
-      "text": {
-        "ko": "시공의 균열에서 나타난 포켓몬을 붙잡기 위해 만들어진 특별한 볼. 히스이 지방에서 쓰였다.",
-        "en": "A special ball made to catch the Pokémon that emerged from the rift in space-time, used in the Hisui region."
+      },
+      "name": {
+        "ko": "순백떡",
+        "en": "Fresh-Start Mochi"
       }
     }
   }

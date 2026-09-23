@@ -151,9 +151,9 @@ function afterBattleRow(app, policy, refresh) {
 }
 
 /**
- * Every berry in the bag, whichever pocket the data files it in — a Hopo Berry
- * is a berry the data puts among the medicine, and the restock order used to
- * leave it out — in the order of their names.
+ * Every berry in the bag, whichever pocket the data files it in — the restock
+ * order once left out a berry the data had put among the medicine — in the
+ * order of their names.
  *
  * @param {import('../engine/session.mjs').Session} session
  */
