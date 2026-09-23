@@ -123,7 +123,11 @@ test('a wild Pokémon draws from its whole ability pool, hidden included', optio
 
   const seen = new Set();
   const rng = new Rng(5);
-  for (let roll = 0; roll < 200; roll++) seen.add(rollWildPokemon(rng, area, companion).ability);
+  // Some of the wild comes from the whole Pokédex; only the Dittos count.
+  for (let roll = 0; roll < 300; roll++) {
+    const wild = rollWildPokemon(rng, area, companion);
+    if (wild.speciesId === DITTO) seen.add(wild.ability);
+  }
   assert.deepEqual([...seen].sort(), ['imposter', 'limber']);
 
   // A Pokémon a trainer sends out draws from the ordinary ones only, which is

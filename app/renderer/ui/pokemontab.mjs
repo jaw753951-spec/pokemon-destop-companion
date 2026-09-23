@@ -12,7 +12,8 @@ import { url } from '../core/bridge.mjs';
 import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilityWorks } from '../engine/abilities.mjs';
+import { abilityName, abilityWorks } from '../engine/abilities.mjs';
+import { standingTypes } from '../engine/forms.mjs';
 import { unequipItem } from '../engine/items.mjs';
 import { itemOf } from '../core/data.mjs';
 import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
@@ -60,7 +61,8 @@ export function pokemonTab(app, session, refresh, state = {}) {
           shinyMark(pokemon, t('pokemon.shiny')),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
-        el('div.pokemon-types', {}, (species?.types ?? []).map((type) => typeChip(type))),
+        // A masked Ogerpon is the mask's type as well as Grass.
+        el('div.pokemon-types', {}, standingTypes(pokemon).map((type) => typeChip(type))),
 
         el('div.pokemon-line', {}, [
           el('span.label', { text: t('pokemon.hp') }),
@@ -308,9 +310,11 @@ function moveClasses(move) {
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  */
 function abilityLine(app, pokemon) {
-  const ability = abilityOf(pokemon.ability);
+  // A masked Ogerpon has the mask's ability, and says so here too.
+  const slug = abilityName(pokemon) ?? pokemon.ability;
+  const ability = abilityOf(slug);
   const hidden = (speciesOf(pokemon.speciesId)?.abilities ?? []).some(
-    (entry) => entry.name === pokemon.ability && entry.hidden,
+    (entry) => entry.name === slug && entry.hidden,
   );
 
   return el('div.pokemon-line', {}, [
@@ -319,14 +323,14 @@ function abilityLine(app, pokemon) {
     // a 270-pixel screen pushed the move slots off the bottom of the page.
     el('button.chip', {
       type: 'button',
-      text: localized(ability?.name, pokemon.ability),
+      text: localized(ability?.name, slug),
       title: t('items.inspect'),
       onClick: () => {
         app.audio.blip('select');
         void describe(app, {
-          title: localized(ability?.name, pokemon.ability),
+          title: localized(ability?.name, slug),
           subtitle: hidden ? t('pokemon.hiddenAbility') : null,
-          body: abilityWorks(pokemon.ability)
+          body: abilityWorks(slug)
             ? localized(ability?.text, ability?.effect ?? '')
             : t('items.noEffectYet'),
         });

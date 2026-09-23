@@ -12,7 +12,9 @@ import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, spriteKey } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
-import { formeFor, FORM_ABILITY } from '../../app/renderer/engine/forms.mjs';
+import { formeFor, FORM_ABILITY, heldForme, settleHeldForme } from '../../app/renderer/engine/forms.mjs';
+import { abilityName } from '../../app/renderer/engine/abilities.mjs';
+import { moveOf } from '../../app/renderer/core/data.mjs';
 import { createPokemon, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { WEATHER } from '../../app/renderer/engine/field.mjs';
@@ -28,6 +30,7 @@ const MIMIKYU = 778;
 const EISCUE = 875;
 const CRAMORANT = 845;
 const GEODUDE = 74;
+const OGERPON = 1017;
 
 /** A Pokémon with settled genes, the ability the test asks for, and fixed IVs. */
 function fixed(speciesId, level, moves = [], ability = null) {
@@ -246,4 +249,48 @@ test('a forme the dex does not carry answers null rather than crashing', options
     usedMove: null,
   });
   assert.equal(wanted, 'castform');
+});
+
+test('an Ogerpon wears the mask it holds: its type, its ability, its Ivy Cudgel', options, () => {
+  const ogerpon = fixed(OGERPON, 50, ['ivy-cudgel']);
+  ogerpon.heldItem = 'wellspring-mask';
+  settleHeldForme(ogerpon);
+  assert.equal(ogerpon.forme, 'ogerpon-wellspring-mask', 'worn outside a battle too');
+  assert.equal(abilityName(ogerpon), 'water-absorb');
+
+  const battle = fight(ogerpon);
+  assert.deepEqual(battle.typesOf(battle.player), ['grass', 'water']);
+  const cudgel = battle.effectiveMove(battle.player, battle.foe, moveOf('ivy-cudgel'));
+  assert.equal(cudgel.type, 'water');
+  assert.equal(battle.heldDamage(battle.player, moveOf('ivy-cudgel'), 1), 1.2, 'a fifth more on every move');
+
+  // Taken off, it is the Teal Mask again, with its own ability and Grass alone.
+  ogerpon.heldItem = null;
+  settleHeldForme(ogerpon);
+  assert.equal(ogerpon.forme, undefined);
+  assert.equal(abilityName(ogerpon), ogerpon.ability);
+  assert.equal(heldForme(ogerpon), null);
+  const bare = fight(ogerpon);
+  assert.deepEqual(bare.typesOf(bare.player), ['grass']);
+  assert.equal(bare.effectiveMove(bare.player, bare.foe, moveOf('ivy-cudgel')).type, 'grass');
+});
+
+test('a mask does nothing for anyone but Ogerpon', options, () => {
+  const geodude = fixed(GEODUDE, 50, ['tackle']);
+  geodude.heldItem = 'hearthflame-mask';
+  settleHeldForme(geodude);
+  assert.equal(geodude.forme, undefined);
+  const battle = fight(geodude);
+  assert.equal(battle.heldDamage(battle.player, moveOf('tackle'), 1), 1);
+});
+
+test('an Ogerpon is met in any of its four masks', options, () => {
+  const rng = new Rng(3);
+  const seen = new Set();
+  for (let roll = 0; roll < 80; roll++) {
+    const ogerpon = createPokemon(rng, OGERPON, 50);
+    seen.add(ogerpon.heldItem);
+    assert.equal(ogerpon.forme, heldForme(ogerpon)?.forme, 'the forme matches the mask');
+  }
+  assert.deepEqual([...seen].sort(), [null, 'cornerstone-mask', 'hearthflame-mask', 'wellspring-mask'].sort());
 });

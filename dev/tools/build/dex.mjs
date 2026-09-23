@@ -1071,6 +1071,11 @@ const UNWRITTEN = {
   // The Fairy type booster, which the other seventeen document and this
   // newcomer does not.
   'fairy-feather': { held: { on: 'damage', moveType: 'fairy', multiplier: 1.2 } },
+  // Ogerpon's masks: a fifth more on every move it uses, and the forme and
+  // the Ivy Cudgel type the mask stands for (see \`forms.mjs\`).
+  'wellspring-mask': { held: { on: 'damage', species: ['ogerpon'], multiplier: 1.2 } },
+  'hearthflame-mask': { held: { on: 'damage', species: ['ogerpon'], multiplier: 1.2 } },
+  'cornerstone-mask': { held: { on: 'damage', species: ['ogerpon'], multiplier: 1.2 } },
   // The Ability Capsule's opposite number: it hands over the hidden ability
   // rather than swapping the two ordinary ones.
   'ability-patch': { use: { ability: 'hidden' } },
@@ -1295,9 +1300,21 @@ async function buildForms(species, pool) {
         const pokemon = await fetchJson(
           `${POKEAPI}${variety.pokemon.url.replace('/api/v2', '')}index.json`,
         );
+        // A variety has no names of its own; the forme it wears does — "우물의
+        // 가면" for a masked Ogerpon — and the battle says it by that.
+        const formUrl = pokemon.forms?.[0]?.url;
+        const form = formUrl
+          ? await fetchJson(`${POKEAPI}${formUrl.replace('/api/v2', '')}index.json`, { allowMissing: true })
+          : null;
+        const ability =
+          trigger === 'item' ? pokemon.abilities?.find((entry) => !entry.is_hidden)?.ability?.name ?? null : null;
         return {
           slug: pokemon.name,
-          name: nameBundle(pokemon.names, pokemon.name),
+          name: nameBundle(form?.form_names?.length ? form.form_names : pokemon.names, pokemon.name),
+          // What a held-item forme carries in place of the species' ability: a
+          // masked Ogerpon's Water Absorb, Mold Breaker or Sturdy. A forme an
+          // ability triggers keeps that ability, so it carries none of its own.
+          ...(ability ? { ability } : {}),
           // The variety's numeric id, which is where the sprite step finds the
           // forme's picture — most alternate formes live under ids above
           // 10000 rather than beside the default one.
@@ -1336,6 +1353,8 @@ const FORM_FORME = new Map([
   ['mimikyu', 'mimikyu-busted'],
   ['eiscue', 'eiscue-noice'],
   ['cramorant', null],
+  // One forme per mask.
+  ['ogerpon', null],
 ]);
 
 /**
@@ -1363,6 +1382,8 @@ const FORM_TRIGGER = new Map([
   ['eiscue', 'hit'],
   // A Surf or a Dive catches something, and it stays caught.
   ['cramorant', 'move'],
+  // Whichever mask it is holding.
+  ['ogerpon', 'item'],
 ]);
 
 /**

@@ -32,6 +32,83 @@ export const FORM_ABILITY = new Map([
   ['cramorant', 'gulp-missile'],
 ]);
 
+/**
+ * The formes a held item decides, by species and then by item: the forme it
+ * takes, and the type its signature move becomes.
+ *
+ * Ogerpon wears whichever mask it is holding — Water, Fire or Rock on top of
+ * its Grass, with the forme's own ability — and its Ivy Cudgel turns the
+ * mask's type. Without a mask it is the Teal Mask, the species' own shape.
+ *
+ * @type {Map<string, Map<string, {forme: string, type: string}>>}
+ */
+export const HELD_FORMES = new Map([
+  [
+    'ogerpon',
+    new Map([
+      ['wellspring-mask', { forme: 'ogerpon-wellspring-mask', type: 'water' }],
+      ['hearthflame-mask', { forme: 'ogerpon-hearthflame-mask', type: 'fire' }],
+      ['cornerstone-mask', { forme: 'ogerpon-cornerstone-mask', type: 'rock' }],
+    ]),
+  ],
+]);
+
+/**
+ * The forme a Pokémon's held item puts it in, if its species has one and the
+ * dex carries it.
+ *
+ * @param {{speciesId: number, heldItem?: string|null}|null|undefined} pokemon
+ * @returns {{forme: string, type: string}|null}
+ */
+export function heldForme(pokemon) {
+  const species = speciesOf(pokemon?.speciesId);
+  const byItem = HELD_FORMES.get(species?.slug ?? '');
+  const entry = byItem?.get(pokemon?.heldItem ?? '');
+  if (!entry || !(species.forms ?? []).some((form) => form.slug === entry.forme)) return null;
+  return entry;
+}
+
+/**
+ * Put a Pokémon into the shape its held item calls for, outside a battle.
+ *
+ * A mask is not a battle trick: an Ogerpon holding one wears it on the road
+ * and in the menus too, so handing one over or taking it back changes the
+ * Pokémon there and then. Any other species is left as it is.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ */
+export function settleHeldForme(pokemon) {
+  if (!HELD_FORMES.has(speciesOf(pokemon?.speciesId)?.slug ?? '')) return;
+  const entry = heldForme(pokemon);
+  if (entry) pokemon.forme = entry.forme;
+  else delete pokemon.forme;
+}
+
+/**
+ * The ability a forme puts in place of the species' own, if it has one.
+ *
+ * @param {{speciesId?: number, forme?: string|null}|null|undefined} pokemon
+ * @returns {string|null}
+ */
+export function formeAbility(pokemon) {
+  if (!pokemon?.forme) return null;
+  const form = (speciesOf(pokemon.speciesId)?.forms ?? []).find((entry) => entry.slug === pokemon.forme);
+  return form?.trigger === 'item' ? form.ability ?? null : null;
+}
+
+/**
+ * The types a Pokémon has outside a battle: its forme's, when it is wearing
+ * one that has its own, and its species' otherwise.
+ *
+ * @param {{speciesId: number, forme?: string|null}|null|undefined} pokemon
+ * @returns {string[]}
+ */
+export function standingTypes(pokemon) {
+  const species = speciesOf(pokemon?.speciesId);
+  const form = pokemon?.forme ? (species?.forms ?? []).find((entry) => entry.slug === pokemon.forme) : null;
+  return form?.types ?? species?.types ?? [];
+}
+
 /** Weather a Forecast turns into, and the forme that weather means. */
 const FORECAST_FORMS = new Map([
   ['sun', 'castform-sunny'],
@@ -70,6 +147,13 @@ export function formeFor(pokemon, state) {
   if (!speciesSlug) return null;
   const forms = species.forms ?? [];
   if (!forms.length) return null;
+
+  // A mask is on or it is not; nothing in the battle moves it.
+  if (HELD_FORMES.has(speciesSlug)) {
+    const entry = heldForme(pokemon);
+    if (entry) return entry.forme;
+    return state.current ? speciesSlug : null;
+  }
 
   const ability = FORM_ABILITY.get(speciesSlug);
   if (pokemon.ability !== ability) return null;

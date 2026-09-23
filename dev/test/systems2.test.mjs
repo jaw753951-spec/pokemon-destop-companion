@@ -21,7 +21,7 @@ import {
   WILD_ITEM_ODDS,
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
-import { giveTrainerItems, rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
+import { devolveToLevel, giveTrainerItems, pickStray, rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
@@ -513,4 +513,34 @@ test('the four Ruin abilities weigh on everything but their holder', options, ()
   assert.equal(ruined.stat(ruined.player, 'spa'), Math.floor(plain * 0.75));
   // And not on the Pokémon carrying it.
   assert.equal(ruined.stat(/** @type {any} */ (ruined.foe), 'spa'), theirs);
+});
+
+test('the wild holds every Pokémon, not only the ones the route names', options, () => {
+  const area = { id: 'test', tags: ['grass'], encounters: [{ species: 'ditto' }] };
+  const companion = fixed(PIKACHU, 30);
+  const rng = new Rng(4);
+  const seen = new Set();
+  for (let roll = 0; roll < 400; roll++) seen.add(rollWildPokemon(rng, area, companion).speciesId);
+  assert.ok(seen.has(DITTO), 'the route still has its own');
+  assert.ok(seen.size > 60, `only ${seen.size} species in 400 rolls`);
+});
+
+test('a stray comes at the stage its level allows, and a legendary only rarely', options, () => {
+  assert.equal(devolveToLevel(6, 5), 4, 'a level-5 Charizard is a Charmander');
+  assert.equal(devolveToLevel(6, 20), 5, 'at 20, a Charmeleon');
+  assert.equal(devolveToLevel(6, 40), 6);
+  assert.equal(devolveToLevel(134, 5), 134, 'a stone evolution has no level to be too young for');
+
+  const rng = new Rng(9);
+  const area = { id: 'test', tags: ['cave'] };
+  let legends = 0;
+  let suited = 0;
+  const rolls = 2000;
+  for (let roll = 0; roll < rolls; roll++) {
+    const species = speciesOf(pickStray(rng, area, 50));
+    if (species.isLegendary || species.isMythical) legends++;
+    if (species.types.some((type) => ['rock', 'ground', 'dark', 'poison'].includes(type))) suited++;
+  }
+  assert.ok(legends / rolls < 0.02, `${legends} legendaries in ${rolls}`);
+  assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
 });

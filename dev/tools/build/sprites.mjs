@@ -108,8 +108,10 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
         // to. The Showdown set draws a shiny forme as a picture of its own,
         // so both palettes are fetched the same way the default's are; where
         // a palette never built, the screen falls back to the ordinary one.
-        // There is no back sprite and no icon published for a forme, so those
-        // stay the default's, exactly as they have always been.
+        // A forme's back is published only for some — a masked Ogerpon has
+        // one, which is the side of it the player's own is seen from — so it
+        // is fetched where it exists and the default's stands in elsewhere.
+        // No icon is published for any forme; those stay the default's.
         const forms = formes.get(id);
         for (const forme of forms ?? []) {
           const sources = [
@@ -131,6 +133,15 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
             );
             const into = variant.shiny ? entry.shiny : entry;
             into[`form-${forme.slug}`] = strip.meta;
+
+            const back = await buildStrip(BACK_SOURCES.map((path) => path(forme.id, variant.shiny)));
+            if (back) {
+              await writeOut(
+                join(assetDir, 'pokemon', String(id), `back-form-${forme.slug}${variant.suffix}.png`),
+                back.png,
+              );
+              into[`back-form-${forme.slug}`] = back.meta;
+            }
           }
         }
 

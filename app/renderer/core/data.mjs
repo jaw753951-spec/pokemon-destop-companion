@@ -158,18 +158,20 @@ export function artOf(pokemon, kind) {
   if (!entry) return null;
 
   // An alternate forme is a picture of its own beside the default's, which is
-  // why the forme is part of the path rather than a filter over it. There is
-  // no back or box icon published for the formes, so those fall back to the
-  // default's — a Mimikyu that lost its disguise still walks on the same
-  // feet, and the player's own busted Mimikyu is drawn mirrored as ever.
+  // why the forme is part of the path rather than a filter over it. A back is
+  // published for only some formes (a masked Ogerpon's) and no box icon for
+  // any, so those fall back to the default's — a Mimikyu that lost its
+  // disguise still walks on the same feet, and the player's own busted
+  // Mimikyu is drawn mirrored as ever.
   const forme = pokemon.forme;
-  if (forme && kind === 'front') {
-    const formMeta = entry[`form-${forme}`];
+  if (forme && (kind === 'front' || kind === 'back')) {
+    const key = `${kind === 'back' ? 'back-' : ''}form-${forme}`;
+    const formMeta = entry[key];
     if (formMeta) {
-      const formShiny = pokemon.shiny ? entry.shiny?.[`form-${forme}`] : null;
+      const formShiny = pokemon.shiny ? entry.shiny?.[key] : null;
       const form = formShiny ?? formMeta;
       return {
-        path: `pokemon/${pokemon.speciesId}/front-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
+        path: `pokemon/${pokemon.speciesId}/${kind}-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
         meta: form,
       };
     }

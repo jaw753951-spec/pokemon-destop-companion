@@ -55,6 +55,7 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
         const icon = await firstAvailable(iconCandidates(name, items[name], machines, moves));
         if (icon) {
           await writeOut(join(assetDir, 'items', `${name}.png`), icon);
+          items[name].sprite = true;
           saved++;
         } else {
           items[name].sprite = false;
@@ -90,7 +91,8 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
  * @returns {string[]}
  */
 function iconCandidates(name, item, machines, moves) {
-  const candidates = [`${SPRITES}/items/${name}.png`];
+  // The newest items are only drawn in the generation folders.
+  const candidates = [`${SPRITES}/items/${name}.png`, `${SPRITES}/items/gen9/${name}.png`, `${SPRITES}/items/gen8/${name}.png`];
   if (item.pocket === 'machines') {
     const type = moves[machines[name]]?.type;
     const prefix = name.startsWith('hm') ? 'hm' : 'tm';
@@ -148,6 +150,9 @@ export function assignRarityTiers(items, moves = {}) {
 
   for (const [name, item] of Object.entries(items)) {
     if (!item.sprite) continue;
+    // Sword and Shield's records teach what the TMs already do, and would
+    // bury them a hundred deep in the machine pool.
+    if (item.pocket === 'machines' && /^tr\d+$/.test(name)) continue;
     if (item.pocket === 'key') continue;
     if (EXCLUDED_CATEGORIES.has(item.category)) continue;
     if (unnamed(item)) continue;

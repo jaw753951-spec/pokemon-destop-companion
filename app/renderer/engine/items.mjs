@@ -9,6 +9,7 @@ import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilitySlot, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
+import { settleHeldForme } from './forms.mjs';
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -144,6 +145,7 @@ export function equipItem(session, slug) {
   if (pokemon.heldItem) session.addItem(pokemon.heldItem);
   if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip') };
   pokemon.heldItem = slug;
+  settleHeldForme(pokemon);
   return {
     used: true,
     ok: true,
@@ -164,6 +166,7 @@ export function unequipItem(session) {
 
   session.addItem(slug);
   pokemon.heldItem = null;
+  settleHeldForme(pokemon);
   return {
     used: true,
     ok: true,

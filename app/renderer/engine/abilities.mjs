@@ -25,6 +25,7 @@
  *   bug from the other side of the screen.
  */
 import { speciesOf } from '../core/data.mjs';
+import { formeAbility } from './forms.mjs';
 import { WEATHER, TERRAIN } from './field.mjs';
 
 /** A quarter of maximum HP, which is what most absorbing abilities pay. */
@@ -291,7 +292,7 @@ export const ABILITIES = {
   },
   trace: {
     start: (ctx) => {
-      const copied = ctx.foe.pokemon.ability;
+      const copied = abilityName(ctx.foe.pokemon);
       if (!copied || copied === 'trace' || !ABILITIES[copied]) return;
       ctx.self.pokemon.ability = copied;
       ctx.note('abilityTraced', { ability: copied });
@@ -529,7 +530,19 @@ const LOCKED_STATES = new Set(['taunt', 'encore', 'disable', 'torment']);
  * @returns {any|null}
  */
 export function abilityEffect(pokemon) {
-  return pokemon?.ability ? ABILITIES[pokemon.ability] ?? null : null;
+  const slug = abilityName(pokemon);
+  return slug ? ABILITIES[slug] ?? null : null;
+}
+
+/**
+ * The ability a Pokémon has right now: the one its forme brings, when a
+ * held-item forme brings one — a masked Ogerpon's — and its own otherwise.
+ *
+ * @param {{speciesId?: number, ability?: string, forme?: string|null}|null|undefined} pokemon
+ * @returns {string|null}
+ */
+export function abilityName(pokemon) {
+  return formeAbility(pokemon) ?? pokemon?.ability ?? null;
 }
 
 /** Whether the engine has been taught this ability. @param {string} slug */

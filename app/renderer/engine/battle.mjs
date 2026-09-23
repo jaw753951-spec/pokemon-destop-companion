@@ -9,8 +9,8 @@
  */
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { abilityEffect } from './abilities.mjs';
-import { formeFor } from './forms.mjs';
+import { abilityEffect, abilityName } from './abilities.mjs';
+import { formeFor, heldForme } from './forms.mjs';
 import {
   Field,
   FIELD_MOVES,
@@ -158,6 +158,9 @@ export const SELF_KNOCKOUT = new Set(['self-destruct', 'explosion', 'misty-explo
 /** The status moves the type chart still applies to. */
 const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
 
+/** Ivy Cudgel's number, which is how a move object is told apart. */
+const IVY_CUDGEL_ID = 904;
+
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
 
@@ -263,7 +266,7 @@ export class Battle {
       log.splice(before, 0, {
         kind: 'ability',
         side: combatant.side,
-        data: { ability: combatant.pokemon.ability },
+        data: { ability: abilityName(combatant.pokemon) },
       });
     }
   }
@@ -354,7 +357,7 @@ export class Battle {
        * @param {Record<string, any>} [data]
        */
       note(kind, data = {}) {
-        log.push({ kind, side: self.side, data: { ability: self.pokemon.ability, ...data } });
+        log.push({ kind, side: self.side, data: { ability: abilityName(self.pokemon), ...data } });
       },
 
       /** @param {Combatant} target @param {number} fraction of maximum HP */
@@ -366,7 +369,7 @@ export class Battle {
         log.push({
           kind: 'abilityDamage',
           side: target.side,
-          data: { amount, ability: self.pokemon.ability },
+          data: { amount, ability: abilityName(self.pokemon) },
         });
       },
 
@@ -376,7 +379,7 @@ export class Battle {
         if (target.pokemon.hp <= 0 || target.pokemon.hp >= max) return;
         const amount = Math.max(1, Math.floor(max * fraction));
         target.pokemon.hp = Math.min(max, target.pokemon.hp + amount);
-        log.push({ kind: 'heal', side: target.side, data: { amount, ability: self.pokemon.ability } });
+        log.push({ kind: 'heal', side: target.side, data: { amount, ability: abilityName(self.pokemon) } });
       },
 
       /** @param {Combatant} target @param {string} stat @param {number} change */
@@ -386,7 +389,7 @@ export class Battle {
         // about a drop the other side caused.
         if (change < 0 && target !== self && heldShield(target.pokemon, 'statDrops')) return false;
         return battle.applyStage(target, stat, change, log, {
-          ability: self.pokemon.ability,
+          ability: abilityName(self.pokemon),
           ...(target === self ? { source: 'self' } : {}),
         });
       },
@@ -406,7 +409,7 @@ export class Battle {
         log.push({
           kind: 'status',
           side: target.side,
-          data: { status: null, ability: self.pokemon.ability },
+          data: { status: null, ability: abilityName(self.pokemon) },
         });
       },
 
@@ -453,7 +456,7 @@ export class Battle {
         if (battle.abilityOf(target)?.indirectImmune) return;
         const dealt = Math.min(target.pokemon.hp, Math.round(amount));
         target.pokemon.hp -= dealt;
-        log.push({ kind: 'abilityDamage', side: target.side, data: { amount: dealt, ability: self.pokemon.ability } });
+        log.push({ kind: 'abilityDamage', side: target.side, data: { amount: dealt, ability: abilityName(self.pokemon) } });
       },
 
       /** Take down whatever the other side put up. */
@@ -511,12 +514,12 @@ export class Battle {
     // Something the other side is doing to it, and it says no.
     const fromOther = shift < 0 && data.source !== 'self';
     if (fromOther && ability?.statDrop?.(this.abilityContext(target, other ?? target, log), stat)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return false;
     }
     // Or says no and hands it back, which is what a Mirror Armor does.
     if (fromOther && ability?.reflectsDrops && other) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return this.applyStage(other, stat, shift, log, { source: 'self' });
     }
 
@@ -537,7 +540,7 @@ export class Battle {
 
     // An Opportunist helps itself to whatever the other side just worked for.
     if (shift > 0 && data.source !== 'copied' && other && this.abilityOf(other)?.copiesRaises) {
-      log.push({ kind: 'ability', side: other.side, data: { ability: other.pokemon.ability } });
+      log.push({ kind: 'ability', side: other.side, data: { ability: abilityName(other.pokemon) } });
       this.applyStage(other, stat, shift, log, { source: 'copied' });
     }
 
@@ -546,7 +549,7 @@ export class Battle {
       const mark = log.length;
       ability.onStatDropped(this.abilityContext(target, other, log), stat);
       if (log.length > mark) {
-        log.splice(mark, 0, { kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+        log.splice(mark, 0, { kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       }
     }
     return true;
@@ -807,6 +810,9 @@ export class Battle {
     if (wanted === current) return false;
 
     const before = current ? statsOf(combatant.pokemon, current).hp : maxHp(combatant.pokemon);
+    // A mask is worn on the road as well; walking into a battle already in it
+    // is not a change anybody sees.
+    const alreadyWorn = Boolean(wanted) && combatant.pokemon.forme === wanted && Boolean(heldForme(combatant.pokemon));
     combatant.marks.forme = wanted;
     // The Pokémon wears the slug too, so every screen that holds one — the
     // health bars, the nameplates, the sprite cache keys — reads the shape it
@@ -817,10 +823,11 @@ export class Battle {
     // The forme replaces the species' types, which is where its resistances
     // live; an explicit rewrite would fight the next forme change.
     combatant.marks.types = null;
+    if (alreadyWorn) return true;
     log.push({
       kind: 'formChanged',
       side: combatant.side,
-      data: { forme: wanted, ability: combatant.pokemon.ability },
+      data: { forme: wanted, ability: abilityName(combatant.pokemon) },
     });
     return true;
   }
@@ -1172,7 +1179,7 @@ export class Battle {
       attacker.marks.loafing = !attacker.marks.loafing;
       if (attacker.marks.loafing) {
         attacker.turnsTaken++;
-        log.push({ kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.push({ kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
         log.push({ kind: 'loafing', side: attacker.side });
         return;
       }
@@ -1235,7 +1242,7 @@ export class Battle {
     // A Protean becomes whatever it is about to use.
     if (this.abilityOf(attacker)?.retypes === 'move') {
       if (this.becomeType(attacker, [move.type], log)) {
-        log.splice(log.length - 1, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.splice(log.length - 1, 0, { kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
       }
     }
 
@@ -1257,7 +1264,7 @@ export class Battle {
     if (SELF_KNOCKOUT.has(moveName)) {
       // A Damp keeps the thing from going off at all.
       if (moveName !== 'memento' && this.abilityOf(defender, attacker)?.dampens) {
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         log.push({ kind: 'failed', side: attacker.side });
         return;
       }
@@ -1280,7 +1287,7 @@ export class Battle {
 
     // A Magic Bounce sends a status move back where it came from.
     if (move.damageClass === 'status' && this.abilityOf(defender, attacker)?.bouncesStatus) {
-      log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+      log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       log.push({ kind: 'bounced', side: defender.side });
       this.applyStatusMove(defender, attacker, move, log);
       return;
@@ -1355,6 +1362,11 @@ export class Battle {
    * @param {any} move
    */
   effectiveMove(attacker, defender, move) {
+    // An Ivy Cudgel is whatever type the mask swinging it is.
+    if (move.id === IVY_CUDGEL_ID) {
+      const mask = heldForme(attacker.pokemon);
+      if (mask && mask.type !== move.type) move = { ...move, type: mask.type };
+    }
     const ability = this.abilityOf(attacker);
     const retyped = ability?.moveType?.(this.abilityContext(attacker, defender, []), move);
     if (!retyped || retyped === move.type) return move;
@@ -1637,7 +1649,7 @@ export class Battle {
 
     // A Cheek Pouch is paid for eating whatever it was.
     if (ability?.onBerry) {
-      log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+      log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
       ability.onBerry(this.abilityContext(combatant, other ?? combatant, log));
     }
   }
@@ -1656,7 +1668,7 @@ export class Battle {
 
     combatant.pokemon.heldItem = combatant.marks.ateBerry;
     combatant.marks.ateBerry = null;
-    log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+    log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
     log.push({ kind: 'regrew', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
   }
 
@@ -1801,7 +1813,7 @@ export class Battle {
       if (this.bustForme(attacker, defender)) {
         defender.marks.formeBroken = true;
         this.applyForme(defender, { ...this.formeState(defender), broken: true }, log);
-        log.push({ kind: 'formBroken', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'formBroken', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         break;
       }
 
@@ -1813,7 +1825,7 @@ export class Battle {
           kind: 'endure',
           side: defender.side,
           data: survives.ability
-            ? { ability: defender.pokemon.ability }
+            ? { ability: abilityName(defender.pokemon) }
             : { item: defender.pokemon.heldItem },
         });
         if (survives.consumed) defender.pokemon.heldItem = null;
@@ -1846,7 +1858,7 @@ export class Battle {
       // An Anger Point turns a weak spot into the highest Attack there is.
       const angered = this.abilityOf(defender, attacker);
       if (angered?.onCrit && defender.pokemon.hp > 0) {
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         angered.onCrit(this.abilityContext(defender, attacker, log));
       }
     }
@@ -1861,7 +1873,7 @@ export class Battle {
       // A Liquid Ooze turns the drink into the same amount of damage.
       if (this.abilityOf(defender, attacker)?.drainHurts) {
         attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - healed);
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         log.push({ kind: 'damage', side: attacker.side, data: { amount: healed } });
       } else {
         attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
@@ -1946,7 +1958,7 @@ export class Battle {
     if (!absorbed) return false;
 
     const context = this.abilityContext(defender, attacker, log);
-    log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+    log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
 
     if (absorbed.heal) context.heal(defender, absorbed.heal);
     if (absorbed.stat) context.raise(defender, absorbed.stat, absorbed.stages ?? 1);
@@ -2017,13 +2029,13 @@ export class Battle {
       // And the two that store a charge off it.
       if (ability?.absorbCharge?.(this.abilityContext(defender, attacker, log), move)) {
         defender.marks.charged = true;
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
 
       const before = log.length;
       ability?.hit?.(this.abilityContext(defender, attacker, log), move, damage);
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
     }
 
@@ -2033,7 +2045,7 @@ export class Battle {
       const before = log.length;
       dealt.onHitDealt(this.abilityContext(attacker, defender, log), move, damage);
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
       }
     }
 
@@ -2045,7 +2057,7 @@ export class Battle {
       const before = log.length;
       ability?.contact?.(this.abilityContext(defender, attacker, log));
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
     }
 
@@ -2632,7 +2644,7 @@ export class Battle {
     const other = target === this.player ? this.foe : this.player;
     const ability = this.abilityOf(target, other ?? undefined);
     if (ability?.blockVolatile?.(this.abilityContext(target, other ?? target, log), state)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return true;
     }
     return false;
@@ -2666,7 +2678,7 @@ export class Battle {
     const other = source;
     const ability = this.abilityOf(target, other ?? undefined);
     if (ability?.blockStatus?.(this.abilityContext(target, other ?? target, log), status)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return false;
     }
 
@@ -2676,7 +2688,7 @@ export class Battle {
 
     // A Synchronize passes what it was given straight back.
     if (ability?.reflectsStatus && other && other.pokemon.hp > 0 && !other.pokemon.status) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       this.inflictStatus(other, ailment, log);
     }
     return true;
@@ -2772,7 +2784,7 @@ export class Battle {
     const before = log.length;
     ability.onKnockOut(this.abilityContext(winner, fallen, log));
     if (log.length > before) {
-      log.splice(before, 0, { kind: 'ability', side: winner.side, data: { ability: winner.pokemon.ability } });
+      log.splice(before, 0, { kind: 'ability', side: winner.side, data: { ability: abilityName(winner.pokemon) } });
     }
   }
 
@@ -2794,7 +2806,7 @@ export class Battle {
     const before = log.length;
     ability.faint(this.abilityContext(fallen, other, log, { byContact, lastDamage: fallen.marks.lastDamage ?? 0 }));
     if (log.length > before) {
-      log.splice(before, 0, { kind: 'ability', side: fallen.side, data: { ability: fallen.pokemon.ability } });
+      log.splice(before, 0, { kind: 'ability', side: fallen.side, data: { ability: abilityName(fallen.pokemon) } });
     }
   }
 

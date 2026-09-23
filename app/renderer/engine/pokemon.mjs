@@ -6,6 +6,7 @@
  * from it on demand rather than stored twice.
  */
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
+import { HELD_FORMES, settleHeldForme } from './forms.mjs';
 import {
   addEffort,
   computeStats,
@@ -107,6 +108,14 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     caughtAt: Date.now(),
     ball: options.ball ?? null,
   });
+
+  // An Ogerpon is met in one of its four masks: the Teal it wears bare, or
+  // holding one of the other three — and it keeps the mask it came in.
+  const masks = HELD_FORMES.get(species.slug);
+  if (masks) {
+    pokemon.heldItem = rng.pick([null, ...masks.keys()]) ?? null;
+    settleHeldForme(pokemon);
+  }
 
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
   pokemon.hp = maxHp(pokemon);
