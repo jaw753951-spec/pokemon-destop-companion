@@ -1202,6 +1202,12 @@ canvas {
   border-color: var(--accent);
 }
 
+/* The item on the panel beside the list. */
+.item-row[aria-pressed='true'] {
+  border-color: var(--accent);
+  background: rgba(255, 255, 255, 0.9);
+}
+
 .item-row img {
   width: 16px;
   height: 16px;
@@ -1275,6 +1281,24 @@ canvas {
   font-size: 9px;
   line-height: 1.35;
   color: var(--ink-soft);
+}
+
+/* What can be done with the item, pinned to the bottom of the panel. */
+.inspect-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  margin-top: auto;
+  padding-top: 4px;
+}
+
+.inspect-actions .spacer {
+  flex: 1;
+}
+
+.inspect-hint {
+  margin: auto 0;
 }
 
 /* A machine is described by the move it teaches, not by itself. */

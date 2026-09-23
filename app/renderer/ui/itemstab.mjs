@@ -11,7 +11,7 @@ import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
 import { moveSummary } from './movecard.mjs';
-import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
+import { chooseFromList, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
 const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
@@ -24,7 +24,7 @@ const HEALING_CONDITIONS = ['never', 'hpTwoThirds', 'hpHalf', 'hpThird', 'hpQuar
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} refresh
- * @param {{pocket?: string}} state carried between re-renders
+ * @param {{pocket?: string, selected?: string|null}} state carried between re-renders
  * @returns {HTMLElement}
  */
 export function itemsTab(app, session, refresh, state) {
@@ -47,11 +47,21 @@ export function itemsTab(app, session, refresh, state) {
     return el('div.tab-body.items-tab', {}, [tabs, optionsPane(app, session, refresh)]);
   }
 
+  const entries = session.pocket(pocket);
+  // What was being read survives a refresh — using one of three Potions
+  // leaves the other two on the panel — but not the last of it going.
+  if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;
+
   const inspector = el('div.item-inspector');
-  showInspector(inspector, null);
+  const select = (slug) => {
+    state.selected = slug;
+    for (const row of list.querySelectorAll('.item-row')) {
+      row.setAttribute('aria-pressed', String(/** @type {HTMLElement} */ (row).dataset.slug === slug));
+    }
+    showInspector(app, session, inspector, slug, refresh);
+  };
 
   const list = scrollable(el('div.item-list'));
-  const entries = session.pocket(pocket);
 
   if (entries.length === 0) {
     list.append(el('div.empty', { text: t('items.empty') }));
@@ -62,7 +72,15 @@ export function itemsTab(app, session, refresh, state) {
         .map(({ slug, count, item }) =>
           el('button.item-row', {
             type: 'button',
-            onClick: () => openMenu(app, session, slug, inspector, refresh),
+            dataset: { slug },
+            'aria-pressed': String(slug === state.selected),
+            // Reading an item is the click: what it does, and what can be
+            // done with it, are on the panel beside the list rather than in
+            // a menu over it.
+            onClick: () => {
+              app.audio.blip('select');
+              select(slug);
+            },
           }, [
             el('img', { src: url('assets', `items/${slug}.png`), alt: '' }),
             el('span.item-name', { text: localized(item.name, slug) }),
@@ -71,6 +89,7 @@ export function itemsTab(app, session, refresh, state) {
         ),
     );
   }
+  showInspector(app, session, inspector, state.selected ?? null, refresh);
 
   return el('div.tab-body.items-tab', {}, [tabs, el('div.items-split', {}, [list, inspector])]);
 }
@@ -221,58 +240,18 @@ function healingConditionRow(app, policy, refresh) {
 }
 
 /**
+ * What an item is, and what can be done with it: the description, and along
+ * the bottom the buttons for whatever this item is offered for.
+ *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
- * @param {string} slug
- * @param {HTMLElement} inspector
- * @param {() => void} refresh
- */
-async function openMenu(app, session, slug, inspector, refresh) {
-  const item = itemOf(slug);
-  if (!item) return;
-
-  // What the item is for decides what it is offered for: a potion is used, a
-  // Leftovers is carried, and a ball is neither — it is thrown at something
-  // the companion has knocked down, from the capture screen.
-  const actions = itemActions(session, slug);
-
-  const choice = await chooseAction(app, localized(item.name, slug), [
-    ...(actions.use ? [{ value: 'use', label: t('items.use') }] : []),
-    ...(actions.equip ? [{ value: 'equip', label: t('items.equip') }] : []),
-    { value: 'inspect', label: t('items.inspect') },
-    { value: 'toss', label: t('items.toss'), danger: true },
-  ]);
-
-  if (choice === 'inspect') {
-    showInspector(inspector, slug);
-    return;
-  }
-
-  if (choice === 'toss') {
-    if (!(await confirm(app, t('items.tossConfirm'), { danger: true }))) return;
-    session.removeItem(slug);
-    app.toast(t('items.tossed', { name: localized(item.name, slug) }));
-    refresh();
-    return;
-  }
-
-  if (choice === 'use' || choice === 'equip') {
-    const result = choice === 'equip' ? equipItem(session, slug) : useItem(session, slug);
-    app.toast(result.message ?? t('items.cannotUse'));
-    // A refusal is worth a sound too: a TM the companion cannot learn says so
-    // and nothing else happens, which used to be silent.
-    app.audio.blip(result.ok ? 'confirm' : 'error');
-    if (result.used) refresh();
-  }
-}
-
-/**
  * @param {HTMLElement} inspector
  * @param {string|null} slug
+ * @param {() => void} refresh
  */
-function showInspector(inspector, slug) {
+function showInspector(app, session, inspector, slug, refresh) {
   if (!slug) {
-    inspector.replaceChildren(el('span.meta', { text: t('items.inspect') }));
+    inspector.replaceChildren(el('span.meta.inspect-hint', { text: t('items.inspectHint') }));
     return;
   }
   const item = itemOf(slug);
@@ -301,5 +280,47 @@ function showInspector(inspector, slug) {
     // than it acts on today; an item says so itself rather than leaving the
     // player to find out by using it.
     item.works ? null : el('span.meta.inspect-inert', { text: t('items.noEffectYet') }),
+    itemButtons(app, session, slug, refresh),
+  ]);
+}
+
+/**
+ * The buttons under an item's description.
+ *
+ * What the item is for decides what it is offered for: a potion is used, a
+ * Leftovers is handed over to carry, and a ball is neither — it is thrown at
+ * something the companion has knocked down, from the capture screen. Tossing
+ * is always there, quieter than the rest, and asks first.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} slug
+ * @param {() => void} refresh
+ */
+function itemButtons(app, session, slug, refresh) {
+  const item = itemOf(slug);
+  const actions = itemActions(session, slug);
+
+  /** @param {'use'|'equip'} kind */
+  const act = (kind) => {
+    const result = kind === 'equip' ? equipItem(session, slug) : useItem(session, slug);
+    app.toast(result.message ?? t('items.cannotUse'));
+    // A refusal is worth a sound too: a TM the companion cannot learn says so
+    // and nothing else happens, which used to be silent.
+    app.audio.blip(result.ok ? 'confirm' : 'error');
+    if (result.used) refresh();
+  };
+
+  return el('div.inspect-actions', {}, [
+    actions.use ? button(t('items.use'), () => act('use'), { className: 'small' }) : null,
+    actions.equip ? button(t('items.equip'), () => act('equip'), { className: 'small' }) : null,
+    el('span.spacer'),
+    button(t('items.toss'), async () => {
+      app.audio.blip('select');
+      if (!(await confirm(app, t('items.tossConfirm'), { danger: true }))) return;
+      session.removeItem(slug);
+      app.toast(t('items.tossed', { name: localized(item?.name, slug) }));
+      refresh();
+    }, { className: 'small ghost' }),
   ]);
 }
