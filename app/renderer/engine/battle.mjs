@@ -7,7 +7,7 @@
  * of the turn. Battles are fought automatically, so the engine produces a list
  * of log entries per turn which the battle scene plays back as animation.
  */
-import { COMPANION_DAMAGE_TAKEN } from '../../shared/constants.mjs';
+import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { abilityEffect } from './abilities.mjs';
 import { formeFor } from './forms.mjs';
@@ -2197,7 +2197,7 @@ export class Battle {
         charged,
     );
     // The companion's armour comes off the finished hit, weakness and all.
-    const damage = Math.max(1, Math.floor(formula * companionArmour(defender)));
+    const damage = Math.max(1, Math.floor(formula * companionArmour(defender, effectiveness)));
     return { damage, effectiveness, critical };
   }
 
@@ -3225,18 +3225,21 @@ function doubled(held) {
  *
  * The companion travels alone: there is no party to switch to, no second
  * chance at a bad matchup, and nobody watching to pull it out of one. So it
- * takes seventy per cent less of everything aimed at it. The cut is taken off
- * the finished number — after type effectiveness, STAB and the rest — so the
- * matchup keeps every bit of its meaning: a weakness still doubles the hit,
- * the hit is just a smaller one.
+ * takes half of everything aimed at it, and a weakness costs it half again
+ * rather than double — a double weakness, half again twice. Both come off the
+ * finished number, after type effectiveness, STAB and the rest, by undoing
+ * each of the chart's doublings and putting {@link COMPANION_WEAKNESS} in
+ * its place.
  *
  * Only what it *takes* is touched. What it deals goes through the formula
  * untouched, so nothing about the player's own damage changes.
  *
  * @param {Combatant|null|undefined} defender
+ * @param {number} effectiveness the type chart's multiplier for the hit
  * @returns {number}
  */
-export function companionArmour(defender) {
+export function companionArmour(defender, effectiveness) {
   if (defender?.side !== 'player') return 1;
-  return COMPANION_DAMAGE_TAKEN;
+  const weaknesses = effectiveness > 1 ? Math.log2(effectiveness) : 0;
+  return COMPANION_DAMAGE_TAKEN * (COMPANION_WEAKNESS / 2) ** weaknesses;
 }

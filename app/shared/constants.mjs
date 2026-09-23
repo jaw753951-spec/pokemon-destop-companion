@@ -104,12 +104,22 @@ export const HOLD_BOOST_GLIDE_MS = 800;
  * Damage the player's own Pokémon takes, as a share of what the formula says.
  *
  * The companion fights on its own for hours at a time with nobody to switch it
- * out, so it is given a standing seventy per cent off everything aimed at it.
- * The cut comes last, after type effectiveness has done its work, so a hit it
- * is weak to still lands twice as hard as a neutral one — only both are
- * smaller. What it deals is untouched — this is armour, not strength.
+ * out, so it is given a standing half off everything aimed at it. The cut
+ * comes last, after type effectiveness has done its work. What it deals is
+ * untouched — this is armour, not strength.
  */
-export const COMPANION_DAMAGE_TAKEN = 0.3;
+export const COMPANION_DAMAGE_TAKEN = 0.5;
+
+/**
+ * What a weakness multiplies a hit on the companion by, in place of the
+ * type chart's two.
+ *
+ * With no party to switch to, a bad matchup is not something the companion
+ * can get out of, so being hit where it is weak costs it half again rather
+ * than double. Each weakness counts: a double weakness is this squared.
+ * Resisted and neutral hits are the chart's own.
+ */
+export const COMPANION_WEAKNESS = 1.5;
 
 /**
  * How long to wait before trying again when a roll came due while an event was

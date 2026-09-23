@@ -239,9 +239,10 @@ IPC 메시지가 늦게 도착해도 이미 지나간 걸음을 한 번 더 더�
 ### 동행 포켓몬이 받는 데미지
 
 동행 포켓몬은 혼자 다닙니다 — 교체할 파티도, 불리한 상성에서 빼 줄 사람도 없습니다. 그래서
-**받는 데미지는 상시 70% 경감**됩니다(`COMPANION_DAMAGE_TAKEN` = 0.3). 경감은 타입 상성·자속·급소 등이
-모두 곱해진 **최종 데미지에 마지막으로** 적용되므로, 약점은 여전히 평범한 공격의 두 배로 들어오고
-상성의 의미는 그대로 남습니다. **주는 데미지는 그대로**입니다 — 이것은 방어력이지 공격력이 아닙니다.
+**받는 데미지는 상시 50% 경감**되고(`COMPANION_DAMAGE_TAKEN` = 0.5), **약점 배수는 2배 대신 1.5배**로
+들어옵니다(`COMPANION_WEAKNESS`, 4배 약점은 1.5×1.5 = 2.25배). 둘 다 타입 상성·자속·급소 등이 모두 곱해진
+최종 데미지에 마지막으로 적용됩니다 — 약점 공격이면 공식이 곱한 2배를 되돌리고 1.5배를 곱한 뒤 절반으로
+줄이는 식입니다. 반감·보통 공격은 상성표 그대로에서 절반입니다. **주는 데미지는 그대로**입니다 — 이것은 방어력이지 공격력이 아닙니다.
 
 ### 메시지 창
 
@@ -745,6 +746,7 @@ HTTPS 호스트에서 파일 하나, 다른 어디에도 없는 한 가지를 �
 | 내용 | 출처 |
 | --- | --- |
 | 룰 데이터 · 언어별 공식 명칭/설명 | [`PokeAPI/api-data`](https://github.com/PokeAPI/api-data) |
+| PokeAPI에 없는 8·9세대 기술의 한국어 설명 (`data/authored/move-texts.json`) | 스칼렛·바이올렛 1.0.1 공식 텍스트 [`Pokemon-Project-com/sv-text`](https://github.com/Pokemon-Project-com/sv-text), 그 덤프에 없는 DLC·액셀 기술 26개는 PokeRogue 번역 [`pagefaultgames/pokerogue-locales`](https://github.com/pagefaultgames/pokerogue-locales) (AGPL-3.0) |
 | 기술 분류(접촉 · 소리 · 가루 · 구슬…) | [`smogon/pokemon-showdown`](https://github.com/smogon/pokemon-showdown) |
 | 포켓몬 스프라이트 (BW·Showdown 애니메이션, 이로치 포함) | [`PokeAPI/sprites`](https://github.com/PokeAPI/sprites) |
 | 포켓몬 울음소리 | [`PokeAPI/cries`](https://github.com/PokeAPI/cries) |
