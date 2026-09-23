@@ -113,7 +113,7 @@ const STAT_EFFECT_MS = 620;
 const STAT_ARROWS = 4;
 const STAT_COLOURS = { up: '#6ee06a', down: '#ff6b6b' };
 
-/** @type {HTMLCanvasElement|null} */
+/** @type {HTMLCanvasElement|OffscreenCanvas|null} */
 let sharedTint = null;
 
 /**
@@ -124,7 +124,13 @@ let sharedTint = null;
  * @param {number} height
  */
 function tintCanvas(width, height) {
-  sharedTint ??= document.createElement('canvas');
+  if (!sharedTint) {
+    // Nowhere to paint one — a test drawing into a recording context — and a
+    // tint is only ever decoration.
+    if (typeof OffscreenCanvas !== 'undefined') sharedTint = new OffscreenCanvas(width, height);
+    else if (typeof document !== 'undefined') sharedTint = document.createElement('canvas');
+    else return null;
+  }
   if (sharedTint.width < width) sharedTint.width = width;
   if (sharedTint.height < height) sharedTint.height = height;
   return sharedTint;
@@ -319,7 +325,8 @@ export class Battler {
     // canvas, coloured everything already drawn there too — the backdrop
     // included — so every hit washed the whole screen red.
     const tint = tintCanvas(sprite.width, sprite.height);
-    const paint = /** @type {CanvasRenderingContext2D} */ (tint.getContext('2d'));
+    const paint = /** @type {CanvasRenderingContext2D|null} */ (/** @type {any} */ (tint)?.getContext('2d') ?? null);
+    if (!tint || !paint) return;
     paint.globalCompositeOperation = 'copy';
     paint.drawImage(sprite.image, sprite.frameAt(this.elapsed) * sprite.width, 0, sprite.width, sprite.height, 0, 0, sprite.width, sprite.height);
     paint.globalCompositeOperation = 'source-atop';
@@ -338,9 +345,9 @@ export class Battler {
     if (this.flip) {
       context.translate(left + width, top);
       context.scale(-1, 1);
-      context.drawImage(tint, 0, 0, sprite.width, sprite.height, 0, 0, width, height);
+      context.drawImage(/** @type {any} */ (tint), 0, 0, sprite.width, sprite.height, 0, 0, width, height);
     } else {
-      context.drawImage(tint, 0, 0, sprite.width, sprite.height, left, top, width, height);
+      context.drawImage(/** @type {any} */ (tint), 0, 0, sprite.width, sprite.height, left, top, width, height);
     }
     context.restore();
   }
