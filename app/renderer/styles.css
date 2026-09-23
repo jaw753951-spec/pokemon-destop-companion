@@ -957,6 +957,18 @@ canvas {
 }
 
 /* One frame of the sprite strip, stepped by background-position. */
+/* Every artist the sprites are credited to, run together as one paragraph. */
+.credits-names {
+  margin: 4px 0 0;
+  font-size: 9px;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.credits-url {
+  user-select: text;
+}
+
 .walker-portrait {
   image-rendering: pixelated;
 }

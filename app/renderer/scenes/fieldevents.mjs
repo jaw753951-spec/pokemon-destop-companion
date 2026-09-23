@@ -8,13 +8,13 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, groundY } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, walkerArt } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -607,9 +607,10 @@ function startWild(session, spawnAt) {
     },
   };
 
-  const art = artOf(wild, 'icon');
+  // Standing its ground in the road, in the same art the companion walks in.
+  const art = walkerArt(wild, 'idle');
   if (art) {
-    loadSprite(art.path, { ...art.meta, frames: 1, delay: 1000 }).then((sprite) => {
+    loadSprite(art.path, art.meta).then((sprite) => {
       state.prop.sprite = sprite;
     });
   }
@@ -743,14 +744,29 @@ function drawProp(context, state, screenX) {
     return;
   }
 
-  // A Pokémon or trainer waiting on the path, at the size the companion walks
-  // at so the two meet as equals rather than as a giant and a doll. A wild
-  // Pokémon is sized off the dex like the companion is, so the Sableye in the
-  // road is the same Sableye that would be walking it.
   const sprite = /** @type {Sprite} */ (prop.sprite);
+
+  // A wild Pokémon is drawn exactly as the companion is — the same art, the
+  // same scale, the same shadow — turned to face it, so the Sableye in the
+  // road is the same Sableye that would be walking it. It stands by the clock
+  // rather than the event's, which only starts once the two have met.
+  if (prop.kind === 'pokemon') {
+    drawWalker(context, sprite, {
+      x: screenX,
+      y: groundY(),
+      distance: 0,
+      moving: false,
+      facing: 'left',
+      scale: actorScale(sprite, prop.pokemon),
+      time: performance.now(),
+    });
+    return;
+  }
+
+  // A trainer waiting on the path, at the size the props are drawn at.
   sprite.draw(context, screenX, groundY(), {
     frame: sprite.frameAt(state.elapsed ?? 0),
-    scale: prop.kind === 'pokemon' ? actorScale(sprite, prop.pokemon) : ACTOR_SCALE,
+    scale: ACTOR_SCALE,
   });
 }
 

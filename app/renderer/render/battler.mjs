@@ -9,19 +9,18 @@
  * and a displaced position.
  */
 
-import { artOf } from '../core/data.mjs';
-import { actorScale } from './field.mjs';
+import { actorScale, walkerArt } from './field.mjs';
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
 
 /**
  * Shrink a battler that would not fit where it stands.
  *
- * The sprite sets run from a Diglett to an Eternatus drawn 447 pixels tall —
- * four times the height of this window — so at full size the big ones are a
- * cropped shin. Anything that would overrun the room it has is scaled to fill
- * that room instead, in both directions, so the largest Pokémon is the largest
- * thing on screen rather than the least visible.
+ * Anything that would overrun the room it has is brought down to fit it —
+ * but only in steps of half a field pixel, which the field's own zoom turns
+ * into whole screen pixels. A Pokémon shrunk to an arbitrary fraction is made
+ * of pixels of two sizes, and every Pokémon on screen being made of one size
+ * of pixel is the whole reason the art is drawn at a fixed scale.
  *
  * @param {import('../core/assets.mjs').Sprite} sprite
  * @param {{width: number, height: number}} room field pixels available
@@ -29,12 +28,16 @@ import { actorScale } from './field.mjs';
  */
 export function fitScale(sprite, room, preferred) {
   const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
-  return Math.min(preferred, fits);
+  if (preferred <= fits) return preferred;
+  return Math.max(SCALE_STEP, Math.floor(fits / SCALE_STEP) * SCALE_STEP);
 }
 
+/** The smallest step a battler's scale moves in: one screen pixel per art pixel. */
+const SCALE_STEP = 0.5;
+
 /**
- * The art a Pokémon is drawn from in a battle: its **box icon**, the same
- * picture it walks the field and fills a box slot with.
+ * The art a Pokémon is drawn from in a battle: its **standing** art, the same
+ * picture it waits on the road in.
  *
  * The game used to fight with the front and back sprites, which come from a
  * different set entirely — Showdown's animations where there are any, and the
@@ -48,28 +51,34 @@ export function fitScale(sprite, room, preferred) {
  * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
  */
 export function battlerArt(pokemon) {
-  const art = artOf(pokemon, 'icon');
-  if (!art) return null;
-  // Box icons are a single still drawing; the walk animates them by moving
-  // them, and a battle by the poses above.
-  return { path: art.path, meta: { ...art.meta, frames: 1, delay: 1000 } };
+  return walkerArt(pokemon, 'idle');
 }
+
+/**
+ * Whether a battler's art has to be mirrored to look the way its side faces.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {'left'|'right'} facing
+ */
+export const mirrorFor = (sprite, facing) => (sprite.facing ?? 'left') !== facing;
 
 /**
  * How much bigger than its field size a Pokémon is drawn in a battle.
  *
  * A battle is a close-up: the same sprite that is ankle-high on the road fills
  * a good part of the screen here, which is exactly what the cartridges do when
- * they cut from the overworld to a fight.
+ * they cut from the overworld to a fight. A whole number, so each art pixel
+ * is a whole number of screen pixels.
  */
-export const BATTLE_ZOOM = 2.2;
+export const BATTLE_ZOOM = 2;
 
 /**
  * And how much smaller the far side is drawn, which is the only depth cue a
  * flat backdrop has. The foe stands up the field; the companion is nearer the
- * camera than it is.
+ * camera than it is. Three quarters of the near side's two is one and a half,
+ * which is still a whole number of screen pixels.
  */
-export const FOE_DEPTH = 0.8;
+export const FOE_DEPTH = 0.75;
 
 /**
  * What to draw a battler at: its own field scale, brought up to battle size,
@@ -124,11 +133,10 @@ export class Battler {
     /**
      * Whether the art has to be mirrored to look the way this side faces.
      *
-     * A box icon is drawn three-quarters on, turned towards the viewer's left
-     * — the same drawing the field walks with. The foe stands on the right and
-     * is already looking the right way; the companion stands on the left and
-     * is mirrored, so the two face each other across the backdrop exactly as
-     * the companion faces down the road it walks.
+     * The two sides face each other across the backdrop: the companion on the
+     * left looking right, as it faces down the road it walks, and the foe on
+     * the right looking back at it. Which of them needs mirroring depends on
+     * which way the art was drawn — see {@link mirrorFor}.
      */
     this.flip = flip;
 

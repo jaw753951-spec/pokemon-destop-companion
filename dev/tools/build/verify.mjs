@@ -90,6 +90,8 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   const noSprite = [];
   const noShiny = [];
   const noShinyIcon = [];
+  const noWalk = [];
+  const noShinyWalk = [];
   const noLearnset = [];
   const unknownAbilities = new Set();
   /** How many species each language shows another language's name for. */
@@ -103,6 +105,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     // source — so a gap here is a Pokémon that walks the field in its
     // ordinary colours, not a broken build.
     if (sprite?.shiny?.front && !sprite?.shiny?.icon) noShinyIcon.push(entry.id);
+    // The field art comes from the Sprite Collab, which has not drawn every
+    // species; the rest walk in their box icon.
+    if (!sprite?.walk) noWalk.push(entry.id);
+    else if (!sprite?.shiny?.walk) noShinyWalk.push(entry.id);
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
     for (const ability of entry.abilities ?? []) {
       if (!abilities[ability.name]) unknownAbilities.add(ability.name);
@@ -115,7 +121,11 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(noSprite.length === 0, `species missing art: ${summarize(noSprite)}`);
   note(noShiny.length === 0, `species missing alternate-palette art: ${summarize(noShiny)}`);
   if (noShinyIcon.length) {
-    log(`note: ${noShinyIcon.length} species have no shiny box icon and walk the field in their ordinary colours`);
+    log(`note: ${noShinyIcon.length} species have no shiny box icon`);
+  }
+  if (noWalk.length) log(`note: ${noWalk.length} species have no walking art and walk in their box icon (${summarize(noWalk)})`);
+  if (noShinyWalk.length) {
+    log(`note: ${noShinyWalk.length} species have no shiny walking art and walk in their ordinary colours`);
   }
   note(unknownAbilities.size === 0, `species name abilities that were not built: ${summarize([...unknownAbilities])}`);
   note(noLearnset.length === 0, `species missing a level-up learnset: ${summarize(noLearnset)}`);

@@ -24,6 +24,8 @@ import { loadJson } from './bridge.mjs';
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
+ * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}}} credits who
+ *   drew what the game borrows, for the credits the licence asks for
  */
 
 /** @type {GameData|null} */
@@ -51,15 +53,17 @@ export async function loadGameData() {
 
   // Authored data is optional: a checkout without it still runs, just without
   // trainers or the league.
-  const [trainerClasses, leaders, leagues] = await Promise.all([
+  const [trainerClasses, leaders, leagues, credits] = await Promise.all([
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
+    // Written by the walkers step; a build from before it has nothing to credit.
+    loadJson('data', 'credits.json').catch(() => ({})),
   ]);
 
   data = {
     species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,
-    trainerClasses, leaders, leagues,
+    trainerClasses, leaders, leagues, credits,
   };
   return data;
 }
@@ -118,7 +122,7 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * doing silently: a missing picture is worse than a missing sparkle.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'} kind
+ * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
  * @returns {{path: string, meta: any}|null}
  */
 export function artOf(pokemon, kind) {
@@ -173,7 +177,7 @@ export const spriteKey = (pokemon) =>
  * CSS background rather than decoding a sprite strip.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'} kind
+ * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
  */
 export const artPath = (pokemon, kind) => artOf(pokemon, kind)?.path ?? null;
 
