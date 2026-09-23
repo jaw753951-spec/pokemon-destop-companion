@@ -957,6 +957,10 @@ canvas {
 }
 
 /* One frame of the sprite strip, stepped by background-position. */
+.walker-portrait {
+  image-rendering: pixelated;
+}
+
 .pokemon-portrait {
   image-rendering: pixelated;
   max-width: 100px;

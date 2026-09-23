@@ -20,6 +20,7 @@ import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
 import { moveCard, moveSummary } from './movecard.mjs';
+import { walkerPortrait } from './portrait.mjs';
 import { statHexagon, statTable } from './statgraph.mjs';
 import { typeChip } from './typechip.mjs';
 
@@ -37,13 +38,16 @@ export function pokemonTab(app, session, refresh, state = {}) {
   const stats = statsOf(pokemon);
   const level = levelOf(pokemon);
   const progress = experienceProgress(pokemon);
-  const portrait = artOf(pokemon, 'front');
+  const name = localized(species?.name, '');
+  // The companion as it walks the road, so the tab shows the Pokémon the
+  // player has been watching rather than its battle sprite; the battle art is
+  // only for a species with no field art at all.
+  const walker = walkerPortrait(pokemon, { maxHeight: PORTRAIT_MAX_HEIGHT, label: name });
+  const portrait = walker ? null : artOf(pokemon, 'front');
 
   return el('div.tab-body.pokemon-tab', {}, [
     el('div.pokemon-left', {}, [
-      // The sprite is stored as a strip of frames; a window the width of one
-      // frame, scrolled by CSS, shows the animation the field draws.
-      portrait ? animatedPortrait(portrait, localized(species?.name, '')) : null,
+      walker ?? (portrait ? animatedPortrait(portrait, name) : null),
       statHexagon({ base: baselineStats(species, level), actual: stats }),
       statTable(stats, pokemon.evs),
     ]),
@@ -146,9 +150,12 @@ function baselineStats(species, level) {
   return out;
 }
 
+/** The tallest the portrait may stand above the stat hexagon, in pixels. */
+const PORTRAIT_MAX_HEIGHT = 70;
+
 /**
- * A one-frame window onto the sprite strip, animated by stepping the
- * background position — the same frames and timing the field uses.
+ * A one-frame window onto the battle sprite's strip, animated by stepping the
+ * background position — for a species the field has no art for.
  *
  * @param {{path: string, meta: {width: number, height: number, frames: number, delay: number}}} art
  * @param {string} label

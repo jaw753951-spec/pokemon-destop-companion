@@ -22,12 +22,14 @@ import { Session } from '../engine/session.mjs';
 import {
   actorHeight,
   actorScale,
+  boostPace,
   COMPANION_X,
   drawBackground,
   drawStepDust,
   drawWalker,
   groundY,
   inFieldSpace,
+  nextBoost,
   setGroundY,
   WALK_SPEED,
 } from '../render/field.mjs';
@@ -92,9 +94,15 @@ export function fieldScene(session) {
    * A press on the companion makes it get on with it: the road scrolls faster
    * and the event clock runs fast while this is true, which is the part of it
    * a player can actually see. It is a live state rather than a stock of
-   * clicks, so it ends the frame the pointer goes up.
+   * clicks: it is what the hand is doing, and `boost` follows it.
    */
   let boosting = false;
+  /**
+   * How far the hurry has come on, 0 to 1 — up while the pointer is held and
+   * gliding back down after it is let go, so the road neither lurches into a
+   * run nor stops dead. See `nextBoost`.
+   */
+  let boost = 0;
   /** How far into the walk to the next area, in milliseconds; 0 when settled. */
   let crossing = 0;
   /** Whether the area has already changed behind the shut screen. */
@@ -402,8 +410,8 @@ export function fieldScene(session) {
       // on the view it landed.
       //
       // Held rather than counted, and released rather than spent: the road
-      // runs fast while the pointer is down and is back to its own pace on the
-      // very next frame after it comes up. A stock of clicks that drained
+      // runs fast while the pointer is down and glides back to its own pace
+      // within a second of it coming up. A stock of clicks that drained
       // afterwards had the companion sprinting for seconds after the player
       // had stopped asking it to.
       onPointerDown = (event) => {
@@ -452,6 +460,7 @@ export function fieldScene(session) {
       onPointerDown = null;
       onPointerUp = null;
       boosting = false;
+      boost = 0;
       hud = null;
       events = null;
       host = null;
@@ -465,9 +474,10 @@ export function fieldScene(session) {
       // frame the pointer goes up both are back to normal with nothing owed
       // either way. Menus and battles sit above this scene, so a press on
       // those never reaches here.
+      boost = nextBoost(boost, boosting, deltaMs);
       const walking = events?.walking ?? true;
       if (walking) {
-        offset += (WALK_SPEED * (boosting ? HOLD_BOOST_WALK : 1) * deltaMs) / 1000;
+        offset += (WALK_SPEED * boostPace(boost, HOLD_BOOST_WALK) * deltaMs) / 1000;
         // Never past whatever is being walked up to: a long frame would carry
         // the companion a few pixels beyond the spot, which at a door leaves
         // it standing at the side of the doorway instead of in it.
@@ -476,7 +486,7 @@ export function fieldScene(session) {
       }
 
       const { autosave, event } = session.tick(deltaMs, {
-        eventRate: boosting ? HOLD_BOOST_RATE : 1,
+        eventRate: boostPace(boost, HOLD_BOOST_RATE),
       });
 
       tickCrossing(deltaMs, app);
@@ -516,7 +526,10 @@ export function fieldScene(session) {
       paused = value;
       // Whatever was holding the road fast is not holding it any more: a menu
       // opening over it ends the hurry along with everything else.
-      if (value) boosting = false;
+      if (value) {
+        boosting = false;
+        boost = 0;
+      }
     },
 
     get offset() {

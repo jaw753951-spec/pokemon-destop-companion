@@ -767,6 +767,11 @@ function drawProp(context, state, screenX) {
  * back to a bare stalk the moment it was picked: the tree the companion had
  * just walked up to vanished and left a twig. Naming the stages instead means
  * a picked tree keeps its shape and loses only what was picked off it.
+ *
+ * `bare` is only the fallback, though: the flowers on that stage are a few
+ * loose pixels that read as the sprite breaking up once the fruit is gone, so
+ * the build names the grown tree instead (`picked`) wherever that stage is a
+ * tree rather than a stalk.
  */
 const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
 
@@ -786,7 +791,8 @@ function drawBerryTree(context, prop, screenX, elapsed = 0) {
   // The build says which frames it found the fruit on; the table above is the
   // answer for a manifest written before it did.
   const ripe = Array.isArray(meta?.fruit) && meta.fruit.length ? meta.fruit : BERRY_STAGES.ripe;
-  const stage = prop.frame === 'ripe' ? ripe : BERRY_STAGES.bare;
+  const picked = Array.isArray(meta?.picked) && meta.picked.length ? meta.picked : BERRY_STAGES.bare;
+  const stage = prop.frame === 'ripe' ? ripe : picked;
 
   const wanted = stage[Math.floor(elapsed / BERRY_SWAY_MS) % stage.length];
   // A sheet the build cut differently — fewer frames than Emerald's six —

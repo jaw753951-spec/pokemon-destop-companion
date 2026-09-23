@@ -13,7 +13,13 @@
  * ground the way a stepped tile-grid sprite is — speed up the walk and the
  * legs go faster, stop and they stop mid-stride.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
+import {
+  FIELD_HEIGHT,
+  FIELD_WIDTH,
+  FIELD_ZOOM,
+  HOLD_BOOST_GLIDE_MS,
+  HOLD_BOOST_RAMP_MS,
+} from '../../shared/constants.mjs';
 import { speciesOf } from '../core/data.mjs';
 
 /**
@@ -137,6 +143,31 @@ const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
 
 /** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
+
+/**
+ * How far the hurry has come on after another frame, from 0 (the ordinary
+ * pace) to 1 (all of it): up while the pointer is held, gliding down after.
+ *
+ * @param {number} level where it was
+ * @param {boolean} held whether the pointer is down
+ * @param {number} deltaMs
+ */
+export function nextBoost(level, held, deltaMs) {
+  if (held) return Math.min(1, level + deltaMs / HOLD_BOOST_RAMP_MS);
+  return Math.max(0, level - deltaMs / HOLD_BOOST_GLIDE_MS);
+}
+
+/**
+ * The multiple of the ordinary pace a hurry this far on comes to, eased at
+ * both ends so the change of speed has no corner in it.
+ *
+ * @param {number} level from {@link nextBoost}
+ * @param {number} full the multiple at full hurry
+ */
+export function boostPace(level, full) {
+  const t = Math.min(1, Math.max(0, level));
+  return 1 + (full - 1) * t * t * (3 - 2 * t);
+}
 
 /** The companion holds this column while the world slides past it. */
 export const COMPANION_X = Math.round(FIELD_WIDTH * 0.32);

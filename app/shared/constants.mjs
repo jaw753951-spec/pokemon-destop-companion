@@ -66,6 +66,18 @@ export const HOLD_BOOST_RATE = 6;
 export const HOLD_BOOST_WALK = 2.5;
 
 /**
+ * How the hurry comes on and goes off, in milliseconds.
+ *
+ * Switching the pace the instant the pointer moved made the road lurch: full
+ * speed on the frame it went down, a dead stop on the frame it came up. It
+ * now takes a moment to get going and glides back down to a walk when it is
+ * let go — long enough to read as momentum, short enough that the pace is
+ * still plainly the one the player's hand is asking for.
+ */
+export const HOLD_BOOST_RAMP_MS = 150;
+export const HOLD_BOOST_GLIDE_MS = 800;
+
+/**
  * Damage the player's own Pokémon takes, as a share of what the formula says.
  *
  * The companion fights on its own for hours at a time with nobody to switch it

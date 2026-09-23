@@ -191,6 +191,7 @@ async function buildProps(assetDir, pool, log) {
           // it — is reported instead of shipped as a berry tree that is bare
           // when the companion walks up to pick from it.
           fruit: fruitFrames(sheet, layout),
+          picked: pickedFrames(sheet, layout),
         };
       }),
     ),
@@ -253,6 +254,34 @@ function fruitFrames(sheet, layout) {
   const differs = fruit.some((frame, index) => !sameFrame(sheet, layout, frame, flowering[index]));
   return differs ? fruit : null;
 }
+
+/**
+ * Which frames to show once the fruit is picked, or null to leave it to the
+ * renderer.
+ *
+ * The tree in flower is the same shape as the tree in fruit, but its flowers
+ * are a few loose pixels each, and drawn half as large again on the road they
+ * read as the sprite breaking up rather than as blossom. The grown tree — the
+ * stage before either, with nothing on it — is the honest picture of a tree
+ * that has just been picked bare. It stands a few pixels shorter, which reads
+ * well enough; what does not is the one sheet whose grown stage is a stalk a
+ * third the width of the tree in fruit, where the companion's tree would
+ * shrink to a twig in its hands, so a stage that much narrower is passed over.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet
+ * @param {ReturnType<typeof frameLayout>} layout
+ * @returns {[number, number]|null}
+ */
+function pickedFrames(sheet, layout) {
+  if (layout.count < BERRY_STAGE_FRAMES * 3) return null;
+  const grown = opaqueBounds(cropFrame(sheet, layout, 0));
+  const fruit = opaqueBounds(cropFrame(sheet, layout, 4));
+  if (!grown || !fruit) return null;
+  return grown.width >= fruit.width * PICKED_MIN_WIDTH ? [0, 1] : null;
+}
+
+/** How narrow the grown tree may be, against the tree in fruit, to stand in for it picked. */
+const PICKED_MIN_WIDTH = 0.6;
 
 /**
  * @param {import('../lib/image.mjs').Raster} sheet

@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { drawWalker, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { boostPace, drawWalker, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
 import { CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
@@ -44,6 +45,39 @@ test('a negative distance still resolves to a real beat', () => {
   // not put the renderer into an undefined frame.
   assert.deepEqual(walkFrame(-STRIDE), walkFrame(3 * STRIDE));
   assert.ok(walkFrame(-1));
+});
+
+// ------------------------------------------------------- hurrying the road
+
+test('the hurry comes on quickly and glides off after the pointer is let go', () => {
+  // Pressed, it is at full pace within a few frames rather than on the first.
+  let level = nextBoost(0, true, 16);
+  assert.ok(level > 0 && level < 1, 'the first frame of a press is not yet a run');
+  for (let frame = 0; frame < 20; frame++) level = nextBoost(level, true, 16);
+  assert.equal(level, 1);
+  assert.equal(boostPace(level, HOLD_BOOST_WALK), HOLD_BOOST_WALK);
+
+  // Let go, the pace falls away over the glide instead of on the next frame…
+  const paces = [];
+  for (let ms = 0; ms < HOLD_BOOST_GLIDE_MS; ms += 16) {
+    level = nextBoost(level, false, 16);
+    paces.push(boostPace(level, HOLD_BOOST_WALK));
+  }
+  assert.ok(paces[0] > 2, `the frame after letting go still runs at ${paces[0]}`);
+  for (let index = 1; index < paces.length; index++) assert.ok(paces[index] <= paces[index - 1]);
+
+  // …and is back to a walk once it has, with nothing banked.
+  level = nextBoost(level, false, 16);
+  assert.equal(level, 0);
+  assert.equal(boostPace(level, HOLD_BOOST_WALK), 1);
+});
+
+test('the glide has no corner at either end', () => {
+  // Eased, so the step between one frame's pace and the next is smallest at
+  // the ends: it leaves the run and arrives at the walk gently.
+  const step = (level) => boostPace(level, HOLD_BOOST_WALK) - boostPace(level - 0.02, HOLD_BOOST_WALK);
+  assert.ok(step(1) < step(0.5));
+  assert.ok(step(0.02) < step(0.5));
 });
 
 // ------------------------------------------------- the rest stop's own script
