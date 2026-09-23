@@ -50,6 +50,28 @@ export function gatherBob(active) {
 }
 
 /**
+ * How much road an event occupies either side of where it plays out, in field
+ * pixels: the companion's own half-width behind the meeting spot, and the
+ * widest prop — the Pokémon Center — in front of it.
+ */
+const EVENT_BEHIND = 24;
+const EVENT_AHEAD = 80;
+
+/**
+ * The stretch of road the next event would play out on, if it started now.
+ *
+ * In the strip's own coordinates before wrapping: a point `x` of it is drawn
+ * at the strip's column `x mod width`, the same way the background is.
+ *
+ * @param {number} offset the field's current world scroll
+ * @returns {[number, number]}
+ */
+export function eventGround(offset) {
+  const spawnAt = offset + (FIELD_WIDTH - COMPANION_X) + SPAWN_MARGIN;
+  return [COMPANION_X + spawnAt - MEET_GAP - EVENT_BEHIND, COMPANION_X + spawnAt + EVENT_AHEAD];
+}
+
+/**
  * How far to the companion's right the prop ends up. Without a gap the two
  * sprites land on the same spot and the companion hides whatever it met.
  * Field pixels, so about a tile and a bit at the size they are drawn.

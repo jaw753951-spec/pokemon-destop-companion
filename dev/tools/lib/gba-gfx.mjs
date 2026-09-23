@@ -159,13 +159,15 @@ export function combineMetatiles(primary, secondary, geometry = GEOMETRY.emerald
  * @param {number} metatileId
  * @param {{tiles: Uint8Array[], palettes: Array<Array<[number, number, number]>>}} tileset
  * @param {Uint16Array} metatiles
+ * @param {[number, number]} [entries] which of the eight tiles to draw — all
+ *   of them by default, `[4, 8]` for the second layer alone
  */
-export function drawMetatile(out, canvasWidth, destX, destY, metatileId, tileset, metatiles) {
+export function drawMetatile(out, canvasWidth, destX, destY, metatileId, tileset, metatiles, entries = [0, 8]) {
   const base = metatileId * 8;
   if (base + 8 > metatiles.length) return;
 
   // Entries 0-3 are the bottom layer, 4-7 the top layer drawn over it.
-  for (let entry = 0; entry < 8; entry++) {
+  for (let entry = entries[0]; entry < entries[1]; entry++) {
     const value = metatiles[base + entry];
     const tileIndex = value & 0x3ff;
     const flipX = Boolean(value & 0x400);
@@ -194,6 +196,41 @@ export function drawMetatile(out, canvasWidth, destX, destY, metatileId, tileset
       }
     }
   }
+}
+
+/**
+ * Render only what a map draws over the people walking on it.
+ *
+ * A metatile's second four tiles go on the layer above the sprites unless its
+ * layer type says otherwise, which is how a player walks under the Cycling
+ * Road's deck on Route 110 instead of across it. Everything else is left
+ * transparent, so the result can be laid over a scene the full map was drawn
+ * under.
+ *
+ * @param {Buffer} blockdata `map.bin`
+ * @param {number} widthInBlocks
+ * @param {number} heightInBlocks
+ * @param {{tiles: Uint8Array[], palettes: Array<Array<[number, number, number]>>}} tileset
+ * @param {Uint16Array} metatiles
+ * @param {(metatileId: number) => boolean} overSprites whether a metatile's
+ *   second layer is drawn above the sprites
+ */
+export function renderTopLayer(blockdata, widthInBlocks, heightInBlocks, tileset, metatiles, overSprites) {
+  const width = widthInBlocks * METATILE_SIZE;
+  const height = heightInBlocks * METATILE_SIZE;
+  const data = new Uint8Array(width * height * 4);
+
+  for (let by = 0; by < heightInBlocks; by++) {
+    for (let bx = 0; bx < widthInBlocks; bx++) {
+      const offset = (by * widthInBlocks + bx) * 2;
+      if (offset + 1 >= blockdata.length) continue;
+      const metatileId = blockdata.readUInt16LE(offset) & 0x3ff;
+      if (!overSprites(metatileId)) continue;
+      drawMetatile(data, width, bx * METATILE_SIZE, by * METATILE_SIZE, metatileId, tileset, metatiles, [4, 8]);
+    }
+  }
+
+  return { width, height, data };
 }
 
 /**

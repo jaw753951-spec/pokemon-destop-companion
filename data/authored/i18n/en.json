@@ -105,6 +105,8 @@
   "items.use": "Use",
   "items.inspect": "Inspect",
   "items.inspectHint": "Pick an item to read about it here.",
+  "items.learnableOnly": "Learnable only",
+  "items.noLearnable": "Nothing here the companion can learn.",
   "items.noEffectYet": "No effect in this game yet.",
   "items.toss": "Toss",
   "items.tossConfirm": "Throw it away?",

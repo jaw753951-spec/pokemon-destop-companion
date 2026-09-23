@@ -1180,6 +1180,15 @@ canvas {
   flex-wrap: wrap;
 }
 
+.pocket-filter {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.item-row.unlearnable {
+  opacity: 0.45;
+}
+
 .items-split {
   flex: 1;
   min-height: 0;

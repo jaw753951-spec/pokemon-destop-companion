@@ -6,7 +6,7 @@
  * after a battle, and when to throw a potion during one.
  */
 import { url } from '../core/bridge.mjs';
-import { itemOf, moveOf } from '../core/data.mjs';
+import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
@@ -24,7 +24,7 @@ const HEALING_CONDITIONS = ['never', 'hpTwoThirds', 'hpHalf', 'hpThird', 'hpQuar
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} refresh
- * @param {{pocket?: string, selected?: string|null}} state carried between re-renders
+ * @param {{pocket?: string, selected?: string|null, learnableOnly?: boolean}} state carried between re-renders
  * @returns {HTMLElement}
  */
 export function itemsTab(app, session, refresh, state) {
@@ -47,7 +47,15 @@ export function itemsTab(app, session, refresh, state) {
     return el('div.tab-body.items-tab', {}, [tabs, optionsPane(app, session, refresh)]);
   }
 
-  const entries = session.pocket(pocket);
+  // A machine the companion cannot learn is one it cannot use, and a case of
+  // fifty TMs is a long way to scroll to find the six that fit. The machine
+  // pocket can be narrowed to those, and greys the rest out when it is not.
+  const machines = pocket === 'machines';
+  const learnable = new Set(machines ? speciesOf(session.active?.speciesId)?.learnset?.machine ?? [] : []);
+  const fits = (/** @type {string} */ slug) => learnable.has(itemOf(slug)?.move ?? '');
+  const onlyLearnable = machines && Boolean(state.learnableOnly);
+
+  const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || fits(entry.slug));
   // What was being read survives a refresh — using one of three Potions
   // leaves the other two on the panel — but not the last of it going.
   if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;
@@ -64,13 +72,13 @@ export function itemsTab(app, session, refresh, state) {
   const list = scrollable(el('div.item-list'));
 
   if (entries.length === 0) {
-    list.append(el('div.empty', { text: t('items.empty') }));
+    list.append(el('div.empty', { text: onlyLearnable ? t('items.noLearnable') : t('items.empty') }));
   } else {
     list.append(
       ...entries
         .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)))
         .map(({ slug, count, item }) =>
-          el('button.item-row', {
+          el(machines && !fits(slug) ? 'button.item-row.unlearnable' : 'button.item-row', {
             type: 'button',
             dataset: { slug },
             'aria-pressed': String(slug === state.selected),
@@ -91,7 +99,22 @@ export function itemsTab(app, session, refresh, state) {
   }
   showInspector(app, session, inspector, state.selected ?? null, refresh);
 
-  return el('div.tab-body.items-tab', {}, [tabs, el('div.items-split', {}, [list, inspector])]);
+  const filter = machines
+    ? el('div.pocket-filter', {}, [
+        el('button.chip', {
+          type: 'button',
+          text: t('items.learnableOnly'),
+          'aria-pressed': String(onlyLearnable),
+          onClick: () => {
+            app.audio.blip('select');
+            state.learnableOnly = !onlyLearnable;
+            refresh();
+          },
+        }),
+      ])
+    : null;
+
+  return el('div.tab-body.items-tab', {}, [tabs, filter, el('div.items-split', {}, [list, inspector])]);
 }
 
 /**

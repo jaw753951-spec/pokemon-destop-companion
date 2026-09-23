@@ -14,6 +14,7 @@ import {
   GEOMETRY,
   parseJascPal,
   renderMap,
+  renderTopLayer,
   sliceTiles,
   tilesetDirName,
 } from './gba-gfx.mjs';
@@ -42,16 +43,28 @@ export const SURFABLE_BEHAVIORS = new Set([
  * metatile's attributes as a u32 with the behaviour in the low nine bits,
  * where Emerald's is a u16 with it in the low eight.
  *
+ * The layer type — whether a metatile's second layer goes over the sprites or
+ * under them — sits in bits 12-15 of Emerald's attributes and 29-30 of Fire
+ * Red's.
+ *
  * @type {Record<'emerald'|'firered', {base: string, geometry: import('./gba-gfx.mjs').Geometry,
- *   attributeBytes: number, behaviorMask: number, surfable: Set<number>}>}
+ *   attributeBytes: number, behaviorMask: number, layerShift: number, surfable: Set<number>}>}
  */
 export const GAMES = {
-  emerald: { base: EMERALD, geometry: GEOMETRY.emerald, attributeBytes: 2, behaviorMask: 0xff, surfable: SURFABLE_BEHAVIORS },
+  emerald: {
+    base: EMERALD,
+    geometry: GEOMETRY.emerald,
+    attributeBytes: 2,
+    behaviorMask: 0xff,
+    layerShift: 12,
+    surfable: SURFABLE_BEHAVIORS,
+  },
   firered: {
     base: FIRERED,
     geometry: GEOMETRY.firered,
     attributeBytes: 4,
     behaviorMask: 0x1ff,
+    layerShift: 29,
     surfable: new Set([0x10, 0x11, 0x12, 0x13, 0x15, 0x19, 0x1a, 0x1b, 0x22, 0x50, 0x51, 0x52, 0x53]),
   },
 };
@@ -82,6 +95,7 @@ export async function openMaps(pool, game = 'emerald') {
      *   layout: any,
      *   blockdata: Buffer,
      *   image: {width: number, height: number, data: Uint8Array},
+     *   over: {width: number, height: number, data: Uint8Array},
      *   isWater: (x: number, y: number) => boolean,
      * }>}
      */
@@ -103,15 +117,18 @@ export async function openMaps(pool, game = 'emerald') {
       // metatile's number falls in: the primary's first, then the secondary's.
       const inPrimary = profile.geometry.metatilesInPrimary;
       const size = profile.attributeBytes;
-      const behaviorOf = (metatileId) => {
+      const attributesOf = (metatileId) => {
         const [attributes, index] =
           metatileId < inPrimary
             ? [primary.attributes, metatileId]
             : [secondary?.attributes ?? null, metatileId - inPrimary];
         if (!attributes || (index + 1) * size > attributes.length) return 0;
-        const value = size === 4 ? attributes.readUInt32LE(index * size) : attributes.readUInt16LE(index * size);
-        return value & profile.behaviorMask;
+        return size === 4 ? attributes.readUInt32LE(index * size) : attributes.readUInt16LE(index * size);
       };
+      const behaviorOf = (metatileId) => attributesOf(metatileId) & profile.behaviorMask;
+      // Layer type 1 ("covered") puts both layers under the sprites; 0 and 2
+      // put the second one over them.
+      const overSprites = (metatileId) => ((attributesOf(metatileId) >>> profile.layerShift) & 0x3) !== 1;
       const isWater = (x, y) => {
         const offset = (y * layout.width + x) * 2;
         if (x < 0 || y < 0 || x >= layout.width || offset + 1 >= blockdata.length) return false;
@@ -123,6 +140,7 @@ export async function openMaps(pool, game = 'emerald') {
         layout,
         blockdata,
         image: renderMap(blockdata, layout.width, layout.height, tileset, metatiles),
+        over: renderTopLayer(blockdata, layout.width, layout.height, tileset, metatiles, overSprites),
         isWater,
       };
     },

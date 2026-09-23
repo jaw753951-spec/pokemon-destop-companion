@@ -129,7 +129,11 @@ async function buildOverworldPeople(assetDir, pool, log) {
         });
         if (!source) return;
         const sheet = keyed(decodePng(source));
-        const layout = frameLayout(sheet, PERSON_FRAME.width, PERSON_FRAME.height);
+        // A child, a Tuber, a Ninja Boy is a 16x16 sprite, and its sheet is a
+        // single row of them. Cut as 16x32, each frame was the child with an
+        // empty tile under it, and the trainer stood a tile above the road.
+        const frameHeight = Math.min(PERSON_FRAME.height, sheet.height);
+        const layout = frameLayout(sheet, PERSON_FRAME.width, frameHeight);
         if (layout.count < 9) return;
 
         const frames = [PERSON_FRAMES.west, ...PERSON_FRAMES.walkWest].map((index) =>
@@ -141,7 +145,7 @@ async function buildOverworldPeople(assetDir, pool, log) {
           join(assetDir, 'trainers', 'field', `${id}.png`),
           encodePng(strip.width, strip.height, strip.data),
         );
-        out[id] = { width: PERSON_FRAME.width, height: PERSON_FRAME.height, frames: frames.length };
+        out[id] = { width: PERSON_FRAME.width, height: frameHeight, frames: frames.length };
       }),
     ),
   );

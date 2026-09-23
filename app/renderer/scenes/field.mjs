@@ -25,10 +25,12 @@ import {
   boostPace,
   COMPANION_X,
   drawBackground,
+  drawOverlay,
   drawStepDust,
   drawWalker,
   groundY,
   inFieldSpace,
+  nearOverpass,
   nextBoost,
   setGroundY,
   WALK_SPEED,
@@ -42,7 +44,7 @@ import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
-import { createEventRunner } from './fieldevents.mjs';
+import { createEventRunner, eventGround } from './fieldevents.mjs';
 import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
@@ -67,6 +69,8 @@ export function startRun(app, { slot, save }) {
 export function fieldScene(session) {
   /** @type {HTMLImageElement|null} */
   let background = null;
+  /** A bridge over the lane, drawn over the companion. @type {HTMLImageElement|null} */
+  let overlay = null;
   /** The companion walking, and standing still. @type {import('../core/assets.mjs').Sprite|null} */
   let companion = null;
   /** @type {import('../core/assets.mjs').Sprite|null} */
@@ -143,6 +147,16 @@ export function fieldScene(session) {
         .catch(() => {
           background = null;
         });
+      overlay = null;
+      if (session.area.overlay) {
+        loadImage(`areas/${session.area.id}/${timeOfDay()}-over.png`)
+          .then((image) => {
+            if (loadedAreaKey === key) overlay = image;
+          })
+          .catch(() => {
+            overlay = null;
+          });
+      }
       resumeMusic(app);
     }
 
@@ -528,8 +542,11 @@ export function fieldScene(session) {
       // goes back to a few seconds instead of its whole period, so the walk
       // picks it up as soon as the road is clear again.
       if (event) {
-        if (events?.busy || menuOpen || crossing > 0) session.eventTimer = EVENT_RETRY_MS;
-        else {
+        // Nor does one play out under a bridge: it waits until the road ahead
+        // is open sky again.
+        if (events?.busy || menuOpen || crossing > 0 || nearOverpass(session.area, eventGround(offset))) {
+          session.eventTimer = EVENT_RETRY_MS;
+        } else {
           events?.start(session.events.roll(session.rng), offset, app);
           // Ten things happen in a place, and then somewhere else.
           if (session.countEvent()) pendingCrossing = true;
@@ -609,6 +626,10 @@ export function fieldScene(session) {
         }
         closeDaylightLayer(field, timeOfDay());
       }
+
+      // A bridge overhead goes over whoever is walking under it; it is graded
+      // for the hour already, like the road.
+      drawOverlay(field, overlay, Math.round(offset));
 
       // The sky the place is under, in front of everything standing in it —
       // the companion walks in the rain rather than into it at the battle

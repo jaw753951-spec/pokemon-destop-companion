@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { boostPace, drawWalker, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { boostPace, drawWalker, nearOverpass, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
 import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
 import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
@@ -277,4 +277,17 @@ test('a rest stop hands over one or two balls, and the better ones early', () =>
   assert.equal(ballSupply(rng, 15).item, 'great-ball');
   assert.equal(ballSupply(rng, 30).item, 'ultra-ball');
   assert.equal(ballSupply(rng, 100).item, 'ultra-ball');
+});
+
+test('an event is kept off the road under a bridge, and a little way either side', () => {
+  const area = { width: 1000, covered: /** @type {Array<[number, number]>} */ ([[240, 320]]) };
+  assert.equal(nearOverpass(area, [100, 180]), false, 'well clear of it');
+  assert.equal(nearOverpass(area, [180, 260]), true, 'reaching under it');
+  assert.equal(nearOverpass(area, [330, 400]), true, 'just past it, within the margin');
+  assert.equal(nearOverpass(area, [400, 480]), false);
+  // The strip repeats, and so does the bridge in it.
+  assert.equal(nearOverpass(area, [2250, 2300]), true);
+  assert.equal(nearOverpass(area, [2100, 2180]), false);
+  // An area with nothing overhead never holds one back.
+  assert.equal(nearOverpass({ width: 1000 }, [240, 320]), false);
 });

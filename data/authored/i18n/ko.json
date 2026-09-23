@@ -105,6 +105,8 @@
   "items.use": "사용",
   "items.inspect": "조사",
   "items.inspectHint": "아이템을 누르면 여기에 설명이 나옵니다.",
+  "items.learnableOnly": "배울 수 있는 기술머신만",
+  "items.noLearnable": "지금 포켓몬이 배울 수 있는 기술머신이 없습니다.",
   "items.noEffectYet": "이 게임에서는 아직 효과가 없습니다.",
   "items.toss": "버리기",
   "items.tossConfirm": "버리시겠습니까?",

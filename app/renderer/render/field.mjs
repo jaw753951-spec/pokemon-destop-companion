@@ -222,6 +222,58 @@ export function drawBackground(context, background, offset) {
 }
 
 /**
+ * Draw what the map puts over the people on it — a bridge overhead — tiled
+ * exactly as the background under it is.
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {HTMLImageElement|null} overlay
+ * @param {number} offset
+ */
+export function drawOverlay(context, overlay, offset) {
+  if (!overlay) return;
+  const width = overlay.naturalWidth;
+  const height = overlay.naturalHeight;
+  const top = FIELD_HEIGHT - height;
+  let start = -(((offset % width) + width) % width);
+  while (start < FIELD_WIDTH) {
+    context.drawImage(overlay, Math.round(start), top, width, height);
+    start += width;
+  }
+}
+
+/**
+ * How far either side of a bridge an event is kept away, in field pixels.
+ *
+ * A trainer half under the deck, or a Pokémon Center with a bridge through
+ * its roof, is not a picture the map was ever meant to show.
+ */
+export const OVERPASS_MARGIN = 40;
+
+/**
+ * Whether a stretch of road runs under, or too close to, something the map
+ * draws over the lane.
+ *
+ * @param {{width: number, covered?: Array<[number, number]>}|null|undefined} area
+ * @param {[number, number]} ground strip coordinates before wrapping, as
+ *   `eventGround` gives them
+ * @param {number} [margin]
+ */
+export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
+  const spans = area?.covered;
+  if (!spans?.length || !area.width) return false;
+  const width = area.width;
+  // Each span stands once per repeat of the strip; the stretch is compared
+  // with the copies either side of it as well as its own.
+  const base = Math.floor(from / width) * width;
+  for (const shift of [base - width, base, base + width]) {
+    for (const [start, end] of spans) {
+      if (from < shift + end + margin && to > shift + start - margin) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A soft ellipse under a sprite, which grounds it against the background.
  * @param {CanvasRenderingContext2D} context
  * @param {number} x
