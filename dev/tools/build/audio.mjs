@@ -23,13 +23,9 @@ export const CUES = {
   battleLeader: 'mus_vs_gym_leader',
   battleEliteFour: 'mus_vs_elite_four',
   battleChampion: 'mus_vs_champion',
-  // The cartridge's victory themes are a two-second fanfare that runs straight
-  // into a loop scored to hold the screen while experience is shared out —
-  // sixteen seconds of it here, with the road waiting. Cutting at the loop
-  // stops them mid-phrase, so the wins borrow short fanfares that end on
-  // their own: the game corner's win jingle and the Battle Frontier's.
-  victoryWild: 'mus_slots_win',
-  victoryTrainer: 'mus_obtain_b_points',
+  // Played for their intro only — see `playJingle`'s `intro`.
+  victoryWild: 'mus_victory_wild',
+  victoryTrainer: 'mus_victory_trainer',
   victoryLeader: 'mus_victory_gym_leader',
   victoryLeague: 'mus_victory_league',
   league: 'mus_victory_road',

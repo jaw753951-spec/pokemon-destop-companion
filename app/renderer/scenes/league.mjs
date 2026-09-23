@@ -168,7 +168,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     session.leagueRegion = league.region;
 
     const name = session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '');
-    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null);
+    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null, { intro: true });
     app.toast(`${t('league.crowned', { name })}\n${t('league.wentHome')}`, 5000);
     onCrowned();
   }
