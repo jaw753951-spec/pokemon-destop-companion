@@ -218,7 +218,9 @@ export function drawBackground(context, background, offset) {
  */
 export function drawShadow(context, x, y, width) {
   context.save();
-  context.globalAlpha = 0.25;
+  // Relative to whatever the sprite is drawn at, so a companion fading into
+  // a doorway takes its shadow with it.
+  context.globalAlpha *= 0.25;
   context.fillStyle = '#000';
   context.beginPath();
   context.ellipse(x, y, Math.max(5, width * 0.4), Math.max(2, width * 0.15), 0, 0, Math.PI * 2);
@@ -336,7 +338,7 @@ export function drawStepDust(context, { x, y, distance, moving }) {
 
   const fade = 1 - progress / 0.55;
   context.save();
-  context.globalAlpha = 0.28 * fade;
+  context.globalAlpha *= 0.28 * fade;
   context.fillStyle = '#e8e2cf';
   const spread = 3 + (1 - fade) * 4;
   context.fillRect(Math.round(x - 9 - spread), Math.round(y - 1), 2, 1);

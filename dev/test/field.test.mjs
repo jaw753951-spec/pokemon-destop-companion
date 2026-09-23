@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { drawWalker, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
-import { CENTER_STEPS, centerBeat, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import { CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the
@@ -76,6 +76,47 @@ test('the companion is healed exactly once per visit', () => {
   assert.equal(heals.length, 1);
   // Behind the closed door, which is the point of going in.
   assert.equal(heals[0].inside, true);
+});
+
+test('the companion walks through the door rather than standing beside it', () => {
+  // In through the open door, and out of it again: the beat before the visit
+  // goes indoors is a step in, and the last beat of all is a step out.
+  const firstInside = CENTER_STEPS.findIndex((beat) => beat.inside);
+  assert.equal(CENTER_STEPS[firstInside - 1].step, 'in');
+  assert.equal(CENTER_STEPS[firstInside - 1].frame, 3, 'it steps in through an open door');
+  const last = CENTER_STEPS[CENTER_STEPS.length - 1];
+  assert.equal(last.step, 'out');
+  assert.equal(last.frame, 3, 'it steps out through an open door');
+  assert.ok(!last.inside);
+
+  // Nothing after it has the companion standing at the door while it shuts:
+  // the walk-past starts the moment it is out.
+  const stood = CENTER_STEPS.filter((beat) => !beat.inside && !beat.step).reduce((sum, beat) => sum + beat.ms, 0);
+  assert.ok(stood <= 400, `the companion waits ${stood}ms at the door`);
+});
+
+test('a step through the door fades the companion in or out', () => {
+  const into = { step: 'in', ms: 300 };
+  assert.deepEqual(doorStep(into, 300), { lift: 0, alpha: 1 });
+  assert.equal(doorStep(into, 0).alpha, 0);
+  assert.ok(doorStep(into, 0).lift > 0, 'it steps up into the doorway');
+
+  const out = { step: 'out', ms: 300 };
+  assert.equal(doorStep(out, 300).alpha, 0);
+  assert.deepEqual(doorStep(out, 0), { lift: 0, alpha: 1 });
+
+  // Any other beat leaves it whole and on the ground.
+  assert.deepEqual(doorStep({ frame: 3, ms: 90 }, 40), { lift: 0, alpha: 1 });
+  assert.deepEqual(doorStep(null, 0), { lift: 0, alpha: 1 });
+});
+
+test('the door shuts behind the companion as it walks away', () => {
+  assert.equal(closingDoorFrame(0), 3);
+  const frames = [];
+  for (let ms = 0; ms <= 1000; ms += 30) frames.push(closingDoorFrame(ms));
+  // Open, then closing one frame at a time, and shut for good.
+  assert.deepEqual([...new Set(frames)], [3, 2, 1, 0]);
+  assert.equal(frames[frames.length - 1], 0);
 });
 
 // ------------------------------------------------------ gathering on the spot

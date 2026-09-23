@@ -466,7 +466,14 @@ export function fieldScene(session) {
       // either way. Menus and battles sit above this scene, so a press on
       // those never reaches here.
       const walking = events?.walking ?? true;
-      if (walking) offset += (WALK_SPEED * (boosting ? HOLD_BOOST_WALK : 1) * deltaMs) / 1000;
+      if (walking) {
+        offset += (WALK_SPEED * (boosting ? HOLD_BOOST_WALK : 1) * deltaMs) / 1000;
+        // Never past whatever is being walked up to: a long frame would carry
+        // the companion a few pixels beyond the spot, which at a door leaves
+        // it standing at the side of the doorway instead of in it.
+        const stop = events?.stopAt;
+        if (stop !== null && stop !== undefined && offset > stop) offset = stop;
+      }
 
       const { autosave, event } = session.tick(deltaMs, {
         eventRate: boosting ? HOLD_BOOST_RATE : 1,
@@ -531,7 +538,8 @@ export function fieldScene(session) {
         // clears the head of a Wailord as surely as that of a Wurmple.
         events?.render(lit, offset, actorHeight(companion, session.active));
 
-        if (companion && showActor && !events?.hidesActor) {
+        const alpha = events?.actorAlpha ?? 1;
+        if (companion && showActor && !events?.hidesActor && alpha > 0) {
           const moving = !paused && (events?.walking ?? true);
           const walk = {
             x: COMPANION_X,
@@ -543,8 +551,12 @@ export function fieldScene(session) {
             lift: events?.actorLift ?? 0,
             scale: actorScale(companion, session.active),
           };
+          // Faded as it steps through a doorway, shadow and all.
+          lit.save();
+          lit.globalAlpha *= alpha;
           drawStepDust(lit, walk);
           drawWalker(lit, companion, walk);
+          lit.restore();
         }
         closeDaylightLayer(field, timeOfDay());
       }

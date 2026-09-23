@@ -99,9 +99,26 @@ export function createEventRunner({ session, onBattle }) {
       return Boolean(active?.hidesActor);
     },
 
-    /** How far the companion is bobbing as it gathers, in field pixels. */
+    /** How far the companion is off the ground — bobbing as it gathers, or
+     * stepping through a door — in field pixels. */
     get actorLift() {
-      return gatherBob(active);
+      return gatherBob(active) + doorStepOf(active).lift;
+    },
+
+    /** How much of the companion is showing: less of it as it steps indoors. */
+    get actorAlpha() {
+      return doorStepOf(active).alpha;
+    },
+
+    /**
+     * The furthest the walk may carry the world before the event is met, or
+     * null when nothing is being walked up to. The field holds the scroll
+     * here, so a long frame cannot carry the companion past a door it was
+     * meant to stop in front of.
+     */
+    get stopAt() {
+      if (active?.phase !== 'approach') return null;
+      return active.worldX - (active.meetGap ?? MEET_GAP);
     },
 
     /**
@@ -373,6 +390,20 @@ const BALL_SUPPLY_COUNT = 5;
 const CENTER_STAY_MS = 5000;
 
 /**
+ * How long stepping through the doorway takes, and how far up the screen —
+ * into the building, since its door faces the viewer — the step goes.
+ */
+const DOOR_STEP_MS = 300;
+const DOOR_STEP_PX = 5;
+
+/**
+ * How long the door holds open behind a companion walking away from it, and
+ * then each frame of it closing.
+ */
+const DOOR_HOLD_MS = 150;
+const DOOR_CLOSE_FRAME_MS = 90;
+
+/**
  * How long the Center stays on screen after the visit, while the walk carries
  * the companion past it. Long enough for the building to slide off the left
  * edge of the view at the walk's own pace, so the rest stop reads as a place
@@ -387,23 +418,58 @@ const CENTER_PASS_MS = 6500;
  * Frame 0 is the door the building itself draws — shut. The three frames after
  * it are the games' own door animation, played forwards to open and backwards
  * to close, which is exactly how the cartridge does it.
+ *
+ * The companion goes in and comes out by stepping through the doorway (`step`)
+ * rather than vanishing from in front of it and reappearing there. It used to
+ * stand at the door while it opened, blink out, and on the way back blink in
+ * and stand there again while the door shut — a second and more of a Pokémon
+ * at the side of a door, which read as it doing something *with* the door
+ * rather than going through it. Now the door shuts behind it as it walks on.
  */
 export const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 2, ms: 90 },
-  { frame: 3, ms: 240 },
+  { frame: 3, ms: 120 },
+  { frame: 3, ms: DOOR_STEP_MS, step: 'in' },
   { frame: 3, ms: 140, inside: true },
   { frame: 2, ms: 90, inside: true },
   { frame: 1, ms: 90, inside: true },
   { frame: 0, ms: CENTER_STAY_MS, inside: true, heal: true },
   { frame: 1, ms: 90, inside: true },
   { frame: 2, ms: 90, inside: true },
-  { frame: 3, ms: 240, inside: true },
-  { frame: 3, ms: 200 },
-  { frame: 2, ms: 90 },
-  { frame: 1, ms: 90 },
-  { frame: 0, ms: 300 },
+  { frame: 3, ms: 120, inside: true },
+  { frame: 3, ms: DOOR_STEP_MS, step: 'out' },
 ];
+
+/**
+ * Where the companion is in a step through the doorway.
+ *
+ * Going in, it rises into the doorway and fades into the dark behind it;
+ * coming out is the same played backwards. Any other beat leaves it on the
+ * ground and whole.
+ *
+ * @param {{step?: 'in'|'out', ms: number}|null|undefined} beat
+ * @param {number} remainingMs how much of the beat is left
+ * @returns {{lift: number, alpha: number}}
+ */
+export function doorStep(beat, remainingMs) {
+  if (!beat?.step) return { lift: 0, alpha: 1 };
+  const done = Math.min(1, Math.max(0, 1 - remainingMs / beat.ms));
+  const indoors = beat.step === 'in' ? done : 1 - done;
+  return { lift: Math.round(indoors * DOOR_STEP_PX), alpha: 1 - indoors };
+}
+
+/** @param {any} active */
+const doorStepOf = (active) => doorStep(active?.phase === 'visit' ? active.beat : null, active?.timer ?? 0);
+
+/**
+ * Which door frame shows behind a companion walking away from the Center.
+ * @param {number} sinceMs how long ago it stepped out
+ */
+export function closingDoorFrame(sinceMs) {
+  if (sinceMs < DOOR_HOLD_MS) return 3;
+  return Math.max(0, 2 - Math.floor((sinceMs - DOOR_HOLD_MS) / DOOR_CLOSE_FRAME_MS));
+}
 
 /**
  * The next beat of a Center visit: a door frame, the walk past afterwards, or
@@ -444,11 +510,13 @@ function startHeal(session, spawnAt) {
     phase: 'approach',
     timer: 0,
     flash: 0,
-    // Right up to the doorstep, rather than the tile short of it that a berry
-    // tree or a trainer is met at.
-    meetGap: 4,
+    // Square in front of the door, rather than the tile short of it that a
+    // berry tree or a trainer is met at: it is about to walk through it.
+    meetGap: 0,
     hidesActor: false,
-    prop: { kind: 'center', sprite: null, door: null, frame: 0 },
+    /** The beat of the visit playing now, for the step through the door. */
+    beat: null,
+    prop: { kind: 'center', sprite: null, door: null, frame: 0, closingFrom: null },
     carried: null,
 
     onArrive: () => 'visit',
@@ -459,6 +527,7 @@ function startHeal(session, spawnAt) {
       const next = centerBeat(step, state.phase === 'passing');
       if (!next) return null;
 
+      state.beat = next.beat ?? null;
       if (next.beat) {
         state.prop.frame = next.beat.frame;
         state.hidesActor = Boolean(next.beat.inside);
@@ -467,7 +536,9 @@ function startHeal(session, spawnAt) {
         // The visit is over, but the building is not: the companion walks on
         // past the Center and the map carries it off the left edge like any
         // other roadside scenery, instead of the place vanishing on the spot.
+        // The door it came out of shuts behind it as it goes.
         state.hidesActor = false;
+        state.prop.closingFrom = state.elapsed ?? 0;
       }
       state.phase = next.phase;
       return { phase: next.phase, duration: next.duration };
@@ -666,7 +737,8 @@ function drawProp(context, state, screenX) {
     return;
   }
   if (prop.kind === 'center') {
-    drawCenter(context, prop, screenX);
+    const frame = prop.closingFrom === null ? prop.frame : closingDoorFrame((state.elapsed ?? 0) - prop.closingFrom);
+    drawCenter(context, { ...prop, frame }, screenX);
     return;
   }
 
