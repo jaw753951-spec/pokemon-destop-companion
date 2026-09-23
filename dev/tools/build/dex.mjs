@@ -232,6 +232,21 @@ async function buildTypes(pool, log) {
   return out;
 }
 
+/**
+ * Moves nothing in this game can use.
+ *
+ * The five torques belong to Team Star's Starmobiles, the Paldea bosses this
+ * game does not have; no Pokémon learns them, and the games give them no
+ * description to show.
+ */
+export const RETIRED_MOVES = new Set([
+  'blazing-torque',
+  'wicked-torque',
+  'noxious-torque',
+  'combat-torque',
+  'magical-torque',
+]);
+
 async function buildMoves(pool, log) {
   const index = await fetchJson(`${POKEAPI}/move/index.json`);
   /** @type {Record<string, any>} */
@@ -247,7 +262,7 @@ async function buildMoves(pool, log) {
         // Colosseum's Shadow moves belong to Shadow Pokémon, which this game
         // does not have; nothing learns them and nothing ever named them in
         // Korean.
-        if (move.type.name === 'shadow') return;
+        if (move.type.name === 'shadow' || RETIRED_MOVES.has(move.name)) return;
         out[move.name] = {
           id: move.id,
           name: nameBundle(move.names, move.name),
@@ -325,11 +340,6 @@ const MOVE_EFFECT_PATCHES = {
   'mortal-spin': { ailment: 'poison', ailmentChance: 100, category: 'damage-ailment' },
   'matcha-gotcha': { ailment: 'burn', ailmentChance: 20, category: 'damage-ailment' },
   'malignant-chain': { ailment: 'poison', ailmentChance: 50, category: 'damage-ailment' },
-  'blazing-torque': { ailment: 'burn', ailmentChance: 30, category: 'damage-ailment' },
-  'wicked-torque': { ailment: 'sleep', ailmentChance: 10, category: 'damage-ailment' },
-  'noxious-torque': { ailment: 'poison', ailmentChance: 30, category: 'damage-ailment' },
-  'combat-torque': { ailment: 'paralysis', ailmentChance: 30, category: 'damage-ailment' },
-  'magical-torque': { ailment: 'confusion', ailmentChance: 30, category: 'damage-ailment' },
   // These two only land on a target whose stats went up this turn; the
   // battle checks for that (\`RAISED_THIS_TURN_ONLY\`).
   'burning-jealousy': { ailment: 'burn', ailmentChance: 100, category: 'damage-ailment' },

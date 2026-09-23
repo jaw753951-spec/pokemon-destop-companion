@@ -1,5 +1,5 @@
 {
-  "_comment": "PokeAPI가 한국어 설명을 싣지 않은(대부분 8·9세대) 기술의 설명. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 출처: 스칼렛·바이올렛 1.0.1 공식 한국어 텍스트(github.com/Pokemon-Project-com/sv-text 의 common_kor.txt, wazainfo.dat 블록 — 줄 = 41214 + 기술 번호). 그 덤프에 없는 DLC 기술 21개(사이코블레이드·하이드로스팀·블러드문 이후)와 공식 설명이 '― ― ―'뿐인 스타모빌 전용 액셀 기술 5개는 공식 텍스트를 구할 수 없어 PokeRogue 한국어 번역(github.com/pagefaultgames/pokerogue-locales ko/move.json, AGPL-3.0)을 쓰고 '대미지'만 '데미지'로 맞췄다. PokeRogue 쪽 설명에는 확률 같은 수치가 원작보다 자세히 적혀 있다. 액셀 기술의 영어 설명은 이 게임에서 쓴 것이다.",
+  "_comment": "PokeAPI가 한국어 설명을 싣지 않은(대부분 8·9세대) 기술의 설명. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 출처: 스칼렛·바이올렛 1.0.1 공식 한국어 텍스트(github.com/Pokemon-Project-com/sv-text 의 common_kor.txt, wazainfo.dat 블록 — 줄 = 41214 + 기술 번호). 그 덤프에 없는 DLC 기술 21개(사이코블레이드·하이드로스팀·블러드문 이후)는 공식 텍스트를 구할 수 없어 PokeRogue 한국어 번역(github.com/pagefaultgames/pokerogue-locales ko/move.json, AGPL-3.0)을 쓰고 '대미지'만 '데미지'로 맞췄다. PokeRogue 쪽 설명에는 확률 같은 수치가 원작보다 자세히 적혀 있다.",
   "moves": {
     "psyshield-bash": {
       "text": {
@@ -344,36 +344,6 @@
     "comeuppance": {
       "text": {
         "ko": "기술을 쓰기 전에 마지막으로 받은 기술의 데미지를 늘려서 기술을 쓴 상대에게 돌려준다."
-      }
-    },
-    "blazing-torque": {
-      "text": {
-        "ko": "타오르는 엔진으로 상대에게 부릉거린다. 30% 확률로 상대를 화상 상태로 만든다.",
-        "en": "The user revs their blazing engine into the target. This may also leave the target with a burn."
-      }
-    },
-    "wicked-torque": {
-      "text": {
-        "ko": "악의적으로 상대를 향해 부릉거린다. 10% 확률로 상대를 잠듦 상태로 만든다.",
-        "en": "The user revs their engine into the target with malicious intent. This may put the target to sleep."
-      }
-    },
-    "noxious-torque": {
-      "text": {
-        "ko": "독성 엔진으로 상대에게 부릉거린다. 30% 확률로 상대를 독 상태로 만든다.",
-        "en": "The user revs their poisonous engine into the target. This may also poison the target."
-      }
-    },
-    "combat-torque": {
-      "text": {
-        "ko": "상대를 향해 기세 좋게 부릉거린다. 30% 확률로 상대를 마비 상태로 만든다.",
-        "en": "The user revs their engine forcefully into the target. This may also leave the target with paralysis."
-      }
-    },
-    "magical-torque": {
-      "text": {
-        "ko": "메르헨틱한 엔진으로 상대에게 부릉거린다. 30% 확률로 상대를 혼란 상태로 만든다.",
-        "en": "The user revs their fae-like engine into the target. This may also confuse the target."
       }
     },
     "blood-moon": {

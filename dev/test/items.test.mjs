@@ -12,6 +12,7 @@ const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
 import { assignRarityTiers } from '../tools/build/items.mjs';
 import { BALL_TIERS } from '../tools/sources.mjs';
+import { RETIRED_MOVES } from '../tools/build/dex.mjs';
 
 /** @param {Partial<any>} overrides */
 function item(overrides = {}) {
@@ -291,8 +292,9 @@ test('every move says what it does in Korean, not in English', withData, () => {
   const blank = [];
   const borrowed = [];
   for (const [slug, move] of Object.entries(gameData().moves)) {
-    // Colosseum's Shadow moves, which the next dex build leaves out.
-    if (move.type === 'shadow') continue;
+    // Colosseum's Shadow moves and the Starmobiles' torques, which the dex
+    // build leaves out.
+    if (move.type === 'shadow' || RETIRED_MOVES.has(slug)) continue;
     if (!move.text?.ko) blank.push(slug);
     else if (move.text.ko === move.text.en || !/[가-힣]/.test(move.text.ko)) borrowed.push(slug);
   }
