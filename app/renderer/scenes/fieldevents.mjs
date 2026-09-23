@@ -448,7 +448,8 @@ export const CENTER_STEPS = [
  * coming out is the same played backwards. Any other beat leaves it on the
  * ground and whole.
  *
- * @param {{step?: 'in'|'out', ms: number}|null|undefined} beat
+ * @param {{step?: string, ms: number, frame?: number}|null|undefined} beat a
+ *   beat of `CENTER_STEPS`; `step` is `'in'` or `'out'` on the two that have one
  * @param {number} remainingMs how much of the beat is left
  * @returns {{lift: number, alpha: number}}
  */
