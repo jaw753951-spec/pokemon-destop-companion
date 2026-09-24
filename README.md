@@ -924,7 +924,7 @@ BGM 2MB · 트레이너 1MB · 전투 배경과 뱃지 1MB) + 데이터 4MB 입�
 ## 배포 · 패키징
 
 `npm run dist` 은 `electron-builder` 로 현재 OS용 패키지를 만듭니다. 대상은
-Windows(zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
+Windows(zip), macOS(dmg, 애플 실리콘·인텔 공용 universal), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
 컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
 
 윈도우는 설치본 없이 zip만 냅니다. 설치 프로그램은 서명이 없으면 경고가 한 겹 더 붙고,
