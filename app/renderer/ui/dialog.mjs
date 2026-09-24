@@ -184,6 +184,106 @@ export function chooseFromList(app, title, entries, options = {}) {
 }
 
 /**
+ * Pick an item out of many, seeing what each one is before choosing it.
+ *
+ * The one-line list the other pickers use shows four entries at a time and
+ * nothing about any of them but a name, which is no way to choose between
+ * twenty berries. This lays them out as a grid of icons with their names and
+ * counts, and the one under the pointer — or the last one clicked — is shown
+ * large beside the grid with its description, and a button to take it.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {string} title
+ * @param {Array<{value: string, label: string, icon: string, count: number, text?: string}>} entries
+ * @param {{current?: string|null, clearLabel?: string, confirmLabel?: string, empty?: string}} [options]
+ *   `clearLabel` offers a way to choose nothing, which resolves to ''
+ * @returns {Promise<string|null>} the value chosen, '' for nothing, null if cancelled
+ */
+export function chooseItem(app, title, entries, options = {}) {
+  return new Promise((resolve) => {
+    mountModal(app, (dismiss) => {
+      const finish = (value) => {
+        dismiss();
+        resolve(value);
+      };
+
+      const detail = el('div.item-picker-detail');
+      /** @param {typeof entries[number]|null} entry */
+      const show = (entry) => {
+        if (!entry) {
+          detail.replaceChildren(el('span.meta', { text: options.empty ?? t('pokemon.noReplacement') }));
+          return;
+        }
+        detail.replaceChildren(
+          el('img.item-picker-icon', { src: entry.icon, alt: '', onError: hideBroken }),
+          el('span.item-picker-name', { text: entry.label }),
+          el('span.meta', { text: t('items.count', { count: entry.count }) }),
+          el('p.item-picker-text', { text: entry.text ?? '' }),
+          button(options.confirmLabel ?? t('common.ok'), () => {
+            app.audio.blip('confirm');
+            finish(entry.value);
+          }, { className: 'small' }),
+        );
+      };
+
+      const grid = scrollable(el('div.item-picker-grid', {}, entries.map((entry) =>
+        el(`button.item-picker-tile${entry.value === options.current ? '.current' : ''}`, {
+          type: 'button',
+          title: entry.label,
+          onMouseEnter: () => show(entry),
+          onFocus: () => show(entry),
+          onClick: () => {
+            app.audio.blip('select');
+            show(entry);
+          },
+          // A second click on the one already shown takes it.
+          onDblclick: () => {
+            app.audio.blip('confirm');
+            finish(entry.value);
+          },
+        }, [
+          el('img', { src: entry.icon, alt: '', onError: hideBroken }),
+          el('span.item-picker-lines', {}, [
+            el('span.item-picker-label', { text: entry.label }),
+            el('span.item-picker-count', { text: t('items.count', { count: entry.count }) }),
+          ]),
+        ]),
+      )));
+
+      show(entries.find((entry) => entry.value === options.current) ?? entries[0] ?? null);
+
+      return el('div.panel.item-picker', {}, [
+        el('p', { text: title }),
+        el('div.item-picker-body', {}, [grid, detail]),
+        el('div.item-picker-actions', {}, [
+          options.clearLabel
+            ? button(options.clearLabel, () => {
+                app.audio.blip('select');
+                finish('');
+              }, { className: 'small ghost' })
+            : null,
+          el('span.spacer'),
+          button(t('common.cancel'), () => {
+            app.audio.blip('cancel');
+            finish(null);
+          }, { className: 'small' }),
+        ]),
+      ]);
+    });
+  });
+}
+
+/**
+ * An item the data has no picture for is shown by its name alone, rather than
+ * as a broken-image box.
+ *
+ * @param {Event} event
+ */
+const hideBroken = (event) => {
+  /** @type {HTMLElement} */ (event.target).style.visibility = 'hidden';
+};
+
+/**
  * A card that says what something is, with an optional button under it.
  *
  * The bag and the Pokémon screen both had text stacked into a row that had no

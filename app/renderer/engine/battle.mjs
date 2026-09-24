@@ -7,10 +7,10 @@
  * of the turn. Battles are fought automatically, so the engine produces a list
  * of log entries per turn which the battle scene plays back as animation.
  */
-import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS_TAKEN } from '../../shared/constants.mjs';
+import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { abilityEffect } from './abilities.mjs';
-import { formeFor } from './forms.mjs';
+import { ABILITIES, abilityEffect, abilityName, auraMultiplier } from './abilities.mjs';
+import { formeFor, SIGNATURE_MOVES, signatureType, standingForme } from './forms.mjs';
 import {
   Field,
   FIELD_MOVES,
@@ -55,6 +55,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {boolean} flinched
  * @property {string|null} lockedMove the move a Choice item has it committed to
  * @property {number} turnsTaken
+ * @property {number} [enteredTurn] the battle turn it came out on
  * @property {'player'|'foe'} side
  * @property {Record<string, any>} marks what an ability or item has left on it
  * @property {Record<string, any>} volatile the states that end with the battle
@@ -64,6 +65,8 @@ import { stageMultiplier } from './stats.mjs';
  * @property {number} repeats how many turns running that has been the move
  * @property {boolean} movedLast whether it acted second on the previous turn
  * @property {number} maxHp
+ * @property {{speciesId: number, forme: string|null, stats: Record<string, number>, moves: Array<{move: string, pp: number}>}} [transform]
+ *   what a Transform or an Imposter made it, for the rest of the battle
  */
 
 /**
@@ -134,6 +137,60 @@ const TURN_LIMIT = 200;
  * so an ability can ask for a paralysis in the same words the save writes it.
  */
 const STATUS_TO_AILMENT = { brn: 'burn', psn: 'poison', par: 'paralysis', slp: 'sleep', frz: 'freeze' };
+
+/**
+ * The moves that only work on the first turn after the user comes out: a Fake
+ * Out is a surprise, and a surprise works once.
+ */
+export const FIRST_TURN_ONLY = new Set(['fake-out', 'first-impression', 'mat-block']);
+
+/**
+ * The moves whose side effect only lands on a target whose stats went up this
+ * turn: a Burning Jealousy burns the one that just powered up, and nobody else.
+ */
+export const RAISED_THIS_TURN_ONLY = new Set(['burning-jealousy', 'alluring-voice']);
+
+/**
+ * The moves whose user goes down for using them. An Explosion costs its user
+ * everything whether it hit, missed or went into a Ghost — only a Damp in
+ * front of it stops it going off at all, and then it costs nothing.
+ */
+export const SELF_KNOCKOUT = new Set(['self-destruct', 'explosion', 'misty-explosion', 'memento']);
+
+/** The status moves the type chart still applies to. */
+const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
+
+/** The type each terrain gives a Mimicry. @type {Record<string, string>} */
+const MIMICRY_TYPES = { electric: 'electric', grassy: 'grass', misty: 'fairy', psychic: 'psychic' };
+
+/**
+ * The moves whose power the weights decide: a Low Kick and a Grass Knot by
+ * how heavy the target is, a Heavy Slam and a Heat Crash by how many times
+ * over the user outweighs it.
+ */
+const WEIGHT_MOVES = { 'low-kick': 'target', 'grass-knot': 'target', 'heavy-slam': 'ratio', 'heat-crash': 'ratio' };
+
+/**
+ * A weight move's power, or null for any other move.
+ *
+ * @param {any} move
+ * @param {number} userWeight hectograms
+ * @param {number} targetWeight hectograms
+ * @returns {number|null}
+ */
+export function weightPower(move, userWeight, targetWeight) {
+  const kind = Object.entries(WEIGHT_MOVES).find(([slug]) => moveOf(slug)?.id === move?.id)?.[1];
+  if (!kind) return null;
+  if (kind === 'target') {
+    const kg = targetWeight / 10;
+    return kg < 10 ? 20 : kg < 25 ? 40 : kg < 50 ? 60 : kg < 100 ? 80 : kg < 200 ? 100 : 120;
+  }
+  const ratio = userWeight / targetWeight;
+  return ratio >= 5 ? 120 : ratio >= 4 ? 100 : ratio >= 3 ? 80 : ratio >= 2 ? 60 : 40;
+}
+
+/** The forme whose Tera Starstorm is Stellar. */
+const STELLAR_FORME = 'terapagos-stellar';
 
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
@@ -211,6 +268,9 @@ export class Battle {
    */
   enter(combatant, log) {
     const other = combatant === this.player ? this.foe : this.player;
+    // The turn it came out on, which is what a Fake Out asks: the turn after
+    // it is the only one the move works on.
+    combatant.enteredTurn = this.turn;
     // An Unburden is waiting for the item to be gone, so it has to know there
     // was one to begin with.
     combatant.marks.hadItem = Boolean(combatant.pokemon.heldItem);
@@ -226,7 +286,7 @@ export class Battle {
       usedMove: null,
     }, log);
 
-    const ability = abilityEffect(combatant.pokemon);
+    const ability = this.abilityOf(combatant);
     if (!ability?.start || !other) return;
 
     const before = log.length;
@@ -237,7 +297,7 @@ export class Battle {
       log.splice(before, 0, {
         kind: 'ability',
         side: combatant.side,
-        data: { ability: combatant.pokemon.ability },
+        data: { ability: abilityName(combatant.pokemon) },
       });
     }
   }
@@ -272,10 +332,10 @@ export class Battle {
    */
   weatherFor(forCombatant) {
     // A Mega Sol carries its own sunshine, whatever the sky is doing.
-    if (forCombatant && abilityEffect(forCombatant.pokemon)?.actsSunny) return WEATHER.SUN;
+    if (forCombatant && this.ownAbility(forCombatant)?.actsSunny) return WEATHER.SUN;
 
     for (const combatant of [this.player, this.foe]) {
-      if (combatant && abilityEffect(combatant.pokemon)?.suppressWeather) return null;
+      if (combatant && this.ownAbility(combatant)?.suppressWeather) return null;
     }
     if (forCombatant && heldShield(forCombatant.pokemon, 'weatherEffects')) return null;
     return this.field.weather;
@@ -293,8 +353,84 @@ export class Battle {
    * @param {Combatant} [against] who is acting on it
    */
   abilityOf(combatant, against) {
-    if (against && abilityEffect(against.pokemon)?.ignoresAbilities) return null;
-    return abilityEffect(combatant.pokemon);
+    if (against && this.ownAbility(against)?.ignoresAbilities) return null;
+    // A Neutralizing Gas on the field quiets every ability but its own.
+    const other = combatant === this.player ? this.foe : this.player;
+    const own = this.ownAbility(combatant);
+    if (other && !own?.neutralizes && this.ownAbility(other)?.neutralizes) return null;
+    return own;
+  }
+
+  /**
+   * The ability a combatant has now: one a battle gave it (a Mummy's touch,
+   * a Transform's copy) over its forme's, over its own.
+   *
+   * @param {Combatant} combatant
+   */
+  abilitySlugOf(combatant) {
+    return combatant.marks.ability ?? abilityName(combatant.pokemon);
+  }
+
+  /** @param {Combatant} combatant */
+  ownAbility(combatant) {
+    const slug = this.abilitySlugOf(combatant);
+    return slug ? ABILITIES[slug] ?? null : null;
+  }
+
+  /**
+   * How heavy a combatant is, in hectograms as the dex keeps it: its
+   * species', or what it transformed into, doubled by a Heavy Metal, halved
+   * by a Light Metal or a Float Stone.
+   *
+   * @param {Combatant} combatant
+   */
+  weightOf(combatant) {
+    const species = speciesOf(combatant.transform?.speciesId ?? combatant.pokemon.speciesId);
+    let weight = species?.weight ?? 100;
+    const ability = this.abilityOf(combatant);
+    if (ability?.weight) weight *= ability.weight;
+    const float = heldPassive(combatant.pokemon, 'weight');
+    if (float) weight *= float.multiplier;
+    return Math.max(1, weight);
+  }
+
+  /**
+   * The moves a combatant fights with: a Transform's copies while it is one.
+   *
+   * @param {Combatant} combatant
+   */
+  movesOf(combatant) {
+    return combatant.transform?.moves ?? combatant.pokemon.moves;
+  }
+
+  /**
+   * Become the target, the way a Transform or an Imposter does: its species'
+   * look, its types, its stats but Hit Points, its stat stages, its ability,
+   * and its moves at five PP each — for the rest of the battle.
+   *
+   * @param {Combatant} self
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   * @returns {boolean}
+   */
+  transformInto(self, target, log) {
+    if (!target || target.transform || self.transform) return false;
+    const stats = statsOf(target.pokemon, target.marks.forme ?? null);
+    self.transform = {
+      speciesId: target.pokemon.speciesId,
+      forme: target.marks.forme ?? null,
+      stats,
+      moves: target.pokemon.moves.map((slot) => ({ move: slot.move, pp: Math.min(5, moveOf(slot.move)?.pp ?? 5) })),
+    };
+    self.marks.types = [...this.typesOf(target)];
+    self.marks.ability = this.abilitySlugOf(target);
+    self.stages = { ...target.stages };
+    log.push({
+      kind: 'transformed',
+      side: self.side,
+      data: { speciesId: target.pokemon.speciesId, forme: target.marks.forme ?? null },
+    });
+    return true;
   }
 
   /**
@@ -328,7 +464,7 @@ export class Battle {
        * @param {Record<string, any>} [data]
        */
       note(kind, data = {}) {
-        log.push({ kind, side: self.side, data: { ability: self.pokemon.ability, ...data } });
+        log.push({ kind, side: self.side, data: { ability: abilityName(self.pokemon), ...data } });
       },
 
       /** @param {Combatant} target @param {number} fraction of maximum HP */
@@ -340,7 +476,7 @@ export class Battle {
         log.push({
           kind: 'abilityDamage',
           side: target.side,
-          data: { amount, ability: self.pokemon.ability },
+          data: { amount, ability: abilityName(self.pokemon) },
         });
       },
 
@@ -350,7 +486,7 @@ export class Battle {
         if (target.pokemon.hp <= 0 || target.pokemon.hp >= max) return;
         const amount = Math.max(1, Math.floor(max * fraction));
         target.pokemon.hp = Math.min(max, target.pokemon.hp + amount);
-        log.push({ kind: 'heal', side: target.side, data: { amount, ability: self.pokemon.ability } });
+        log.push({ kind: 'heal', side: target.side, data: { amount, ability: abilityName(self.pokemon) } });
       },
 
       /** @param {Combatant} target @param {string} stat @param {number} change */
@@ -360,7 +496,7 @@ export class Battle {
         // about a drop the other side caused.
         if (change < 0 && target !== self && heldShield(target.pokemon, 'statDrops')) return false;
         return battle.applyStage(target, stat, change, log, {
-          ability: self.pokemon.ability,
+          ability: abilityName(self.pokemon),
           ...(target === self ? { source: 'self' } : {}),
         });
       },
@@ -380,7 +516,7 @@ export class Battle {
         log.push({
           kind: 'status',
           side: target.side,
-          data: { status: null, ability: self.pokemon.ability },
+          data: { status: null, ability: abilityName(self.pokemon) },
         });
       },
 
@@ -388,6 +524,66 @@ export class Battle {
       setWeather: (weather) => this.startWeather(weather, self, log),
       /** @param {string} terrain */
       setTerrain: (terrain) => this.startTerrain(terrain, self, log),
+
+      /** @param {Combatant} target */
+      transform: (target) => this.transformInto(self, target, log),
+
+      /**
+       * The other Pokémon's ability becomes this one, for the rest of the
+       * battle — a Mummy's touch.
+       *
+       * @param {Combatant} target
+       * @param {string} ability
+       */
+      replaceAbility: (target, ability) => {
+        if (this.abilitySlugOf(target) === ability) return false;
+        target.marks.ability = ability;
+        log.push({ kind: 'abilityChanged', side: target.side, data: { ability } });
+        return true;
+      },
+
+      /** The two swap abilities — a Wandering Spirit's touch. */
+      swapAbilities: () => {
+        const mine = this.abilitySlugOf(self);
+        const theirs = this.abilitySlugOf(foe);
+        if (!mine || !theirs || mine === theirs) return false;
+        self.marks.ability = theirs;
+        foe.marks.ability = mine;
+        log.push({ kind: 'abilityChanged', side: foe.side, data: { ability: mine } });
+        log.push({ kind: 'abilityChanged', side: self.side, data: { ability: theirs } });
+        return true;
+      },
+
+      /**
+       * Use up the held item, the way a berry is eaten — a Booster Energy.
+       *
+       * @param {Combatant} target
+       */
+      spendItem: (target) => {
+        const item = target.pokemon.heldItem;
+        if (!item) return;
+        log.push({ kind: 'berry', side: target.side, data: { item } });
+        target.pokemon.heldItem = null;
+      },
+
+      /** Weather and terrain both gone, whoever laid them. */
+      clearField: () => {
+        const cleared = [];
+        if (this.field.weather) {
+          log.push({ kind: 'weatherEnded', data: { value: this.field.weather } });
+          this.field.weather = null;
+          this.field.weatherTurns = 0;
+          cleared.push('weather');
+        }
+        if (this.field.terrain) {
+          log.push({ kind: 'terrainEnded', data: { value: this.field.terrain } });
+          this.field.terrain = null;
+          this.field.terrainTurns = 0;
+          cleared.push('terrain');
+        }
+        if (cleared.includes('weather')) this.evaluateFormes(log);
+        return cleared.length > 0;
+      },
 
       /** @param {Combatant} target @param {number} chance */
       infatuate: (target, chance) => battle.rng.chance(chance) && battle.infatuate(self, target, log),
@@ -398,7 +594,7 @@ export class Battle {
       /** @param {Combatant} target @param {number} chance */
       disable(target, chance) {
         if (!battle.rng.chance(chance)) return false;
-        if (!target.lastMove || !target.pokemon.moves.some((slot) => slot.move === target.lastMove)) return false;
+        if (!target.lastMove || !battle.movesOf(target).some((slot) => slot.move === target.lastMove)) return false;
         if (battle.blocksVolatile(target, VOLATILE.DISABLE, log)) return false;
         if (!addVolatile(target, VOLATILE.DISABLE, 4, { disabledMove: target.lastMove })) return false;
         log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.DISABLE, move: target.lastMove } });
@@ -427,7 +623,7 @@ export class Battle {
         if (battle.abilityOf(target)?.indirectImmune) return;
         const dealt = Math.min(target.pokemon.hp, Math.round(amount));
         target.pokemon.hp -= dealt;
-        log.push({ kind: 'abilityDamage', side: target.side, data: { amount: dealt, ability: self.pokemon.ability } });
+        log.push({ kind: 'abilityDamage', side: target.side, data: { amount: dealt, ability: abilityName(self.pokemon) } });
       },
 
       /** Take down whatever the other side put up. */
@@ -485,17 +681,19 @@ export class Battle {
     // Something the other side is doing to it, and it says no.
     const fromOther = shift < 0 && data.source !== 'self';
     if (fromOther && ability?.statDrop?.(this.abilityContext(target, other ?? target, log), stat)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return false;
     }
     // Or says no and hands it back, which is what a Mirror Armor does.
     if (fromOther && ability?.reflectsDrops && other) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return this.applyStage(other, stat, shift, log, { source: 'self' });
     }
 
     const before = target.stages[stat] ?? 0;
     const after = Math.max(-6, Math.min(6, before + shift));
+    // What a Burning Jealousy looks for.
+    if (after > before) target.marks.raisedTurn = this.turn;
     // Already as high or as low as it goes. The games say so rather than
     // letting the move look like it did nothing at all.
     if (after === before) {
@@ -509,7 +707,7 @@ export class Battle {
 
     // An Opportunist helps itself to whatever the other side just worked for.
     if (shift > 0 && data.source !== 'copied' && other && this.abilityOf(other)?.copiesRaises) {
-      log.push({ kind: 'ability', side: other.side, data: { ability: other.pokemon.ability } });
+      log.push({ kind: 'ability', side: other.side, data: { ability: abilityName(other.pokemon) } });
       this.applyStage(other, stat, shift, log, { source: 'copied' });
     }
 
@@ -518,7 +716,7 @@ export class Battle {
       const mark = log.length;
       ability.onStatDropped(this.abilityContext(target, other, log), stat);
       if (log.length > mark) {
-        log.splice(mark, 0, { kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+        log.splice(mark, 0, { kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       }
     }
     return true;
@@ -659,12 +857,21 @@ export class Battle {
       const defender = attacker === this.player ? this.foe : this.player;
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
+      this.collectSelfKnockout(attacker, log);
       this.checkFaint(log);
       // Checked between the two sides' moves as well as at the end of the
       // turn: a berry that waits until the turn is over is a berry that lets
       // its holder faint first.
       this.eatHeldBerry(log);
     }
+
+    // A flinch is for the turn it happened in: it stops a Pokémon that has not
+    // moved yet, and is gone once the turn is over. One landed by the slower
+    // side — on a Pokémon that had already moved — used to wait for its
+    // target's next turn and take that instead, so every slow Pokémon with a
+    // Bite flinched its opponent far more often than the move says.
+    this.player.flinched = false;
+    if (this.foe) this.foe.flinched = false;
 
     if (this.running) {
       for (const combatant of [this.player, this.foe]) {
@@ -683,6 +890,21 @@ export class Battle {
     }
 
     return log;
+  }
+
+  /**
+   * An Explosion's user going down with it, once the move has played out.
+   *
+   * @param {Combatant} attacker
+   * @param {LogEntry[]} log
+   */
+  collectSelfKnockout(attacker, log) {
+    if (!attacker.marks.spent) return;
+    attacker.marks.spent = false;
+    if (attacker.pokemon.hp <= 0) return;
+    const amount = attacker.pokemon.hp;
+    attacker.pokemon.hp = 0;
+    log.push({ kind: 'damage', side: attacker.side, data: { amount, recoil: true } });
   }
 
   /**
@@ -708,7 +930,7 @@ export class Battle {
    * about it has been broken, and what it last did.
    *
    * @param {Combatant} combatant
-   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null}}
+   * @returns {{current: string|null, weather: string|null, weatherTurns: number, overhp: number, maxhp: number, broken: boolean, usedMove: string|null, relicSongs: number, stance: string|null, hangry: boolean}}
    */
   formeState(combatant) {
     return {
@@ -719,6 +941,9 @@ export class Battle {
       maxhp: combatant.maxHp,
       broken: Boolean(combatant.marks.formeBroken),
       usedMove: combatant.lastMove,
+      relicSongs: combatant.marks.relicSongs ?? 0,
+      stance: combatant.marks.stance ?? null,
+      hangry: Boolean(combatant.marks.hangry),
     };
   }
 
@@ -751,10 +976,17 @@ export class Battle {
         return true;
       }
     }
-    const wanted = formeFor(combatant.pokemon, { ...state, current });
+    const found = formeFor(combatant.pokemon, { ...state, current });
+    // The species' own slug is its ordinary shape, which the marks write as
+    // no forme at all — a Castform walking in under a clear sky has not
+    // changed into anything.
+    const wanted = found === speciesOf(combatant.pokemon.speciesId)?.slug ? null : found;
     if (wanted === current) return false;
 
     const before = current ? statsOf(combatant.pokemon, current).hp : maxHp(combatant.pokemon);
+    // A mask, an Origin Forme, a Sky Forme is worn on the road as well;
+    // walking into a battle already in it is not a change anybody sees.
+    const alreadyWorn = Boolean(wanted) && combatant.pokemon.forme === wanted && standingForme(combatant.pokemon) === wanted;
     combatant.marks.forme = wanted;
     // The Pokémon wears the slug too, so every screen that holds one — the
     // health bars, the nameplates, the sprite cache keys — reads the shape it
@@ -765,10 +997,11 @@ export class Battle {
     // The forme replaces the species' types, which is where its resistances
     // live; an explicit rewrite would fight the next forme change.
     combatant.marks.types = null;
+    if (alreadyWorn) return true;
     log.push({
       kind: 'formChanged',
       side: combatant.side,
-      data: { forme: wanted, ability: combatant.pokemon.ability },
+      data: { forme: wanted, ability: abilityName(combatant.pokemon) },
     });
     return true;
   }
@@ -810,7 +1043,7 @@ export class Battle {
    */
   endOfTurnAbility(combatant, log) {
     const other = combatant === this.player ? this.foe : this.player;
-    const ability = abilityEffect(combatant.pokemon);
+    const ability = this.abilityOf(combatant);
     if (!ability?.turn || !other) return;
     ability.turn(this.abilityContext(combatant, other, log));
   }
@@ -850,19 +1083,14 @@ export class Battle {
     // is planned.
     if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
 
-    // An item is thrown before either Pokémon moves, as it is in the games,
-    // and the companion has no move to commit to that turn.
-    if (this.pendingItem) {
-      this.pendingMoves = new Map([
-        [this.player, null],
-        [this.foe, this.chooseMove(this.foe, this.player)],
-      ]);
-      return [this.player, this.foe];
-    }
-
-    // Both sides commit before either acts, so priority can be compared and
-    // the choice cannot change once the turn is under way.
-    const playerChoice = this.chooseMove(this.player, this.foe);
+    // An item takes the companion's own action: it is used when the companion
+    // would have moved, in its place in the order, instead of a move. It used
+    // to jump the whole turn, which read as the bag acting the moment it was
+    // closed rather than on the companion's next turn.
+    //
+    // Otherwise both sides commit before either acts, so priority can be
+    // compared and the choice cannot change once the turn is under way.
+    const playerChoice = this.pendingItem ? null : this.chooseMove(this.player, this.foe);
     const foeChoice = this.chooseMove(this.foe, this.player);
     this.pendingMoves = new Map([
       [this.player, playerChoice],
@@ -905,7 +1133,10 @@ export class Battle {
     if (playerSpeed === foeSpeed) {
       return this.rng.chance(0.5) ? [this.player, this.foe] : [this.foe, this.player];
     }
-    return playerSpeed > foeSpeed ? [this.player, this.foe] : [this.foe, this.player];
+    // Inside a Trick Room the slower one goes first. Priority still comes
+    // before it: a Quick Attack is quick in any room.
+    const playerFirst = this.field.trickRoom > 0 ? playerSpeed < foeSpeed : playerSpeed > foeSpeed;
+    return playerFirst ? [this.player, this.foe] : [this.foe, this.player];
   }
 
   /**
@@ -920,9 +1151,14 @@ export class Battle {
     return effectiveStat(combatant, stat, { ...options, battle: this });
   }
 
-  /** @param {Combatant} combatant */
+  /**
+   * The Speed the turn order is decided on: doubled by a Tailwind at the
+   * combatant's back.
+   * @param {Combatant} combatant
+   */
   speedOf(combatant) {
-    return this.stat(combatant, 'spe');
+    const tailwind = this.field.tailwind?.[combatant.side] > 0 ? 2 : 1;
+    return this.stat(combatant, 'spe') * tailwind;
   }
 
   /**
@@ -937,7 +1173,7 @@ export class Battle {
    */
   ruinFactor(combatant, stat) {
     const other = combatant === this.player ? this.foe : this.player;
-    const ruin = other ? abilityEffect(other.pokemon)?.ruin : null;
+    const ruin = other ? this.abilityOf(other)?.ruin : null;
     return ruin?.stat === stat ? ruin.multiplier : 1;
   }
 
@@ -958,6 +1194,9 @@ export class Battle {
     const forme = combatant.marks.forme
       ? (species.forms ?? []).find((form) => form.slug === combatant.marks.forme)
       : null;
+    // A Mimicry wears the terrain's type for as long as the terrain lasts.
+    const terrainType = MIMICRY_TYPES[this.field.terrain ?? ''];
+    if (terrainType && this.abilityOf(combatant)?.mimicry) return [terrainType];
     return combatant.marks.types ?? forme?.types ?? species.types;
   }
 
@@ -1010,7 +1249,7 @@ export class Battle {
    * @returns {string} a move slug, or `struggle` when nothing has PP
    */
   chooseMove(attacker, defender) {
-    let usable = attacker.pokemon.moves.filter((slot) => slot.pp > 0 && moveOf(slot.move));
+    let usable = this.movesOf(attacker).filter((slot) => slot.pp > 0 && moveOf(slot.move));
     if (usable.length === 0) return 'struggle';
 
     const restriction = heldPassive(attacker.pokemon, 'stat');
@@ -1063,6 +1302,12 @@ export class Battle {
    */
   stillAllowed(attacker, usable) {
     let left = usable;
+    // A Fake Out after the first turn out is a move that fails, so it is not
+    // offered once that turn has gone — unless there is nothing else.
+    if (!this.firstTurnOut(attacker)) {
+      const others = left.filter((slot) => !FIRST_TURN_ONLY.has(slot.move));
+      if (others.length > 0) left = others;
+    }
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
     }
@@ -1075,6 +1320,14 @@ export class Battle {
       if (others.length > 0) left = others;
     }
     return left;
+  }
+
+  /**
+   * Whether this is the first turn since the combatant came out.
+   * @param {Combatant} combatant
+   */
+  firstTurnOut(combatant) {
+    return this.turn === (combatant.enteredTurn ?? 0) + 1;
   }
 
   /**
@@ -1103,7 +1356,7 @@ export class Battle {
       attacker.marks.loafing = !attacker.marks.loafing;
       if (attacker.marks.loafing) {
         attacker.turnsTaken++;
-        log.push({ kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.push({ kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
         log.push({ kind: 'loafing', side: attacker.side });
         return;
       }
@@ -1140,7 +1393,7 @@ export class Battle {
 
     // The charge turn: everything but the move itself, and then the wait.
     if (hasFlag(base, 'charge') && !attacker.charging && !this.skipsCharge(attacker, moveName, log)) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
       attacker.charging = moveName;
       log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
@@ -1149,10 +1402,17 @@ export class Battle {
 
     // PP was already spent on the charge turn.
     if (!attacker.charging) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
     attacker.charging = null;
+
+    // A move some evolution counts is counted on the Pokémon, for good.
+    const counted = speciesOf(attacker.pokemon.speciesId)?.evolutions?.some((evolution) => evolution.usedMove === moveName);
+    if (counted) {
+      attacker.pokemon.moveUses ??= {};
+      attacker.pokemon.moveUses[moveName] = (attacker.pokemon.moveUses[moveName] ?? 0) + 1;
+    }
 
     // A Metronome pays for repeating the same move, so the count is kept even
     // when nothing is holding one.
@@ -1166,21 +1426,54 @@ export class Battle {
     // A Protean becomes whatever it is about to use.
     if (this.abilityOf(attacker)?.retypes === 'move') {
       if (this.becomeType(attacker, [move.type], log)) {
-        log.splice(log.length - 1, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.splice(log.length - 1, 0, { kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
       }
     }
 
     // A Pressure on the other side charges a second point for being aimed at.
     if (this.abilityOf(defender)?.pressures) {
-      const slot = attacker.pokemon.moves.find((entry) => entry.move === moveName);
+      const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
 
     log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
 
+    // An Aegislash draws its blade to strike and raises its shield to guard,
+    // before the move goes off.
+    if (this.abilityOf(attacker)?.stanceChange) {
+      const stance = move.damageClass !== 'status' ? 'blade' : moveName === 'kings-shield' ? 'shield' : null;
+      if (stance && (attacker.marks.stance ?? 'shield') !== stance) {
+        attacker.marks.stance = stance;
+        const before = log.length;
+        if (this.applyForme(attacker, this.formeState(attacker), log)) {
+          log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: this.abilitySlugOf(attacker) } });
+        }
+      }
+    }
+
+    // Used after the first turn out, a Fake Out is only a lunge: the PP is
+    // gone and nothing happens.
+    if (FIRST_TURN_ONLY.has(moveName) && !this.firstTurnOut(attacker)) {
+      log.push({ kind: 'failed', side: attacker.side });
+      return;
+    }
+
+    if (SELF_KNOCKOUT.has(moveName)) {
+      // A Damp keeps the thing from going off at all.
+      if (moveName !== 'memento' && this.abilityOf(defender, attacker)?.dampens) {
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
+        log.push({ kind: 'failed', side: attacker.side });
+        return;
+      }
+      // Paid however the rest of the move goes: `takeTurn` collects it once
+      // the move is over, whichever way out of here it took.
+      attacker.marks.spent = true;
+    }
+
     // A move the defender is simply sealed against — a sound at a Soundproof,
     // a bullet at a Bulletproof, a powder at a Grass type or a pair of Safety
-    // Goggles — never gets as far as an accuracy roll.
+    // Goggles, a Thunder Wave at a Ground type — never gets as far as an
+    // accuracy roll.
     if (this.movePrevented(attacker, defender, move)) {
       log.push({ kind: 'noEffect', side: defender.side });
       return;
@@ -1191,7 +1484,7 @@ export class Battle {
 
     // A Magic Bounce sends a status move back where it came from.
     if (move.damageClass === 'status' && this.abilityOf(defender, attacker)?.bouncesStatus) {
-      log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+      log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       log.push({ kind: 'bounced', side: defender.side });
       this.applyStatusMove(defender, attacker, move, log);
       return;
@@ -1209,7 +1502,11 @@ export class Battle {
       log.push({ kind: 'status', side: attacker.side, data: { status: null, thawed: true } });
     }
 
-    if (move.damageClass === 'status') {
+    const moveLogStart = log.length;
+    // A Transform becomes the target outright.
+    if (moveOf('transform')?.id === move.id) {
+      if (!this.transformInto(attacker, defender, log)) log.push({ kind: 'failed', side: attacker.side });
+    } else if (move.damageClass === 'status') {
       this.applyStatusMove(attacker, defender, move, log);
     } else {
       this.applyDamagingMove(attacker, defender, move, log);
@@ -1224,6 +1521,13 @@ export class Battle {
     }
 
     this.afterUse(attacker, defender, move, log);
+
+    // A Relic Song that went off turns a Meloetta, and the next one turns it
+    // back.
+    const landed = log.slice(moveLogStart).some((entry) => entry.kind === 'damage' && entry.side === defender.side);
+    if (moveName === 'relic-song' && landed) {
+      attacker.marks.relicSongs = (attacker.marks.relicSongs ?? 0) + 1;
+    }
 
     // Whatever a move caught in its mouth, or a shape its health had just
     // crossed into, is a shape change worth showing as it happens rather than
@@ -1266,6 +1570,27 @@ export class Battle {
    * @param {any} move
    */
   effectiveMove(attacker, defender, move) {
+    // A signature move is whatever type the item behind it says: an Ivy
+    // Cudgel the mask, a Judgment the plate, a Multi-Attack the memory, a
+    // Techno Blast the drive.
+    const signature = SIGNATURE_MOVES.get(speciesOf(attacker.pokemon.speciesId)?.slug ?? '');
+    if (signature && moveOf(signature)?.id === move.id) {
+      const type = signatureType(attacker.pokemon, signature);
+      if (type && type !== move.type) move = { ...move, type };
+    }
+    // A move whose power is a matter of weight.
+    const weighed = weightPower(move, this.weightOf(attacker), this.weightOf(defender));
+    if (weighed !== null) move = { ...move, power: weighed };
+    // A hungry Morpeko's Aura Wheel is Dark.
+    if (attacker.marks.forme === 'morpeko-hangry' && moveOf('aura-wheel')?.id === move.id) {
+      move = { ...move, type: 'dark' };
+    }
+    // A Stellar Terapagos's Tera Starstorm is Stellar — neutral on everything
+    // — and hits from whichever of its two attacking stats is higher.
+    if (attacker.marks.forme === STELLAR_FORME && moveOf('tera-starstorm')?.id === move.id) {
+      const physical = this.stat(attacker, 'atk') > this.stat(attacker, 'spa');
+      move = { ...move, type: 'stellar', damageClass: physical ? 'physical' : 'special' };
+    }
     const ability = this.abilityOf(attacker);
     const retyped = ability?.moveType?.(this.abilityContext(attacker, defender, []), move);
     if (!retyped || retyped === move.type) return move;
@@ -1286,6 +1611,12 @@ export class Battle {
     // Powder does nothing to a Grass type, which is the one classification the
     // games gate on a type rather than on an ability.
     if (hasFlag(move, 'powder') && this.typesOf(defender).includes('grass')) return true;
+
+    // Status moves ignore the type chart, all but Thunder Wave: electricity
+    // still has to reach its target, and a Ground type is out of its way.
+    if (TYPE_CHECKED_STATUS.has(attacker.lastMove ?? '') && typeEffectiveness(move.type, this.typesOf(defender)) === 0) {
+      return true;
+    }
 
     const shield = heldShield(defender.pokemon, 'flags');
     if (shield && move.flags?.some((flag) => shield.includes(flag))) return true;
@@ -1542,7 +1873,7 @@ export class Battle {
 
     // A Cheek Pouch is paid for eating whatever it was.
     if (ability?.onBerry) {
-      log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+      log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
       ability.onBerry(this.abilityContext(combatant, other ?? combatant, log));
     }
   }
@@ -1561,7 +1892,7 @@ export class Battle {
 
     combatant.pokemon.heldItem = combatant.marks.ateBerry;
     combatant.marks.ateBerry = null;
-    log.push({ kind: 'ability', side: combatant.side, data: { ability: combatant.pokemon.ability } });
+    log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
     log.push({ kind: 'regrew', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
   }
 
@@ -1706,7 +2037,7 @@ export class Battle {
       if (this.bustForme(attacker, defender)) {
         defender.marks.formeBroken = true;
         this.applyForme(defender, { ...this.formeState(defender), broken: true }, log);
-        log.push({ kind: 'formBroken', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'formBroken', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         break;
       }
 
@@ -1718,7 +2049,7 @@ export class Battle {
           kind: 'endure',
           side: defender.side,
           data: survives.ability
-            ? { ability: defender.pokemon.ability }
+            ? { ability: abilityName(defender.pokemon) }
             : { item: defender.pokemon.heldItem },
         });
         if (survives.consumed) defender.pokemon.heldItem = null;
@@ -1748,10 +2079,12 @@ export class Battle {
     log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
     if (critical) {
       log.push({ kind: 'critical', side: defender.side });
+      // Three in one battle is how a Galarian Farfetch'd evolves.
+      attacker.marks.crits = (attacker.marks.crits ?? 0) + 1;
       // An Anger Point turns a weak spot into the highest Attack there is.
       const angered = this.abilityOf(defender, attacker);
       if (angered?.onCrit && defender.pokemon.hp > 0) {
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         angered.onCrit(this.abilityContext(defender, attacker, log));
       }
     }
@@ -1766,7 +2099,7 @@ export class Battle {
       // A Liquid Ooze turns the drink into the same amount of damage.
       if (this.abilityOf(defender, attacker)?.drainHurts) {
         attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - healed);
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         log.push({ kind: 'damage', side: attacker.side, data: { amount: healed } });
       } else {
         attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
@@ -1775,6 +2108,10 @@ export class Battle {
     } else if (drain < 0 && total > 0) {
       const recoil = Math.max(1, Math.floor((total * -drain) / 100));
       attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
+      // A white-striped Basculin counts the recoil it has lived through.
+      if (speciesOf(attacker.pokemon.speciesId)?.evolutions?.some((evolution) => evolution.recoil)) {
+        attacker.pokemon.recoilTaken = attacker.pokemon.hp > 0 ? (attacker.pokemon.recoilTaken ?? 0) + recoil : 0;
+      }
       log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
@@ -1851,7 +2188,7 @@ export class Battle {
     if (!absorbed) return false;
 
     const context = this.abilityContext(defender, attacker, log);
-    log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+    log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
 
     if (absorbed.heal) context.heal(defender, absorbed.heal);
     if (absorbed.stat) context.raise(defender, absorbed.stat, absorbed.stages ?? 1);
@@ -1922,13 +2259,13 @@ export class Battle {
       // And the two that store a charge off it.
       if (ability?.absorbCharge?.(this.abilityContext(defender, attacker, log), move)) {
         defender.marks.charged = true;
-        log.push({ kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
 
       const before = log.length;
       ability?.hit?.(this.abilityContext(defender, attacker, log), move, damage);
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
     }
 
@@ -1938,7 +2275,7 @@ export class Battle {
       const before = log.length;
       dealt.onHitDealt(this.abilityContext(attacker, defender, log), move, damage);
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: attacker.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: abilityName(attacker.pokemon) } });
       }
     }
 
@@ -1950,7 +2287,7 @@ export class Battle {
       const before = log.length;
       ability?.contact?.(this.abilityContext(defender, attacker, log));
       if (log.length > before) {
-        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: defender.pokemon.ability } });
+        log.splice(before, 0, { kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
       }
     }
 
@@ -2072,6 +2409,7 @@ export class Battle {
     const defendContext = this.abilityContext(defender, attacker, []);
     const abilityPower = attackerAbility?.power?.(attackContext, move, effectiveness) ?? 1;
     const abilityTaken = defenderAbility?.taken?.(defendContext, move, effectiveness) ?? 1;
+    const aura = auraMultiplier([this.abilityOf(attacker), this.abilityOf(defender)], move);
 
     const held = this.heldDamage(attacker, move, effectiveness);
     const charged = attackerAbility?.absorbCharge ? this.chargeMultiplier(attacker, move) : 1;
@@ -2085,28 +2423,25 @@ export class Battle {
     );
     // An Infiltrator is not stopped by anything the other side put up.
     const screen = attackerAbility?.infiltrates ? 1 : this.screenMultiplier(defender, move, critical);
-    const armour = companionArmour(defender, effectiveness);
-
-    const damage = Math.max(
-      1,
-      Math.floor(
-        base *
-          stab *
-          effectiveness *
-          burn *
-          spread *
-          criticalBonus *
-          held *
-          resisted *
-          abilityPower *
-          abilityTaken *
-          weather *
-          terrain *
-          screen *
-          charged *
-          armour,
-      ),
+    const formula = Math.floor(
+      base *
+        stab *
+        effectiveness *
+        burn *
+        spread *
+        criticalBonus *
+        held *
+        resisted *
+        abilityPower *
+        abilityTaken *
+        aura *
+        weather *
+        terrain *
+        screen *
+        charged,
     );
+    // The companion's armour comes off the finished hit, weakness and all.
+    const damage = Math.max(1, Math.floor(formula * companionArmour(defender, effectiveness)));
     return { damage, effectiveness, critical };
   }
 
@@ -2228,7 +2563,8 @@ export class Battle {
     // Serene Grace doubles the odds of whatever a move was already going to do.
     const odds = ability?.secondary ?? 1;
 
-    if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0) {
+    const jealous = !RAISED_THIS_TURN_ONLY.has(attacker.lastMove ?? '') || defender.marks.raisedTurn === this.turn;
+    if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0 && jealous) {
       if (this.rng.next() < (meta.ailmentChance / 100) * odds) this.inflictAilment(attacker, defender, meta.ailment, log);
     }
 
@@ -2274,6 +2610,17 @@ export class Battle {
           log.push({ kind: 'screen', side: attacker.side, data: { screen: field.screen, turns } });
           did = true;
         }
+      }
+      // A Trick Room twists the order of the turn for everyone, and a
+      // Tailwind blows behind the side that called it.
+      if (field.room) {
+        const state = this.field.toggleTrickRoom();
+        log.push({ kind: 'trickRoom', side: attacker.side, data: { state } });
+        did = true;
+      }
+      if (field.tailwind && this.field.setTailwind(attacker.side)) {
+        log.push({ kind: 'tailwind', side: attacker.side });
+        did = true;
       }
       // A hazard is laid at the other side's feet, not at the user's.
       if (field.hazard && this.field.addHazard(defender.side, field.hazard)) {
@@ -2342,7 +2689,7 @@ export class Battle {
   applyLock(attacker, defender, lock, log) {
     // A Disable and an Encore both need something to have been used first.
     if (lock.state === VOLATILE.DISABLE || lock.state === VOLATILE.ENCORE) {
-      if (!defender.lastMove || !defender.pokemon.moves.some((slot) => slot.move === defender.lastMove)) {
+      if (!defender.lastMove || !this.movesOf(defender).some((slot) => slot.move === defender.lastMove)) {
         return false;
       }
     }
@@ -2529,7 +2876,7 @@ export class Battle {
     const other = target === this.player ? this.foe : this.player;
     const ability = this.abilityOf(target, other ?? undefined);
     if (ability?.blockVolatile?.(this.abilityContext(target, other ?? target, log), state)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return true;
     }
     return false;
@@ -2563,7 +2910,7 @@ export class Battle {
     const other = source;
     const ability = this.abilityOf(target, other ?? undefined);
     if (ability?.blockStatus?.(this.abilityContext(target, other ?? target, log), status)) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return false;
     }
 
@@ -2573,7 +2920,7 @@ export class Battle {
 
     // A Synchronize passes what it was given straight back.
     if (ability?.reflectsStatus && other && other.pokemon.hp > 0 && !other.pokemon.status) {
-      log.push({ kind: 'ability', side: target.side, data: { ability: target.pokemon.ability } });
+      log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       this.inflictStatus(other, ailment, log);
     }
     return true;
@@ -2636,6 +2983,8 @@ export class Battle {
     // last one standing on no hit points is not a win. Checked after the foe
     // rather than instead of it, so the knock-out it earned still counts.
     if (this.player.pokemon.hp <= 0) {
+      // Fainting starts a Basculin's count of recoil over.
+      if (this.player.pokemon.recoilTaken) this.player.pokemon.recoilTaken = 0;
       log.push({
         kind: 'faint',
         side: 'player',
@@ -2669,7 +3018,7 @@ export class Battle {
     const before = log.length;
     ability.onKnockOut(this.abilityContext(winner, fallen, log));
     if (log.length > before) {
-      log.splice(before, 0, { kind: 'ability', side: winner.side, data: { ability: winner.pokemon.ability } });
+      log.splice(before, 0, { kind: 'ability', side: winner.side, data: { ability: abilityName(winner.pokemon) } });
     }
   }
 
@@ -2682,7 +3031,7 @@ export class Battle {
    */
   onFaint(fallen, log) {
     const other = fallen === this.player ? this.foe : this.player;
-    const ability = abilityEffect(fallen.pokemon);
+    const ability = this.ownAbility(fallen);
     if (!ability?.faint || !other) return;
 
     // A Damp on the other side is what an Aftermath runs into.
@@ -2691,7 +3040,7 @@ export class Battle {
     const before = log.length;
     ability.faint(this.abilityContext(fallen, other, log, { byContact, lastDamage: fallen.marks.lastDamage ?? 0 }));
     if (log.length > before) {
-      log.splice(before, 0, { kind: 'ability', side: fallen.side, data: { ability: fallen.pokemon.ability } });
+      log.splice(before, 0, { kind: 'ability', side: fallen.side, data: { ability: abilityName(fallen.pokemon) } });
     }
   }
 
@@ -2760,7 +3109,9 @@ function makeCombatant(pokemon, side) {
 export function effectiveStat(combatant, stat, options = {}) {
   // The forme the combatant wears carries its own base stats — a Zen Mode's
   // Attack comes out of the forme, not out of the species.
-  const base = statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
+  // A Transform fights on the stats it copied, all but its own Hit Points.
+  const copied = stat !== 'hp' ? combatant.transform?.stats?.[stat] : undefined;
+  const base = copied ?? statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
   let stage = options.ignoreStages ? 0 : combatant.stages[stat] ?? 0;
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;
@@ -2938,6 +3289,12 @@ function movesWorthUsing(attacker, defender, usable) {
  * @param {any} move
  */
 export function expectedDamage(attacker, defender, move) {
+  const weighed = weightPower(
+    move,
+    speciesOf(attacker.pokemon.speciesId)?.weight ?? 100,
+    speciesOf(defender.pokemon.speciesId)?.weight ?? 100,
+  );
+  if (weighed !== null) move = { ...move, power: weighed };
   if (!move.power) return 0;
   const level = levelOf(attacker.pokemon);
   const physical = move.damageClass === 'physical';
@@ -3122,20 +3479,21 @@ function doubled(held) {
  *
  * The companion travels alone: there is no party to switch to, no second
  * chance at a bad matchup, and nobody watching to pull it out of one. So it
- * takes thirty per cent less of everything aimed at it — and, because a flat
- * reduction would make type matchups matter thirty per cent less too, a hit it
- * is actually weak to lands half again as hard. The sum of the two is a
- * companion that survives the ordinary exchange it cannot answer and still
- * loses to the thing it should lose to.
+ * takes half of everything aimed at it, and a weakness costs it half again
+ * rather than double — a double weakness, half again twice. Both come off the
+ * finished number, after type effectiveness, STAB and the rest, by undoing
+ * each of the chart's doublings and putting {@link COMPANION_WEAKNESS} in
+ * its place.
  *
  * Only what it *takes* is touched. What it deals goes through the formula
  * untouched, so nothing about the player's own damage changes.
  *
- * @param {Combatant} defender
- * @param {number} effectiveness
+ * @param {Combatant|null|undefined} defender
+ * @param {number} effectiveness the type chart's multiplier for the hit
  * @returns {number}
  */
 export function companionArmour(defender, effectiveness) {
   if (defender?.side !== 'player') return 1;
-  return COMPANION_DAMAGE_TAKEN * (effectiveness > 1 ? COMPANION_WEAKNESS_TAKEN : 1);
+  const weaknesses = effectiveness > 1 ? Math.log2(effectiveness) : 0;
+  return COMPANION_DAMAGE_TAKEN * (COMPANION_WEAKNESS / 2) ** weaknesses;
 }

@@ -1,0 +1,349 @@
+{
+  "_comment": "PokeAPI가 설명문이나 한국어 이름을 싣지 않은 아이템의 설명과 이름. 게임이 데이터를 불러올 때 생성 데이터 위에 덮어쓴다(core/data.mjs). 효과는 이 게임에서 실제로 하는 일과 어긋나지 않게 쓴다. 이름은 확인된 공식 명칭만 쓴다: 로셀열매는 PokeAPI의 item_names.csv, 순백떡은 한국어 포켓몬 위키. 전설 포켓몬의 폼체인지 도구는 이 게임에서 실제로 하는 일(지니게 하면/사용하면 어떤 모습이 되는지)로 설명을 바꿔 쓴다.",
+  "items": {
+    "booster-energy": {
+      "text": {
+        "ko": "지니게 하면 고대활성이나 쿼크차지 특성을 가진 포켓몬의 가장 높은 능력이 오른다. 한 번 쓰면 없어진다.",
+        "en": "When held by a Pokémon with Protosynthesis or Quark Drive, raises its highest stat. Consumed after use."
+      }
+    },
+    "ability-shield": {
+      "text": {
+        "ko": "지니게 하면 상대의 기술이나 특성 때문에 자신의 특성이 바뀌거나 없어지지 않는다.",
+        "en": "When held, the holder's Ability cannot be changed or suppressed by other moves or Abilities."
+      }
+    },
+    "mirror-herb": {
+      "text": {
+        "ko": "지니게 하면 상대가 능력을 올렸을 때 한 번 그대로 흉내 내서 자신의 능력도 같은 만큼 올린다.",
+        "en": "When held, copies a stat increase the opponent makes, once."
+      }
+    },
+    "punching-glove": {
+      "text": {
+        "ko": "지니게 하면 펀치 기술의 위력이 오르고, 펀치 기술로 공격해도 상대에게 닿지 않는다.",
+        "en": "When held, punching moves are more powerful and no longer make contact."
+      }
+    },
+    "fairy-feather": {
+      "text": {
+        "ko": "지니게 하면 페어리타입 기술의 위력이 오르는 신비한 깃털.",
+        "en": "A mysterious feather that boosts the power of Fairy-type moves when held."
+      }
+    },
+    "wellspring-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 우물의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Wellspring Mask form and its moves become more powerful."
+      }
+    },
+    "hearthflame-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 화덕의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Hearthflame Mask form and its moves become more powerful."
+      }
+    },
+    "cornerstone-mask": {
+      "text": {
+        "ko": "오거폰이 지니면 주춧돌의가면의 모습이 되고, 공격하는 기술의 위력이 오른다.",
+        "en": "When held by Ogerpon, it takes the Cornerstone Mask form and its moves become more powerful."
+      }
+    },
+    "loaded-dice": {
+      "text": {
+        "ko": "지니게 하면 여러 번 연속으로 공격하는 기술이 더 많이 맞게 된다.",
+        "en": "When held, multistrike moves are more likely to hit many times."
+      }
+    },
+    "clear-amulet": {
+      "text": {
+        "ko": "지니게 하면 상대의 기술이나 특성 때문에 능력이 떨어지지 않는다.",
+        "en": "When held, the holder's stats cannot be lowered by the opponent's moves or Abilities."
+      }
+    },
+    "covert-cloak": {
+      "text": {
+        "ko": "지니게 하면 상대 기술의 추가 효과를 받지 않는다.",
+        "en": "When held, the holder is protected from the additional effects of moves."
+      }
+    },
+    "roseli-berry": {
+      "text": {
+        "ko": "지니게 하면 효과가 굉장한 페어리타입 기술을 받았을 때 위력을 약하게 한다.",
+        "en": "When held, weakens a supereffective Fairy-type move against the holder."
+      },
+      "name": {
+        "ko": "로셀열매",
+        "en": "Roseli Berry"
+      }
+    },
+    "malicious-armor": {
+      "text": {
+        "ko": "원한이 서린 갑옷. 카르본을 진화시키는 데 쓴다.",
+        "en": "A cursed suit of armor used to evolve Charcadet."
+      }
+    },
+    "masterpiece-teacup": {
+      "text": {
+        "ko": "걸작이라 불리는 찻잔. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "A teacup said to be a masterpiece. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "unremarkable-teacup": {
+      "text": {
+        "ko": "흔해 빠진 찻잔. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "An ordinary-looking teacup. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "syrupy-apple": {
+      "text": {
+        "ko": "꿀처럼 달콤한 사과. 어떤 포켓몬을 진화시키는 데 쓴다.",
+        "en": "A very syrupy apple. It makes a certain species of Pokémon evolve."
+      }
+    },
+    "linking-cord": {
+      "text": {
+        "ko": "통신교환으로 진화하는 포켓몬에게 사용하면 진화한다. 사용하면 없어진다.",
+        "en": "Use it on a Pokémon that evolves by trade and it evolves. It is used up."
+      }
+    },
+    "black-augurite": {
+      "text": {
+        "ko": "검게 빛나는 유리질의 돌. 스라크를 진화시키는 데 쓴다.",
+        "en": "A glassy black stone that splits apart easily. It makes Scyther evolve."
+      }
+    },
+    "metal-alloy": {
+      "text": {
+        "ko": "여러 금속이 섞인 특별한 금속. 두랄루돈을 진화시키는 데 쓴다.",
+        "en": "A peculiar metal made of several metals. It makes Duraludon evolve."
+      }
+    },
+    "peat-block": {
+      "text": {
+        "ko": "오랜 세월 굳어진 이탄 덩어리. 보름달이 뜬 밤에 링곰을 진화시키는 데 쓴다.",
+        "en": "A block of long-compacted peat. It makes Ursaring evolve under a full moon."
+      }
+    },
+    "blank-plate": {
+      "text": {
+        "ko": "지니게 하면 노말타입 기술의 위력이 오르는 석판.",
+        "en": "A stone tablet that boosts the power of Normal-type moves when held."
+      }
+    },
+    "health-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 HP 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's HP by 10."
+      }
+    },
+    "muscle-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 공격 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Attack by 10."
+      }
+    },
+    "resist-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 방어 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Defense by 10."
+      }
+    },
+    "genius-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 특수공격 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Sp. Atk by 10."
+      }
+    },
+    "clever-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 특수방어 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Sp. Def by 10."
+      }
+    },
+    "swift-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 스피드 노력치를 10 올리는 떡.",
+        "en": "A mochi that raises the base points of a Pokémon's Speed by 10."
+      }
+    },
+    "fresh-start-mochi": {
+      "text": {
+        "ko": "포켓몬 1마리의 노력치를 모두 0으로 되돌리는 떡.",
+        "en": "A mochi that resets all of a Pokémon's base points to zero."
+      },
+      "name": {
+        "ko": "순백떡",
+        "en": "Fresh-Start Mochi"
+      }
+    },
+    "tera-orb": {
+      "text": {
+        "ko": "테라파고스에게 지니게 하면 전투가 시작될 때 스텔라폼이 된다. 테라스탈 현상이 없는 이 세계에서 테라스탈의 힘을 담아 둔 구슬.",
+        "en": "When held by Terapagos, it takes its Stellar Form as a battle begins. An orb holding the power of Terastallization in a world without the phenomenon."
+      }
+    },
+    "adamant-crystal": {
+      "text": {
+        "ko": "디아루가에게 지니게 하면 오리진폼이 되고 드래곤과 강철타입 기술의 위력이 올라간다.",
+        "en": "When held by Dialga, it takes its Origin Forme and its Dragon- and Steel-type moves grow stronger."
+      }
+    },
+    "lustrous-globe": {
+      "text": {
+        "ko": "펄기아에게 지니게 하면 오리진폼이 되고 드래곤과 물타입 기술의 위력이 올라간다.",
+        "en": "When held by Palkia, it takes its Origin Forme and its Dragon- and Water-type moves grow stronger."
+      }
+    },
+    "griseous-orb": {
+      "text": {
+        "ko": "기라티나에게 지니게 하면 오리진폼이 되고 드래곤과 고스트타입 기술의 위력이 올라간다.",
+        "en": "When held by Giratina, it takes its Origin Forme and its Dragon- and Ghost-type moves grow stronger."
+      }
+    },
+    "blue-orb": {
+      "text": {
+        "ko": "가이오가에게 지니게 하면 전투가 시작될 때 원시회귀해서 원시가이오가가 된다.",
+        "en": "When held by Kyogre, it undergoes Primal Reversion as a battle begins."
+      }
+    },
+    "red-orb": {
+      "text": {
+        "ko": "그란돈에게 지니게 하면 전투가 시작될 때 원시회귀해서 원시그란돈이 된다.",
+        "en": "When held by Groudon, it undergoes Primal Reversion as a battle begins."
+      }
+    },
+    "rusted-sword": {
+      "text": {
+        "ko": "자시안에게 지니게 하면 전투가 시작될 때 검왕의 모습이 된다.",
+        "en": "When held by Zacian, it becomes the Crowned Sword as a battle begins."
+      }
+    },
+    "rusted-shield": {
+      "text": {
+        "ko": "자마젠타에게 지니게 하면 전투가 시작될 때 방패왕의 모습이 된다.",
+        "en": "When held by Zamazenta, it becomes the Crowned Shield as a battle begins."
+      }
+    },
+    "ultranecrozium-z--held": {
+      "text": {
+        "ko": "황혼의 갈기나 새벽의 날개 네크로즈마에게 지니게 하면 전투가 시작될 때 울트라버스트해서 울트라네크로즈마가 된다.",
+        "en": "When held by Dusk Mane or Dawn Wings Necrozma, it Ultra Bursts into Ultra Necrozma as a battle begins."
+      }
+    },
+    "n-solarizer--merge": {
+      "text": {
+        "ko": "네크로즈마에게 사용하면 황혼의 갈기 모습이 된다. 한 번 더 사용하면 원래 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Necrozma to turn it into Dusk Mane Necrozma; use it again to return it to normal. It is not used up."
+      }
+    },
+    "n-lunarizer--merge": {
+      "text": {
+        "ko": "네크로즈마에게 사용하면 새벽의 날개 모습이 된다. 한 번 더 사용하면 원래 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Necrozma to turn it into Dawn Wings Necrozma; use it again to return it to normal. It is not used up."
+      }
+    },
+    "dna-splicers": {
+      "text": {
+        "ko": "큐레무에게 사용할 때마다 블랙큐레무, 화이트큐레무, 원래 모습 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Kyurem turns it into Black Kyurem, then White Kyurem, then back to normal. It is not used up."
+      }
+    },
+    "prison-bottle": {
+      "text": {
+        "ko": "후파에게 사용하면 굴레를 벗어난 모습이 된다. 한 번 더 사용하면 굴레에 갇힌 모습으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Hoopa to unbind it; use it again to confine it. It is not used up."
+      }
+    },
+    "gracidea": {
+      "text": {
+        "ko": "쉐이미에게 사용하면 스카이폼이 된다. 한 번 더 사용하면 랜드폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Shaymin to change it into its Sky Forme; use it again to return it to its Land Forme. It is not used up."
+      }
+    },
+    "reveal-glass": {
+      "text": {
+        "ko": "토네로스, 볼트로스, 랜드로스, 러브로스에게 사용하면 영물폼이 된다. 한 번 더 사용하면 화신폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Tornadus, Thundurus, Landorus or Enamorus to change it into its Therian Forme; use it again to return it to its Incarnate Forme. It is not used up."
+      }
+    },
+    "reins-of-unity": {
+      "text": {
+        "ko": "버드렉스에게 사용할 때마다 백마 탄 모습, 흑마 탄 모습, 원래 모습 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Calyrex makes it the Ice Rider, then the Shadow Rider, then itself again. It is not used up."
+      }
+    },
+    "meteorite": {
+      "text": {
+        "ko": "테오키스에게 사용할 때마다 어택폼, 디펜스폼, 스피드폼, 노말폼 순서로 바뀐다. 쓰고 나도 없어지지 않는다.",
+        "en": "Each use on Deoxys changes it into its Attack, Defense, then Speed Forme, then back to Normal. It is not used up."
+      }
+    },
+    "zygarde-cube": {
+      "text": {
+        "ko": "지가르데에게 사용하면 10%폼이 된다. 한 번 더 사용하면 50%폼으로 돌아온다. 쓰고 나도 없어지지 않는다.",
+        "en": "Use it on Zygarde to change it into its 10% Forme; use it again to return it to its 50% Forme. It is not used up."
+      }
+    },
+    "burn-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 블레이즈카세트를 장착하고 테크노버스터가 불꽃타입이 된다.",
+        "en": "When held by Genesect, it loads the Burn Drive and its Techno Blast becomes Fire type."
+      }
+    },
+    "chill-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 프리즈카세트를 장착하고 테크노버스터가 얼음타입이 된다.",
+        "en": "When held by Genesect, it loads the Chill Drive and its Techno Blast becomes Ice type."
+      }
+    },
+    "douse-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 아쿠아카세트를 장착하고 테크노버스터가 물타입이 된다.",
+        "en": "When held by Genesect, it loads the Douse Drive and its Techno Blast becomes Water type."
+      }
+    },
+    "shock-drive": {
+      "text": {
+        "ko": "게노세크트에게 지니게 하면 번개카세트를 장착하고 테크노버스터가 전기타입이 된다.",
+        "en": "When held by Genesect, it loads the Shock Drive and its Techno Blast becomes Electric type."
+      }
+    },
+    "scroll-of-darkness": {
+      "text": {
+        "ko": "치고마에게 사용하면 악의 탑의 가르침을 받아 우라오스(일격의 태세)로 진화한다.",
+        "en": "Use it on Kubfu and it takes in the teachings of the Tower of Darkness, evolving into Single Strike Urshifu."
+      }
+    },
+    "auspicious-armor": {
+      "text": {
+        "ko": "카르본에게 사용하면 카디나르마로 진화한다. 축복의 힘이 깃든 갑옷.",
+        "en": "Use it on Charcadet to evolve it into Armarouge. Armor imbued with auspicious power."
+      }
+    },
+    "leaders-crest": {
+      "text": {
+        "ko": "절각참에게 지니게 하고 레벨업하면 대도각참으로 진화한다. 우두머리임을 나타내는 징표.",
+        "en": "Level up a Bisharp holding it and it evolves into Kingambit. The mark of a leader."
+      }
+    },
+    "gimmighoul-coin": {
+      "text": {
+        "ko": "모으령이 소중히 모으는 코인. 모으령에게 사용하면 타부자고로 진화한다.",
+        "en": "A coin Gimmighoul treasure. Use it on a Gimmighoul and it evolves into Gholdengo."
+      }
+    },
+    "scroll-of-waters": {
+      "text": {
+        "ko": "치고마에게 사용하면 물의 탑의 가르침을 받아 우라오스(연격의 태세)로 진화한다.",
+        "en": "Use it on Kubfu and it takes in the teachings of the Tower of Waters, evolving into Rapid Strike Urshifu."
+      }
+    },
+    "meltan-candy": {
+      "text": {
+        "ko": "레벨 48 이상인 멜탄에게 사용하면 멜메탈로 진화한다. 사용하면 없어진다.",
+        "en": "Use it on a Meltan of level 48 or higher to evolve it into Melmetal. It is used up."
+      }
+    }
+  }
+}

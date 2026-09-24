@@ -231,13 +231,16 @@ const MIN_RUN_BLOCKS = 12;
  * @param {number} widthInBlocks
  * @param {number} heightInBlocks
  * @param {number} bandBlocks how many block rows the strip spans
+ * @param {(x: number, y: number) => boolean} [isWater] blocks the collision
+ *   leaves open but a Pokémon could only cross by surfing — Route 103's lake
+ *   among them, which the walk used to stroll across
  * @returns {{bandRow: number, laneRow: number, column: number, columns: number, clearance: number}}
  */
-export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlocks) {
+export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlocks, isWater = () => false) {
   const passable = (x, y) => {
     const offset = (y * widthInBlocks + x) * 2;
     if (offset + 1 >= blockdata.length) return false;
-    return ((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0;
+    return ((blockdata.readUInt16LE(offset) >> 10) & 0x03) === 0 && !isWater(x, y);
   };
 
   /**
@@ -249,10 +252,10 @@ export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlock
    * pixels below the top edge of the screen with the whole map hanging under
    * it. Seafloor Cavern's longest clear run really is its top row.
    */
-  const longestRun = (clearance, minRow) => {
+  const longestRun = (clearance, minRow, maxRow = heightInBlocks - 1) => {
     /** @type {{laneRow: number, column: number, columns: number}|null} */
     let best = null;
-    for (let y = Math.max(clearance, minRow); y < heightInBlocks; y++) {
+    for (let y = Math.max(clearance, minRow); y <= Math.min(maxRow, heightInBlocks - 1); y++) {
       let run = 0;
       let start = 0;
       for (let x = 0; x <= widthInBlocks; x++) {
@@ -276,11 +279,16 @@ export function pickWalkPath(blockdata, widthInBlocks, heightInBlocks, bandBlock
 
   /** @type {{laneRow: number, column: number, columns: number, clearance: number}|null} */
   let chosen = null;
-  // Lanes that can sit where a walking sprite reads best are looked for first;
-  // only a map with nothing down there settles for one nearer its top edge.
-  for (const minRow of [above, 0]) {
+  // Lanes that can sit where a walking sprite reads best are looked for first:
+  // far enough down the map to have the band's worth of map above them, and
+  // far enough up to have the rest below. A lane on the map's last few rows
+  // slides the band up against the bottom edge and puts the companion's feet
+  // down by the window's bottom edge — Route 121's did, on its very last row.
+  // Only a map with nothing in that middle settles for one nearer an edge.
+  const lowest = heightInBlocks - bandBlocks + above;
+  for (const [minRow, maxRow] of [[above, lowest], [above, heightInBlocks - 1], [0, heightInBlocks - 1]]) {
     for (let clearance = wanted; clearance >= 0; clearance--) {
-      const found = longestRun(clearance, minRow);
+      const found = longestRun(clearance, minRow, maxRow);
       if (!found) continue;
       // Keep the roomiest one seen so far, so dropping to no headroom at all
       // still cannot make the strip shorter than it already was.

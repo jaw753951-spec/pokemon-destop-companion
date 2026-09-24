@@ -339,7 +339,7 @@ test('a stored policy from either older shape becomes conditions', options, () =
   assert.equal(normalizeAutoBattle(null).conditions.heal, 'hpHalf');
 });
 
-test('an item is thrown before either side moves, and takes the turn', options, () => {
+test('an item takes the companion\'s turn instead of a move', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['flamethrower']);
   player.hp = 20;
 
@@ -371,6 +371,26 @@ test('an item is thrown before either side moves, and takes the turn', options, 
   assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'));
   // And only once: the next turn is fought normally.
   assert.equal(battle.pendingItem, null);
+});
+
+test('an item is used in the companion\'s place in the order, not ahead of everything', options, () => {
+  // A slow companion against a fast foe: the foe moves first, and the item
+  // is used when the companion's turn comes round.
+  const player = makeFixed(VENUSAUR, 50, ['tackle']);
+  const battle = new Battle({
+    rng: new Rng(3),
+    player,
+    foes: [makeFixed(CHARIZARD, 60, ['tackle'])],
+    policy: defaultAutoBattle(),
+    items: { choose: () => null, throw: () => true },
+  });
+
+  battle.queueItem('potion');
+  const log = battle.takeTurn();
+  const item = log.findIndex((entry) => entry.kind === 'item');
+  const foeMove = log.findIndex((entry) => entry.kind === 'move' && entry.side === 'foe');
+  assert.ok(item >= 0 && foeMove >= 0);
+  assert.ok(foeMove < item, 'the faster foe acts before the item is used');
 });
 
 test('a Sitrus Berry is eaten at half health, for a quarter of the bar', options, () => {
@@ -562,3 +582,181 @@ function moveFixture(damageClass, power, type) {
     meta: { ailment: 'none', ailmentChance: 0, critRate: 0, drain: 0, healing: 0, flinchChance: 0, statChance: 0 },
   };
 }
+
+test('a Fake Out works on the first turn out and fails after it', options, () => {
+  // Nothing else to use, so the second turn has to try it and find it fails.
+  const player = makeFixed(CHARIZARD, 50, ['fake-out']);
+  const battle = new Battle({
+    rng: new Rng(5),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+
+  const first = battle.takeTurn();
+  assert.ok(first.some((entry) => entry.kind === 'damage' && entry.side === 'foe'), 'the first one lands');
+  assert.ok(!first.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+
+  const second = battle.takeTurn();
+  assert.ok(second.some((entry) => entry.kind === 'failed' && entry.side === 'player'), 'the second one fails');
+  assert.ok(!second.some((entry) => entry.kind === 'damage' && entry.side === 'foe'));
+});
+
+test('after the first turn out, a Fake Out is not reached for when there is anything else', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['fake-out', 'tackle']);
+  const battle = new Battle({
+    rng: new Rng(5),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: { ...defaultAutoBattle(), order: ['fake-out', 'fake-out'], mode: 'repeatAll' },
+  });
+
+  battle.takeTurn();
+  const moves = battle.takeTurn().filter((entry) => entry.kind === 'move' && entry.side === 'player');
+  assert.deepEqual(moves.map((entry) => entry.data.move), ['tackle']);
+});
+
+test('inside a Trick Room the slower side moves first, and a second one takes it down', options, () => {
+  // Venusaur is slower than Charizard at the same level.
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  assert.equal(battle.orderOfPlay()[0], battle.foe, 'the faster foe first, normally');
+
+  assert.equal(battle.field.toggleTrickRoom(), 'started');
+  assert.equal(battle.orderOfPlay()[0], battle.player, 'the slower companion first, in the room');
+  assert.ok(!battle.field.quiet, 'a room standing is something going on');
+
+  assert.equal(battle.field.toggleTrickRoom(), 'ended');
+  assert.equal(battle.orderOfPlay()[0], battle.foe);
+});
+
+test('a Trick Room runs out after five turns', options, () => {
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  battle.field.toggleTrickRoom();
+  const ended = [];
+  for (let turn = 0; turn < 5; turn++) ended.push(...battle.field.tick());
+  assert.deepEqual(ended.map((entry) => entry.kind), ['trickRoom']);
+  assert.equal(battle.field.trickRoom, 0);
+});
+
+test('a Tailwind doubles the Speed of the side it blows behind, for four turns', options, () => {
+  const battle = new Battle({
+    rng: new Rng(2),
+    player: makeFixed(VENUSAUR, 50, ['tackle']),
+    foes: [makeFixed(CHARIZARD, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const before = battle.speedOf(battle.player);
+  assert.ok(battle.field.setTailwind('player'));
+  assert.equal(battle.speedOf(battle.player), before * 2);
+  assert.ok(!battle.field.setTailwind('player'), 'one already blowing is not restarted');
+  // Twice as fast is faster than the Charizard.
+  assert.equal(battle.orderOfPlay()[0], battle.player);
+
+  const ended = [];
+  for (let turn = 0; turn < 4; turn++) ended.push(...battle.field.tick());
+  assert.deepEqual(ended.map((entry) => [entry.kind, entry.side]), [['tailwind', 'player']]);
+  assert.equal(battle.speedOf(battle.player), before);
+});
+
+test('using Trick Room and Tailwind puts them up', options, () => {
+  const player = makeFixed(VENUSAUR, 50, ['trick-room']);
+  const battle = new Battle({
+    rng: new Rng(4),
+    player,
+    foes: [makeFixed(CHARIZARD, 50, ['tailwind'])],
+    policy: { ...defaultAutoBattle(), order: ['trick-room'], mode: 'repeatAll' },
+  });
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'trickRoom' && entry.data.state === 'started'));
+  assert.ok(battle.field.trickRoom > 0);
+});
+
+test('a flinch landed by the slower side does not carry into the next turn', options, () => {
+  // Every hit flinches, and the slower side lands it after the faster one has
+  // already moved: it must not take the faster one's next turn instead.
+  const battle = new Battle({
+    rng: new Rng(9),
+    player: makeFixed(CHARIZARD, 50, ['tackle']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const flinchingTackle = { ...moveOf('tackle'), meta: { ...moveOf('tackle').meta, flinchChance: 100 } };
+  battle.effectiveMove = (attacker, defender, base) => (attacker.side === 'foe' ? flinchingTackle : base);
+
+  battle.takeTurn();
+  assert.equal(battle.player.flinched, false, 'the flinch is gone once the turn is over');
+  const next = battle.takeTurn();
+  assert.ok(!next.some((entry) => entry.kind === 'flinch' && entry.side === 'player'));
+  assert.ok(next.some((entry) => entry.kind === 'move' && entry.side === 'player'));
+});
+
+test('Thunder Wave does nothing to a Ground type', options, () => {
+  const DIGLETT = 50;
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 50, ['thunder-wave']),
+    foes: [makeFixed(DIGLETT, 50, ['scratch'])],
+    policy: { ...defaultAutoBattle(), order: ['thunder-wave'], mode: 'repeatAll' },
+  });
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'noEffect' && entry.side === 'foe'));
+  assert.equal(battle.foe.pokemon.status, null);
+});
+
+test('a Burning Jealousy burns only a target whose stats went up this turn', options, () => {
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 50, ['burning-jealousy']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const move = moveOf('burning-jealousy');
+  battle.player.lastMove = 'burning-jealousy';
+  battle.turn = 3;
+
+  battle.applySecondaryEffects(battle.player, battle.foe, move, []);
+  assert.equal(battle.foe.pokemon.status, null, 'nothing went up: no burn');
+
+  battle.foe.marks.raisedTurn = 3;
+  battle.applySecondaryEffects(battle.player, battle.foe, move, []);
+  assert.equal(battle.foe.pokemon.status, STATUS.BURN);
+});
+
+test('an Explosion takes its user down with it, hit or not', options, () => {
+  // Level 5 against level 100: the blast cannot finish the foe, so whatever
+  // ends the fight is the user going down.
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 5, ['explosion']),
+    foes: [makeFixed(BLASTOISE, 100, ['splash'])],
+    policy: defaultAutoBattle(),
+  });
+  const log = battle.takeTurn();
+  assert.equal(battle.player.pokemon.hp, 0);
+  assert.ok(log.some((entry) => entry.kind === 'faint' && entry.side === 'player'));
+  assert.equal(battle.outcome, 'lost');
+});
+
+test('a Damp keeps an Explosion from going off, and the user standing', options, () => {
+  const foe = makeFixed(BLASTOISE, 100, ['splash']);
+  foe.ability = 'damp';
+  const battle = new Battle({
+    rng: new Rng(3),
+    player: makeFixed(CHARIZARD, 5, ['explosion']),
+    foes: [foe],
+    policy: defaultAutoBattle(),
+  });
+  const log = battle.takeTurn();
+  assert.ok(battle.player.pokemon.hp > 0);
+  assert.ok(log.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+});

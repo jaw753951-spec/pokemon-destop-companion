@@ -12,7 +12,8 @@ import { url } from '../core/bridge.mjs';
 import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilityWorks } from '../engine/abilities.mjs';
+import { abilityName, abilityWorks } from '../engine/abilities.mjs';
+import { standingTypes } from '../engine/forms.mjs';
 import { unequipItem } from '../engine/items.mjs';
 import { itemOf } from '../core/data.mjs';
 import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
@@ -20,6 +21,7 @@ import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
 import { moveCard, moveSummary } from './movecard.mjs';
+import { walkerPortrait } from './portrait.mjs';
 import { statHexagon, statTable } from './statgraph.mjs';
 import { typeChip } from './typechip.mjs';
 
@@ -37,13 +39,16 @@ export function pokemonTab(app, session, refresh, state = {}) {
   const stats = statsOf(pokemon);
   const level = levelOf(pokemon);
   const progress = experienceProgress(pokemon);
-  const portrait = artOf(pokemon, 'front');
+  const name = localized(species?.name, '');
+  // The companion as it walks the road, so the tab shows the Pokémon the
+  // player has been watching rather than its battle sprite; the battle art is
+  // only for a species with no field art at all.
+  const walker = walkerPortrait(pokemon, { maxHeight: PORTRAIT_MAX_HEIGHT, label: name });
+  const portrait = walker ? null : artOf(pokemon, 'front');
 
   return el('div.tab-body.pokemon-tab', {}, [
     el('div.pokemon-left', {}, [
-      // The sprite is stored as a strip of frames; a window the width of one
-      // frame, scrolled by CSS, shows the animation the field draws.
-      portrait ? animatedPortrait(portrait, localized(species?.name, '')) : null,
+      walker ?? (portrait ? animatedPortrait(portrait, name) : null),
       statHexagon({ base: baselineStats(species, level), actual: stats }),
       statTable(stats, pokemon.evs),
     ]),
@@ -56,7 +61,8 @@ export function pokemonTab(app, session, refresh, state = {}) {
           shinyMark(pokemon, t('pokemon.shiny')),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
-        el('div.pokemon-types', {}, (species?.types ?? []).map((type) => typeChip(type))),
+        // A masked Ogerpon is the mask's type as well as Grass.
+        el('div.pokemon-types', {}, standingTypes(pokemon).map((type) => typeChip(type))),
 
         el('div.pokemon-line', {}, [
           el('span.label', { text: t('pokemon.hp') }),
@@ -146,9 +152,12 @@ function baselineStats(species, level) {
   return out;
 }
 
+/** The tallest the portrait may stand above the stat hexagon, in pixels. */
+const PORTRAIT_MAX_HEIGHT = 70;
+
 /**
- * A one-frame window onto the sprite strip, animated by stepping the
- * background position — the same frames and timing the field uses.
+ * A one-frame window onto the battle sprite's strip, animated by stepping the
+ * background position — for a species the field has no art for.
  *
  * @param {{path: string, meta: {width: number, height: number, frames: number, delay: number}}} art
  * @param {string} label
@@ -301,9 +310,11 @@ function moveClasses(move) {
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  */
 function abilityLine(app, pokemon) {
-  const ability = abilityOf(pokemon.ability);
+  // A masked Ogerpon has the mask's ability, and says so here too.
+  const slug = abilityName(pokemon) ?? pokemon.ability;
+  const ability = abilityOf(slug);
   const hidden = (speciesOf(pokemon.speciesId)?.abilities ?? []).some(
-    (entry) => entry.name === pokemon.ability && entry.hidden,
+    (entry) => entry.name === slug && entry.hidden,
   );
 
   return el('div.pokemon-line', {}, [
@@ -312,14 +323,14 @@ function abilityLine(app, pokemon) {
     // a 270-pixel screen pushed the move slots off the bottom of the page.
     el('button.chip', {
       type: 'button',
-      text: localized(ability?.name, pokemon.ability),
+      text: localized(ability?.name, slug),
       title: t('items.inspect'),
       onClick: () => {
         app.audio.blip('select');
         void describe(app, {
-          title: localized(ability?.name, pokemon.ability),
+          title: localized(ability?.name, slug),
           subtitle: hidden ? t('pokemon.hiddenAbility') : null,
-          body: abilityWorks(pokemon.ability)
+          body: abilityWorks(slug)
             ? localized(ability?.text, ability?.effect ?? '')
             : t('items.noEffectYet'),
         });

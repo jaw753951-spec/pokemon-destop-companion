@@ -57,7 +57,28 @@ globalThis.window = /** @type {any} */ ({
   clearInterval: (id) => timers.delete(id),
 });
 
-globalThis.fetch = /** @type {any} */ (async () => ({ ok: true, status: 200, json: async () => SONG }));
+/**
+ * A song with an intro: a fanfare for its first two seconds, then a body the
+ * file marks as looping — the shape of every victory theme on the cartridge.
+ */
+const LOOPED = {
+  duration: 10,
+  loop: 2,
+  tracks: [
+    {
+      program: 0,
+      notes: [
+        { t: 0, d: 0.1, n: 60, v: 0.5 },
+        { t: 2.6, d: 0.1, n: 62, v: 0.5 },
+        { t: 6, d: 0.1, n: 64, v: 0.5 },
+      ],
+    },
+  ],
+};
+
+globalThis.fetch = /** @type {any} */ (
+  async (address) => ({ ok: true, status: 200, json: async () => (String(address).includes('looped') ? LOOPED : SONG) })
+);
 
 const { AudioEngine } = await import('../../app/renderer/core/audio.mjs');
 
@@ -154,4 +175,38 @@ test('cues play on the music channel, where the music slider reaches them', asyn
   await audio.playJingle('victory');
   assert.ok(voiced.length > 0, 'the cue should have voiced something');
   for (const output of voiced) assert.equal(output, audio.musicGain);
+});
+
+test('a cue played for its intro stops where the loop begins, fading the loop out', async () => {
+  const audio = new AudioEngine();
+  const voiced = [];
+  // Only the cue's own notes: the route plays either side of it.
+  audio.playNote = (program, note) => {
+    if (audio.jingle) voiced.push(note);
+  };
+
+  await audio.playMusic('route');
+  await audio.playJingle('looped', { intro: true });
+  // The fanfare, then a little over a second of the loop fading under it —
+  // not the ten seconds of loop the file goes on to hold.
+  assert.equal(audio.jingle?.fadeFrom, 2);
+  assert.ok(audio.jingle.limit > 2 && audio.jingle.limit < 4, `limit ${audio.jingle.limit}`);
+
+  for (let step = 0; step < 40 && audio.jingle; step++) {
+    tick(0.1);
+    await settle();
+  }
+  assert.equal(audio.jingle, null);
+  assert.equal(audio.current?.name, 'route');
+
+  assert.deepEqual(voiced.map((note) => note.n), [60, 62], 'the note deep in the loop is never played');
+  assert.equal(voiced[0].v, 0.5, 'the intro plays at full strength');
+  assert.ok(voiced[1].v > 0 && voiced[1].v < 0.5, 'the loop comes in already fading');
+});
+
+test('asking for the intro of a song with no loop plays all of it', async () => {
+  const audio = new AudioEngine();
+  await audio.playJingle('victory', { intro: true });
+  assert.equal(audio.jingle?.limit, 0.5);
+  assert.equal(audio.jingle?.fadeFrom, 0.5);
 });

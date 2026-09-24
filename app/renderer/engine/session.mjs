@@ -11,6 +11,10 @@ import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
+import { settleForme } from './forms.mjs';
+
+/** How often moving on to a new area crosses to the other region. */
+export const REGION_CROSSING_CHANCE = 0.2;
 
 export class Session {
   /**
@@ -30,6 +34,10 @@ export class Session {
     // the way in, rather than finding out mid-battle.
     for (const pokemon of [this.active, ...this.box]) {
       if (pokemon) ensureAttack(pokemon);
+      // And in the shape it stands in: a battle forme a save caught mid-way
+      // (a Zen Mode, a Primal Kyogre) is let go of, and a held or chosen one
+      // put back on.
+      if (pokemon) settleForme(pokemon);
     }
     /**
      * The bag, less anything the game no longer carries: a save written before
@@ -135,7 +143,14 @@ export class Session {
   /** Move to a different area, never repeating the current one. */
   rotateArea() {
     const options = gameData().areas.filter((area) => area.id !== this.area.id);
-    if (options.length) this.area = this.rng.pick(options);
+    // The road mostly stays in the region it is in — a walk from Route 101 to
+    // Route 1 and back to Route 102 reads as teleporting, not travelling — and
+    // now and then crosses to the other one.
+    const region = this.area.region ?? 'hoenn';
+    const here = options.filter((area) => (area.region ?? 'hoenn') === region);
+    const away = options.filter((area) => (area.region ?? 'hoenn') !== region);
+    const pool = here.length && (!away.length || !this.rng.chance(REGION_CROSSING_CHANCE)) ? here : away;
+    if (pool.length) this.area = this.rng.pick(pool);
     this.eventsHere = EVENTS_PER_AREA;
     return this.area;
   }
@@ -296,13 +311,16 @@ export function defaultAutoBattle() {
  * `berries` are the restock choices in order of preference, any of which may
  * be left unset; `healing` names an item to throw, or null for whatever fits
  * the damage taken, and the health it is thrown at — `never` for a player who
- * would rather do it by hand.
+ * would rather do it by hand. `afterBattle` is how far a win tops the
+ * companion back up from the bag: a key of `AFTER_BATTLE_TARGETS`, a full bar
+ * unless the player says otherwise.
  */
 export function defaultItemPolicy() {
   return {
     /** @type {Array<string|null>} */
     berries: [null, null, null],
     healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
+    afterBattle: 'full',
   };
 }
 
@@ -320,6 +338,8 @@ export function normalizeItemPolicy(policy) {
       item: policy.healing?.item ?? null,
       condition: policy.healing?.condition ?? fresh.healing.condition,
     },
+    // A save from before the setting existed takes the default, like a new one.
+    afterBattle: typeof policy.afterBattle === 'string' ? policy.afterBattle : fresh.afterBattle,
   };
 }
 

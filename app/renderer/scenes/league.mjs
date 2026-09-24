@@ -168,7 +168,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     session.leagueRegion = league.region;
 
     const name = session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '');
-    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null);
+    app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null, { intro: true });
     app.toast(`${t('league.crowned', { name })}\n${t('league.wentHome')}`, 5000);
     onCrowned();
   }
@@ -245,7 +245,9 @@ export function resolveLeague(session) {
  * @param {import('../engine/session.mjs').Session} session
  */
 function generatedLeague(session) {
-  const types = session.rng.shuffle(Object.keys(gameData().types)).slice(0, 4);
+  // Stellar is a move's type, not a trainer's.
+  const chart = Object.entries(gameData().types).filter(([, entry]) => !entry.special).map(([slug]) => slug);
+  const types = session.rng.shuffle(chart).slice(0, 4);
   return {
     region: 'unknown',
     name: { ko: t('league.enter'), en: t('league.enter') },

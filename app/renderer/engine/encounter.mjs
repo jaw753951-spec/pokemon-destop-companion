@@ -59,7 +59,7 @@ export function spreadFor(level) {
  */
 export function rollWildPokemon(rng, area, companion) {
   const level = rollLevel(rng, companion);
-  const speciesId = pickSpecies(rng, area, level);
+  const speciesId = rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level);
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
@@ -69,6 +69,73 @@ export function rollWildPokemon(rng, area, companion) {
   // the lead party Pokémon's ability — the companion, here.
   rollWildHeldItem(rng, wild, { compoundEyes: companion?.ability === 'compound-eyes' });
   return wild;
+}
+
+/**
+ * How often a wild Pokémon is not one the area's own table names.
+ *
+ * The tables are Hoenn's and Kanto's, so on their own they could only ever
+ * produce the three hundred-odd species those two regions have — and a
+ * companion that walks for months never met a Pokémon from anywhere else. A
+ * share of the wild comes from the whole Pokédex instead, so every species is
+ * out there somewhere; the table still decides most of what a route is.
+ */
+export const STRAY_CHANCE = 0.3;
+
+/** How much likelier a stray is when its type suits the terrain. */
+const STRAY_TERRAIN_WEIGHT = 3;
+
+/**
+ * And how much rarer when it is a legendary or a mythical: out there, but a
+ * once-in-a-long-while meeting rather than a route's regular.
+ */
+const STRAY_LEGEND_WEIGHT = 0.05;
+
+/**
+ * A wild Pokémon from anywhere in the Pokédex, leaning towards the types the
+ * area's terrain suits, at the stage of its line the level calls for.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {any} area
+ * @param {number} level
+ * @returns {number} a Pokédex number
+ */
+export function pickStray(rng, area, level) {
+  const wanted = new Set((area?.tags ?? []).flatMap((tag) => TAG_TYPES[tag] ?? []));
+  const entries = Object.values(gameData().species).map((species) => ({
+    value: species.id,
+    weight:
+      (species.types.some((type) => wanted.has(type)) ? STRAY_TERRAIN_WEIGHT : 1) *
+      (species.isLegendary || species.isMythical ? STRAY_LEGEND_WEIGHT : 1),
+  }));
+  const chosen = rng.weighted(entries) ?? 1;
+  return evolveToLevel(devolveToLevel(chosen, level), level);
+}
+
+/**
+ * Walk a species back down its line to the stage a level can have reached.
+ *
+ * A Charizard drawn for a level-5 encounter is a Charmander; only level
+ * thresholds are undone, the same way `evolveToLevel` only applies them — a
+ * Vaporeon has no level it is too young for, so it stays one.
+ *
+ * @param {number} speciesId
+ * @param {number} level
+ * @returns {number}
+ */
+export function devolveToLevel(speciesId, level) {
+  let current = speciesId;
+  for (let step = 0; step < 4; step++) {
+    const species = speciesOf(current);
+    const previous = species?.evolvesFrom ? speciesOf(species.evolvesFrom) : null;
+    if (!previous) return current;
+    const into = (previous.evolutions ?? []).find((evolution) => evolution.to === current);
+    if (!into || into.trigger !== 'level-up' || typeof into.minLevel !== 'number' || into.minLevel <= level) {
+      return current;
+    }
+    current = previous.id;
+  }
+  return current;
 }
 
 /**

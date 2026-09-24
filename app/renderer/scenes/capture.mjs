@@ -13,7 +13,7 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
 import { fullyHeal } from '../engine/pokemon.mjs';
-import { Battler, battlerArt, battlerScale } from '../render/battler.mjs';
+import { Battler, battlerArt, battlerScale, mirrorFor } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
 
@@ -140,7 +140,7 @@ export function captureScene({ session, target, onFinish }) {
           // Field coordinates, so the target is the size it was on the path.
           const y = Math.round(FIELD_HEIGHT * 0.52);
           // Clear of the name above it and the balls below, whatever size the
-          // species is drawn at — and the same box icon the fight was drawn
+          // species is drawn at — and the same art the fight was drawn
           // in, so the Pokémon being thrown at is the one that was standing
           // there a second ago.
           const scale = battlerScale(sprite, target, { width: FIELD_WIDTH - 24, height: y - 14 });
@@ -150,6 +150,7 @@ export function captureScene({ session, target, onFinish }) {
             y,
             facing: -1,
             scale,
+            flip: mirrorFor(sprite, 'left'),
           });
           // The ball is thrown at the middle of the Pokémon, not at its feet.
           targetSpot = { x: battler.x, y: Math.round(y - (sprite.height * scale) / 2) };
@@ -294,6 +295,8 @@ export function captureScene({ session, target, onFinish }) {
       });
       target.nickname = nickname;
       target.ball = ball;
+      // A Friend Ball makes a friend of it straight away.
+      if (ball === 'friend-ball') target.friendship = Math.max(target.friendship ?? 0, 150);
       // It was knocked down before the ball was thrown — that is how this
       // game earns the throw — so it arrives patched up rather than at no hit
       // points, which would have made it faint the moment it was swapped in.

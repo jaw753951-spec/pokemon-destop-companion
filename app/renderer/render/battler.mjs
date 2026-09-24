@@ -9,19 +9,18 @@
  * and a displaced position.
  */
 
-import { artOf } from '../core/data.mjs';
-import { actorScale } from './field.mjs';
+import { actorScale, walkerArt } from './field.mjs';
 
-/** @typedef {'idle'|'attack'|'hit'|'win'|'lose'} Pose */
+/** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
 
 /**
  * Shrink a battler that would not fit where it stands.
  *
- * The sprite sets run from a Diglett to an Eternatus drawn 447 pixels tall —
- * four times the height of this window — so at full size the big ones are a
- * cropped shin. Anything that would overrun the room it has is scaled to fill
- * that room instead, in both directions, so the largest Pokémon is the largest
- * thing on screen rather than the least visible.
+ * Anything that would overrun the room it has is brought down to fit it —
+ * but only in steps of half a field pixel, which the field's own zoom turns
+ * into whole screen pixels. A Pokémon shrunk to an arbitrary fraction is made
+ * of pixels of two sizes, and every Pokémon on screen being made of one size
+ * of pixel is the whole reason the art is drawn at a fixed scale.
  *
  * @param {import('../core/assets.mjs').Sprite} sprite
  * @param {{width: number, height: number}} room field pixels available
@@ -29,12 +28,16 @@ import { actorScale } from './field.mjs';
  */
 export function fitScale(sprite, room, preferred) {
   const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
-  return Math.min(preferred, fits);
+  if (preferred <= fits) return preferred;
+  return Math.max(SCALE_STEP, Math.floor(fits / SCALE_STEP) * SCALE_STEP);
 }
 
+/** The smallest step a battler's scale moves in: one screen pixel per art pixel. */
+const SCALE_STEP = 0.5;
+
 /**
- * The art a Pokémon is drawn from in a battle: its **box icon**, the same
- * picture it walks the field and fills a box slot with.
+ * The art a Pokémon is drawn from in a battle: its **standing** art, the same
+ * picture it waits on the road in.
  *
  * The game used to fight with the front and back sprites, which come from a
  * different set entirely — Showdown's animations where there are any, and the
@@ -48,28 +51,34 @@ export function fitScale(sprite, room, preferred) {
  * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
  */
 export function battlerArt(pokemon) {
-  const art = artOf(pokemon, 'icon');
-  if (!art) return null;
-  // Box icons are a single still drawing; the walk animates them by moving
-  // them, and a battle by the poses above.
-  return { path: art.path, meta: { ...art.meta, frames: 1, delay: 1000 } };
+  return walkerArt(pokemon, 'idle');
 }
+
+/**
+ * Whether a battler's art has to be mirrored to look the way its side faces.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {'left'|'right'} facing
+ */
+export const mirrorFor = (sprite, facing) => (sprite.facing ?? 'left') !== facing;
 
 /**
  * How much bigger than its field size a Pokémon is drawn in a battle.
  *
  * A battle is a close-up: the same sprite that is ankle-high on the road fills
  * a good part of the screen here, which is exactly what the cartridges do when
- * they cut from the overworld to a fight.
+ * they cut from the overworld to a fight. A whole number, so each art pixel
+ * is a whole number of screen pixels.
  */
-export const BATTLE_ZOOM = 2.2;
+export const BATTLE_ZOOM = 2;
 
 /**
  * And how much smaller the far side is drawn, which is the only depth cue a
  * flat backdrop has. The foe stands up the field; the companion is nearer the
- * camera than it is.
+ * camera than it is. Three quarters of the near side's two is one and a half,
+ * which is still a whole number of screen pixels.
  */
-export const FOE_DEPTH = 0.8;
+export const FOE_DEPTH = 0.75;
 
 /**
  * What to draw a battler at: its own field scale, brought up to battle size,
@@ -89,7 +98,7 @@ export function battlerScale(sprite, pokemon, room, depth = 1) {
 }
 
 /** How long each pose runs before falling back to idle. */
-const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
+const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700, emerge: 340 };
 
 /**
  * The arrows over a stat change: how long they run, how many there are, and
@@ -103,6 +112,29 @@ const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700 };
 const STAT_EFFECT_MS = 620;
 const STAT_ARROWS = 4;
 const STAT_COLOURS = { up: '#6ee06a', down: '#ff6b6b' };
+
+/** @type {HTMLCanvasElement|OffscreenCanvas|null} */
+let sharedTint = null;
+
+/**
+ * A scratch canvas at least this big, shared by every tint, since only one is
+ * ever being painted at a time.
+ *
+ * @param {number} width
+ * @param {number} height
+ */
+function tintCanvas(width, height) {
+  if (!sharedTint) {
+    // Nowhere to paint one — a test drawing into a recording context — and a
+    // tint is only ever decoration.
+    if (typeof OffscreenCanvas !== 'undefined') sharedTint = new OffscreenCanvas(width, height);
+    else if (typeof document !== 'undefined') sharedTint = document.createElement('canvas');
+    else return null;
+  }
+  if (sharedTint.width < width) sharedTint.width = width;
+  if (sharedTint.height < height) sharedTint.height = height;
+  return sharedTint;
+}
 
 export class Battler {
   /**
@@ -124,11 +156,10 @@ export class Battler {
     /**
      * Whether the art has to be mirrored to look the way this side faces.
      *
-     * A box icon is drawn three-quarters on, turned towards the viewer's left
-     * — the same drawing the field walks with. The foe stands on the right and
-     * is already looking the right way; the companion stands on the left and
-     * is mirrored, so the two face each other across the backdrop exactly as
-     * the companion faces down the road it walks.
+     * The two sides face each other across the backdrop: the companion on the
+     * left looking right, as it faces down the road it walks, and the foe on
+     * the right looking back at it. Which of them needs mirroring depends on
+     * which way the art was drawn — see {@link mirrorFor}.
      */
     this.flip = flip;
 
@@ -216,6 +247,7 @@ export class Battler {
     context.restore();
 
     if (transform.flash > 0) this.drawFlash(context, transform.flash);
+    if (transform.glow > 0) this.drawTint(context, '#ffffff', transform.glow);
     if (this.statDirection !== 0) this.drawStatChange(context);
   }
 
@@ -285,19 +317,38 @@ export class Battler {
    */
   drawTint(context, colour, strength) {
     if (!this.sprite || strength <= 0) return;
+    const sprite = this.sprite;
     const transform = this.transform();
+
+    // The silhouette is coloured on a canvas of its own and then laid over
+    // the sprite. Colouring it in place, with \`source-atop\` on the battle's
+    // canvas, coloured everything already drawn there too — the backdrop
+    // included — so every hit washed the whole screen red.
+    const tint = tintCanvas(sprite.width, sprite.height);
+    const paint = /** @type {CanvasRenderingContext2D|null} */ (/** @type {any} */ (tint)?.getContext('2d') ?? null);
+    if (!tint || !paint) return;
+    paint.globalCompositeOperation = 'copy';
+    paint.drawImage(sprite.image, sprite.frameAt(this.elapsed) * sprite.width, 0, sprite.width, sprite.height, 0, 0, sprite.width, sprite.height);
+    paint.globalCompositeOperation = 'source-atop';
+    paint.fillStyle = colour;
+    paint.fillRect(0, 0, sprite.width, sprite.height);
+
+    const scale = this.scale * transform.scale;
+    const width = sprite.width * scale;
+    const height = sprite.height * scale;
+    const left = Math.round(this.x - width / 2);
+    const top = Math.round(this.y - height);
+
     context.save();
     context.globalAlpha = strength;
-    context.globalCompositeOperation = 'source-atop';
-    context.translate(this.x + transform.dx * this.facing, this.y + transform.dy);
-    context.translate(-this.x, -this.y);
-    this.sprite.draw(context, this.x, this.y, {
-      frame: this.sprite.frameAt(this.elapsed),
-      flip: this.flip,
-      scale: this.scale * transform.scale,
-    });
-    context.fillStyle = colour;
-    context.fillRect(0, 0, context.canvas.width, context.canvas.height);
+    context.translate(transform.dx * this.facing, transform.dy);
+    if (this.flip) {
+      context.translate(left + width, top);
+      context.scale(-1, 1);
+      context.drawImage(/** @type {any} */ (tint), 0, 0, sprite.width, sprite.height, 0, 0, width, height);
+    } else {
+      context.drawImage(/** @type {any} */ (tint), 0, 0, sprite.width, sprite.height, left, top, width, height);
+    }
     context.restore();
   }
 
@@ -316,10 +367,10 @@ export class Battler {
   /**
    * The offset, scale, rotation, alpha and tint for the pose at its current
    * point in time.
-   * @returns {{dx: number, dy: number, scale: number, rotate: number, alpha: number, flash: number}}
+   * @returns {{dx: number, dy: number, scale: number, rotate: number, alpha: number, flash: number, glow: number}}
    */
   transform() {
-    const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0 };
+    const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0, glow: 0 };
     if (this.pose === 'idle') return still;
 
     const duration = POSE_DURATION[this.pose];
@@ -347,6 +398,12 @@ export class Battler {
         // `draw` does the cutting; the height it has to travel is its own.
         const height = (this.sprite?.height ?? 0) * this.scale;
         return { ...still, dy: progress * (height + 4), alpha: 1 };
+      }
+      case 'emerge': {
+        // Out of the ball: from a speck to its full size, white at first and
+        // coming into its own colours as it grows.
+        const eased = 1 - (1 - progress) ** 3;
+        return { ...still, scale: 0.12 + 0.88 * eased, alpha: Math.min(1, 0.4 + progress), glow: (1 - progress) * 0.9 };
       }
       default:
         return still;

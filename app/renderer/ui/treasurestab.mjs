@@ -57,6 +57,7 @@ function badgeArt(type) {
   if (badges.includes(type)) return type;
   // Deterministic, so a badge never changes shape between two openings of the
   // bag: the type's place in the type chart picks which medal it borrows.
-  const index = Object.keys(gameData().types).indexOf(type);
+  const chart = Object.entries(gameData().types).filter(([, entry]) => !entry.special).map(([slug]) => slug);
+  const index = chart.indexOf(type);
   return badges[(index < 0 ? 0 : index) % badges.length];
 }

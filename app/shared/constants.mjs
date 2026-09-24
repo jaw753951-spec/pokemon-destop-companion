@@ -30,6 +30,29 @@ export const FIELD_ZOOM = 2;
  */
 export const snapZoom = (zoom) => (zoom >= 1 ? Math.floor(zoom * 4) / 4 : zoom);
 
+/**
+ * The zoom a window is sized for, at a scale setting, on a screen this big.
+ *
+ * Scale 1 is a window about a quarter of the screen across. The zoom that
+ * asks for is taken to the **nearest** quarter step rather than down to one:
+ * rounding down swallowed most of a step, so on a 1080p screen 1.25x asked for
+ * a zoom of 1.2 and got 1 — the same window as 1x, give or take four per cent.
+ * Nearest keeps every scale setting its own size. A zoom that would not fit on
+ * the screen comes down a step at a time until it does.
+ *
+ * @param {number} scale the setting
+ * @param {number} screenWidth the work area, in pixels
+ * @param {number} screenHeight
+ */
+export function windowZoom(scale, screenWidth, screenHeight) {
+  const target = Math.min(screenWidth / 4, (screenHeight / 4) * (VIEW_WIDTH / VIEW_HEIGHT));
+  const wanted = Math.max(0.5, (target * scale) / VIEW_WIDTH);
+  if (wanted < 1) return wanted;
+  let zoom = Math.max(1, Math.round(wanted * 4) / 4);
+  while (zoom > 1 && (VIEW_WIDTH * zoom > screenWidth || VIEW_HEIGHT * zoom > screenHeight)) zoom -= 0.25;
+  return zoom;
+}
+
 /** The field's own coordinate space, which the zoom scales up to the window. */
 export const FIELD_WIDTH = VIEW_WIDTH / FIELD_ZOOM;
 export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
@@ -66,23 +89,37 @@ export const HOLD_BOOST_RATE = 6;
 export const HOLD_BOOST_WALK = 2.5;
 
 /**
+ * How the hurry comes on and goes off, in milliseconds.
+ *
+ * Switching the pace the instant the pointer moved made the road lurch: full
+ * speed on the frame it went down, a dead stop on the frame it came up. It
+ * now takes a moment to get going and glides back down to a walk when it is
+ * let go — long enough to read as momentum, short enough that the pace is
+ * still plainly the one the player's hand is asking for.
+ */
+export const HOLD_BOOST_RAMP_MS = 150;
+export const HOLD_BOOST_GLIDE_MS = 800;
+
+/**
  * Damage the player's own Pokémon takes, as a share of what the formula says.
  *
  * The companion fights on its own for hours at a time with nobody to switch it
- * out, so it is given a standing thirty per cent off everything aimed at it.
- * What it deals is untouched — this is armour, not strength.
+ * out, so it is given a standing half off everything aimed at it. The cut
+ * comes last, after type effectiveness has done its work. What it deals is
+ * untouched — this is armour, not strength.
  */
-export const COMPANION_DAMAGE_TAKEN = 0.7;
+export const COMPANION_DAMAGE_TAKEN = 0.5;
 
 /**
- * And what a hit it is weak to costs it on top of that.
+ * What a weakness multiplies a hit on the companion by, in place of the
+ * type chart's two.
  *
- * Flat damage reduction makes type matchups matter less, so the thing the
- * matchup is *about* is sharpened to compensate: a super-effective hit lands
- * half again as hard on the companion. Resisted and neutral hits are unchanged
- * beyond the reduction above.
+ * With no party to switch to, a bad matchup is not something the companion
+ * can get out of, so being hit where it is weak costs it half again rather
+ * than double. Each weakness counts: a double weakness is this squared.
+ * Resisted and neutral hits are the chart's own.
  */
-export const COMPANION_WEAKNESS_TAKEN = 1.5;
+export const COMPANION_WEAKNESS = 1.5;
 
 /**
  * How long to wait before trying again when a roll came due while an event was

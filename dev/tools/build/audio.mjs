@@ -23,6 +23,7 @@ export const CUES = {
   battleLeader: 'mus_vs_gym_leader',
   battleEliteFour: 'mus_vs_elite_four',
   battleChampion: 'mus_vs_champion',
+  // Played for their intro only — see `playJingle`'s `intro`.
   victoryWild: 'mus_victory_wild',
   victoryTrainer: 'mus_victory_trainer',
   victoryLeader: 'mus_victory_gym_leader',
@@ -35,7 +36,10 @@ export const CUES = {
   levelUp: 'mus_level_up',
   evolution: 'mus_evolution',
   evolved: 'mus_evolved',
-  caught: 'mus_caught',
+  // The capture fanfare Fire Red plays on "Gotcha!", which Emerald's sound
+  // folder carries. Emerald's own `mus_caught` is the fourteen-second loop
+  // that holds the screen while the new Pokémon is named, not a fanfare.
+  caught: 'mus_rg_caught_intro',
   obtainItem: 'mus_obtain_item',
   obtainBerry: 'mus_obtain_berry',
   obtainTm: 'mus_obtain_tmhm',

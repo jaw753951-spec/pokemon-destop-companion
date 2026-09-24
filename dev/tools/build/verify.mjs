@@ -14,6 +14,7 @@ import { MAX_SPECIES, MOVE_FLAG_SET } from '../sources.mjs';
 // The renderer's own berry-to-tree mapping, so the check and the game can
 // never disagree about which sheet a berry grows on.
 import { treeFor } from '../../../app/renderer/scenes/fieldevents.mjs';
+import { TRADE_ITEM } from '../../../app/renderer/engine/pokemon.mjs';
 
 /**
  * @param {{assetDir: string, dataDir: string, log: (message: string) => void}} context
@@ -48,17 +49,23 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
       ].map(read),
     );
 
-  note(Object.keys(species).length === MAX_SPECIES, `species: ${Object.keys(species).length} of ${MAX_SPECIES}`);
-  note(Object.keys(types).length === 18, `types: ${Object.keys(types).length} of 18`);
+  // Regional forms are entries of their own, under their species' number;
+  // the national dex is what is left without them.
+  const national = Object.values(species).filter((entry) => !entry.regional).length;
+  note(national === MAX_SPECIES, `species: ${national} of ${MAX_SPECIES}`);
+  // Stellar is a Tera type only, on top of the eighteen.
+  const typeCount = Object.keys(types).filter((type) => type !== 'stellar').length;
+  note(typeCount === 18, `types: ${typeCount} of 18`);
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
   // The build drops what belongs to a system this game will not have, and
   // keeps everything that acts on something it does — whether or not the
   // engine reads it yet.
   note(Object.keys(items).length > 600, `items: only ${Object.keys(items).length}`);
-  const retired = Object.entries(items).filter(([, item]) =>
+  // Unless something evolves by it: a Gimmighoul Coin is filed with the TM materials.
+  const retired = Object.entries(items).filter(([slug, item]) =>
     ['mega-stones', 'z-crystals', 'dynamax-crystals', 'tera-shard', 'curry-ingredients', 'tm-materials'].includes(
       item.category,
-    ),
+    ) && !evolutionItem(species, slug),
   );
   note(retired.length === 0, `items from a retired system kept: ${summarize(retired.map(([slug]) => slug))}`);
   note(items['exp-share'] === undefined, 'the Exp. Share has nothing to share with');
@@ -90,6 +97,8 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   const noSprite = [];
   const noShiny = [];
   const noShinyIcon = [];
+  const noWalk = [];
+  const noShinyWalk = [];
   const noLearnset = [];
   const unknownAbilities = new Set();
   /** How many species each language shows another language's name for. */
@@ -103,6 +112,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     // source — so a gap here is a Pokémon that walks the field in its
     // ordinary colours, not a broken build.
     if (sprite?.shiny?.front && !sprite?.shiny?.icon) noShinyIcon.push(entry.id);
+    // The field art comes from the Sprite Collab, which has not drawn every
+    // species; the rest walk in their box icon.
+    if (!sprite?.walk) noWalk.push(entry.id);
+    else if (!sprite?.shiny?.walk) noShinyWalk.push(entry.id);
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
     for (const ability of entry.abilities ?? []) {
       if (!abilities[ability.name]) unknownAbilities.add(ability.name);
@@ -115,7 +128,11 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(noSprite.length === 0, `species missing art: ${summarize(noSprite)}`);
   note(noShiny.length === 0, `species missing alternate-palette art: ${summarize(noShiny)}`);
   if (noShinyIcon.length) {
-    log(`note: ${noShinyIcon.length} species have no shiny box icon and walk the field in their ordinary colours`);
+    log(`note: ${noShinyIcon.length} species have no shiny box icon`);
+  }
+  if (noWalk.length) log(`note: ${noWalk.length} species have no walking art and walk in their box icon (${summarize(noWalk)})`);
+  if (noShinyWalk.length) {
+    log(`note: ${noShinyWalk.length} species have no shiny walking art and walk in their ordinary colours`);
   }
   note(unknownAbilities.size === 0, `species name abilities that were not built: ${summarize([...unknownAbilities])}`);
   note(noLearnset.length === 0, `species missing a level-up learnset: ${summarize(noLearnset)}`);
@@ -325,7 +342,7 @@ function untranslated(bundle, language) {
 }
 
 /**
- * Whether some species evolves by this item, held or used — the one thing an
+ * Whether some species evolves by this item, held or used (or traded) — the one thing an
  * item with no effect of its own can still be kept for.
  *
  * @param {Record<string, any>} species
@@ -333,6 +350,12 @@ function untranslated(bundle, language) {
  */
 function evolutionItem(species, slug) {
   return Object.values(species).some((entry) =>
-    (entry.evolutions ?? []).some((evolution) => evolution.item === slug || evolution.heldItem === slug),
+    (entry.evolutions ?? []).some(
+      (evolution) =>
+        evolution.item === slug ||
+        evolution.heldItem === slug ||
+        // A Linking Cord stands in for every trade.
+        (evolution.trigger === 'trade' && slug === TRADE_ITEM),
+    ),
   );
 }

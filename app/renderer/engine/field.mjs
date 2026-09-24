@@ -50,9 +50,11 @@ export const FIELD_TURNS = 5;
  * lines is the whole table — the alternative is parsing English prose for the
  * word "sunlight".
  *
- * @type {Record<string, {weather?: string, terrain?: string, screen?: string, hazard?: string}>}
+ * @type {Record<string, {weather?: string, terrain?: string, screen?: string, hazard?: string, room?: string, tailwind?: boolean}>}
  */
 export const FIELD_MOVES = {
+  'trick-room': { room: 'trick' },
+  tailwind: { tailwind: true },
   'sunny-day': { weather: WEATHER.SUN },
   'rain-dance': { weather: WEATHER.RAIN },
   sandstorm: { weather: WEATHER.SANDSTORM },
@@ -71,6 +73,14 @@ export const FIELD_MOVES = {
   'stealth-rock': { hazard: 'stealthRock' },
   'sticky-web': { hazard: 'stickyWeb' },
 };
+
+/**
+ * How long a Trick Room stands, and a Tailwind blows, counting the turn it
+ * was made in — the counters run down at the end of every turn, that one
+ * included, which is how the cartridges count them too.
+ */
+export const TRICK_ROOM_TURNS = 5;
+export const TAILWIND_TURNS = 4;
 
 /** How many layers of each hazard a side can take. */
 export const HAZARD_LAYERS = { spikes: 3, toxicSpikes: 2, stealthRock: 1, stickyWeb: 1 };
@@ -118,6 +128,40 @@ export class Field {
      * @type {Record<'player'|'foe', Record<string, number>>}
      */
     this.hazards = { player: freshHazards(), foe: freshHazards() };
+    /** Turns of Trick Room left: the slower side moves first while it stands. */
+    this.trickRoom = 0;
+    /**
+     * Turns of Tailwind left behind each side, which doubles its Speed.
+     * @type {Record<'player'|'foe', number>}
+     */
+    this.tailwind = { player: 0, foe: 0 };
+  }
+
+  /**
+   * Put up a Trick Room, or take one down: the move twists the dimensions
+   * back when it is used inside one.
+   *
+   * @param {number} [turns]
+   * @returns {'started'|'ended'}
+   */
+  toggleTrickRoom(turns = TRICK_ROOM_TURNS) {
+    if (this.trickRoom > 0) {
+      this.trickRoom = 0;
+      return 'ended';
+    }
+    this.trickRoom = turns;
+    return 'started';
+  }
+
+  /**
+   * @param {'player'|'foe'} side
+   * @param {number} [turns]
+   * @returns {boolean} whether it started — one already blowing does not restart
+   */
+  setTailwind(side, turns = TAILWIND_TURNS) {
+    if (this.tailwind[side] > 0) return false;
+    this.tailwind[side] = turns;
+    return true;
   }
 
   /**
@@ -139,9 +183,12 @@ export class Field {
     this.hazards[side] = freshHazards();
   }
 
-  /** Whether anything at all is going on, which is what `noField` asks. */
+  /**
+   * Whether anything at all is going on, which is what `noField` asks. A
+   * Trick Room counts: reaching for it again while it stands takes it down.
+   */
   get quiet() {
-    return !this.weather && !this.terrain;
+    return !this.weather && !this.terrain && this.trickRoom <= 0;
   }
 
   /**
@@ -187,11 +234,15 @@ export class Field {
 
   /**
    * Count everything down a turn and report what ran out.
-   * @returns {Array<{kind: 'weather'|'terrain'|'screen', value: string, side?: string}>}
+   * @returns {Array<{kind: 'weather'|'terrain'|'screen'|'trickRoom'|'tailwind', value: string, side?: string}>}
    */
   tick() {
-    /** @type {Array<{kind: 'weather'|'terrain'|'screen', value: string, side?: string}>} */
+    /** @type {Array<{kind: 'weather'|'terrain'|'screen'|'trickRoom'|'tailwind', value: string, side?: string}>} */
     const expired = [];
+    if (this.trickRoom > 0 && --this.trickRoom <= 0) expired.push({ kind: 'trickRoom', value: 'trick' });
+    for (const side of /** @type {const} */ (['player', 'foe'])) {
+      if (this.tailwind[side] > 0 && --this.tailwind[side] <= 0) expired.push({ kind: 'tailwind', value: 'tailwind', side });
+    }
 
     if (this.weather && --this.weatherTurns <= 0) {
       expired.push({ kind: 'weather', value: this.weather });

@@ -7,6 +7,7 @@
  */
 import { appControl, saves, settings as settingsApi } from '../core/bridge.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
+import { gameData } from '../core/data.mjs';
 import { languages, t } from '../core/i18n.mjs';
 import { confirm } from './dialog.mjs';
 
@@ -14,7 +15,7 @@ import { confirm } from './dialog.mjs';
  * The tabs, in the order they appear. Each names the rows it shows; the
  * language tab builds its own from the sheet.
  */
-const TABS = ['display', 'sound', 'language'];
+const TABS = ['display', 'sound', 'language', 'credits'];
 
 /**
  * @param {{
@@ -123,6 +124,8 @@ function tabRows(app, tab, rebuild) {
       ];
     case 'language':
       return languageRows(app, rebuild);
+    case 'credits':
+      return creditRows();
     case 'display':
     default:
       return [scaleRow(app)];
@@ -217,6 +220,27 @@ function languageRows(app, rebuild) {
       el('span.checkrow-label', { text: entry.label, lang: entry.code }),
     ]);
   });
+}
+
+/**
+ * Who drew the art the game borrows.
+ *
+ * The Pokémon walk the road in the PMD Sprite Collab's sprites, which are
+ * shared on the condition that they are credited — every artist, by name — and
+ * never sold. The list comes from the build, which gathers it from the very
+ * sheets it downloaded, so it names exactly the people whose work ships.
+ *
+ * @returns {HTMLElement[]}
+ */
+function creditRows() {
+  const sprites = gameData().credits?.sprites;
+  if (!sprites) return [el('p.meta', { text: t('credits.none') })];
+  return [
+    el('div.section-title', { text: t('credits.sprites') }),
+    el('p.meta', { text: t('credits.spritesNote', { source: sprites.source, license: sprites.license }) }),
+    el('p.meta.credits-url', { text: sprites.url }),
+    el('p.credits-names', { text: sprites.artists.join(', ') }),
+  ];
 }
 
 /**

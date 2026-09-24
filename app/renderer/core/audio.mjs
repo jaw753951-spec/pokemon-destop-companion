@@ -17,6 +17,13 @@ const TICK_MS = 120;
 /** Hard cap on notes started per scheduling tick, so a dense bar cannot stall. */
 const MAX_NOTES_PER_TICK = 64;
 
+/**
+ * How long a cue played for its intro takes to fade once the loop comes in:
+ * about as long as the cartridge takes to fade the victory theme out when the
+ * battle screen closes.
+ */
+const INTRO_FADE_S = 1.2;
+
 export class AudioEngine {
   constructor() {
     /** @type {AudioContext|null} */
@@ -43,7 +50,7 @@ export class AudioEngine {
     this.effectVolume = 0.8;
     this.cryVolume = 0.9;
 
-    /** @type {{name: string, song: any, startedAt: number, cursors: number[], limit: number}|null} */
+    /** @type {{name: string, song: any, startedAt: number, cursors: number[], limit: number, fadeFrom: number}|null} */
     this.jingle = null;
     /** @type {number|undefined} */
     this.jingleTimer = undefined;
@@ -152,10 +159,14 @@ export class AudioEngine {
    * clears itself at the end of the song instead of looping.
    *
    * @param {string|null} name
-   * @param {{seconds?: number}} [options] how much of the cue to play. A
-   *   fanfare written for a cartridge runs as long as the cartridge wanted to
-   *   hold the screen; here it holds the area music off for that whole time,
-   *   so the long ones are cut to their opening phrase.
+   * @param {{seconds?: number, intro?: boolean}} [options] how much of the cue
+   *   to play. A fanfare written for a cartridge runs as long as the cartridge
+   *   wanted to hold the screen; here it holds the area music off for that
+   *   whole time, so the long ones are cut short. `seconds` is a hard cut;
+   *   `intro` plays a looping song up to where its loop begins and fades the
+   *   loop out as it comes in, which is how the victory themes are heard on
+   *   the cartridge — a two-second fanfare, then the battle screen closing
+   *   over a body written to be looped for as long as it stays open.
    */
   async playJingle(name, options = {}) {
     if (!name) return;
@@ -175,13 +186,19 @@ export class AudioEngine {
     // of the cue puts it back.
     this.haltMusic();
 
+    // A song that marks no loop has no intro to stop at, and plays whole.
+    const intro = options.intro && song.loop > 0 ? song.loop : null;
+    const wanted = intro !== null ? intro + INTRO_FADE_S : options.seconds ?? song.duration;
+    // A floor only so a nonsense number cannot ask for a cue of no length.
+    const limit = Math.max(0.05, Math.min(song.duration, wanted));
     const jingle = {
       name,
       song,
       startedAt: this.context.currentTime + 0.05,
       cursors: song.tracks.map(() => 0),
-      // A floor only so a nonsense number cannot ask for a cue of no length.
-      limit: Math.max(0.05, Math.min(song.duration, options.seconds ?? song.duration)),
+      limit,
+      // Where the fade to the end starts; at the end itself, there is none.
+      fadeFrom: Math.min(intro ?? limit, limit),
     };
     if (this.jingleTimer !== undefined) window.clearInterval(this.jingleTimer);
     this.jingle = jingle;
@@ -196,7 +213,7 @@ export class AudioEngine {
   scheduleJingle() {
     const jingle = this.jingle;
     if (!jingle || !this.context || !this.musicGain) return;
-    const { song, cursors, limit } = jingle;
+    const { song, cursors, limit, fadeFrom } = jingle;
     const horizon = this.context.currentTime + LOOKAHEAD_S;
     const end = jingle.startedAt + limit;
     let started = 0;
@@ -214,9 +231,11 @@ export class AudioEngine {
         }
         const when = jingle.startedAt + note.t;
         if (when > horizon) return;
-        // Trimmed short if it would ring past the cut.
+        // Trimmed short if it would ring past the cut, and quieter the further
+        // into the fade it starts.
         const room = limit - note.t;
-        const clipped = note.d > room ? { ...note, d: room } : note;
+        const fade = note.t <= fadeFrom ? 1 : Math.max(0, 1 - (note.t - fadeFrom) / (limit - fadeFrom));
+        const clipped = note.d > room || fade < 1 ? { ...note, d: Math.min(note.d, room), v: note.v * fade } : note;
         this.playNote(track.program, clipped, Math.max(when, this.context.currentTime), this.musicGain);
         cursors[index]++;
         started++;

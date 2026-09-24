@@ -15,21 +15,28 @@ import {
   timeOfDay,
 } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
-import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { walkSteps } from '../engine/pokemon.mjs';
+
 import { name as localized, t } from '../core/i18n.mjs';
-import { restockBerry } from '../engine/items.mjs';
+import { healAfterBattle, restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
 import {
   actorHeight,
   actorScale,
+  boostPace,
   COMPANION_X,
   drawBackground,
+  drawOverlay,
   drawStepDust,
   drawWalker,
   groundY,
   inFieldSpace,
+  nearOverpass,
+  nextBoost,
   setGroundY,
   WALK_SPEED,
+  walkerArt,
 } from '../render/field.mjs';
 import { backdropForArea } from '../render/backdrop.mjs';
 import { drawWeather } from '../render/weather.mjs';
@@ -39,12 +46,15 @@ import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
-import { createEventRunner } from './fieldevents.mjs';
+import { createEventRunner, eventGround } from './fieldevents.mjs';
 import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
 import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
+
+/** Field pixels to a step: one tile of the map. */
+const STEP_PX = 16;
 
 /**
  * Start or resume a run, replacing whatever is on screen.
@@ -64,8 +74,12 @@ export function startRun(app, { slot, save }) {
 export function fieldScene(session) {
   /** @type {HTMLImageElement|null} */
   let background = null;
-  /** @type {import('../core/assets.mjs').Sprite|null} */
+  /** A bridge over the lane, drawn over the companion. @type {HTMLImageElement|null} */
+  let overlay = null;
+  /** The companion walking, and standing still. @type {import('../core/assets.mjs').Sprite|null} */
   let companion = null;
+  /** @type {import('../core/assets.mjs').Sprite|null} */
+  let companionStanding = null;
 
   let loadedAreaKey = '';
   /** Which art is on screen: the species, and which of its two palettes. */
@@ -92,9 +106,15 @@ export function fieldScene(session) {
    * A press on the companion makes it get on with it: the road scrolls faster
    * and the event clock runs fast while this is true, which is the part of it
    * a player can actually see. It is a live state rather than a stock of
-   * clicks, so it ends the frame the pointer goes up.
+   * clicks: it is what the hand is doing, and `boost` follows it.
    */
   let boosting = false;
+  /**
+   * How far the hurry has come on, 0 to 1 — up while the pointer is held and
+   * gliding back down after it is let go, so the road neither lurches into a
+   * run nor stops dead. See `nextBoost`.
+   */
+  let boost = 0;
   /** How far into the walk to the next area, in milliseconds; 0 when settled. */
   let crossing = 0;
   /** Whether the area has already changed behind the shut screen. */
@@ -132,23 +152,43 @@ export function fieldScene(session) {
         .catch(() => {
           background = null;
         });
+      overlay = null;
+      if (session.area.overlay) {
+        loadImage(`areas/${session.area.id}/${timeOfDay()}-over.png`)
+          .then((image) => {
+            if (loadedAreaKey === key) overlay = image;
+          })
+          .catch(() => {
+            overlay = null;
+          });
+      }
       resumeMusic(app);
     }
 
     const speciesId = spriteKey(session.active);
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
-      // The box icon, not the battle sprite: it is the only official art drawn
-      // at overworld scale, so a Wurmple stays ankle-high and a Wailord fills
-      // the road, each in proportion to the map's own tiles.
-      const art = artOf(session.active, 'icon');
-      if (art) {
-        loadSprite(art.path, { ...art.meta, frames: 1, delay: 1000 })
+      // The walking art and the standing art, drawn at one density and sized
+      // to the Pokémon, so a Wurmple stays ankle-high and a Wailord fills the
+      // road without either being scaled to get there.
+      const walking = walkerArt(session.active, 'walk');
+      const standing = walkerArt(session.active, 'idle');
+      if (walking) {
+        loadSprite(walking.path, walking.meta)
           .then((sprite) => {
             if (loadedSpriteId === speciesId) companion = sprite;
           })
           .catch(() => {
             companion = null;
+          });
+      }
+      if (standing) {
+        loadSprite(standing.path, standing.meta)
+          .then((sprite) => {
+            if (loadedSpriteId === speciesId) companionStanding = sprite;
+          })
+          .catch(() => {
+            companionStanding = null;
           });
       }
     }
@@ -265,14 +305,15 @@ export function fieldScene(session) {
       app.toast(t('badge.obtained', { name: badgeLabel(setup.leader) }));
     } else if (setup.trainer) {
       session.trainerWins++;
-      app.audio.playJingle(gameData().bgm.cues.victoryTrainer ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryTrainer ?? null, { intro: true });
     } else {
       // Only wild Pokémon can be caught, so only they reach the tray — and
       // only when the companion was the one left standing.
       for (const pokemon of result.defeated) session.addToTray(pokemon);
-      app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null);
+      app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null, { intro: true });
     }
 
+    patchUp(app);
     restock(app);
     refreshArt(app);
   }
@@ -349,6 +390,25 @@ export function fieldScene(session) {
     if (berry) app.toast(t('items.restocked', { name: localized(gameData().items[berry]?.name, berry) }));
   }
 
+  /**
+   * Top the companion back up from the bag after a win, as far as the bag's
+   * after-battle setting asks. Only after a win: a loss sends it to the next
+   * Pokémon Center, which heals it for nothing.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function patchUp(app) {
+    const used = healAfterBattle(session, session.active, session.itemPolicy?.afterBattle ?? 'full');
+    if (used.length === 0) return;
+    const items = used
+      .map(({ slug, count }) => {
+        const name = localized(gameData().items[slug]?.name, slug);
+        return count > 1 ? `${name} ${t('items.count', { count })}` : name;
+      })
+      .join(', ');
+    app.toast(t('items.afterBattleUsed', { items }));
+  }
+
   return {
     mount(app) {
       host = app;
@@ -402,8 +462,8 @@ export function fieldScene(session) {
       // on the view it landed.
       //
       // Held rather than counted, and released rather than spent: the road
-      // runs fast while the pointer is down and is back to its own pace on the
-      // very next frame after it comes up. A stock of clicks that drained
+      // runs fast while the pointer is down and glides back to its own pace
+      // within a second of it coming up. A stock of clicks that drained
       // afterwards had the companion sprinting for seconds after the player
       // had stopped asking it to.
       onPointerDown = (event) => {
@@ -452,6 +512,7 @@ export function fieldScene(session) {
       onPointerDown = null;
       onPointerUp = null;
       boosting = false;
+      boost = 0;
       hud = null;
       events = null;
       host = null;
@@ -465,11 +526,22 @@ export function fieldScene(session) {
       // frame the pointer goes up both are back to normal with nothing owed
       // either way. Menus and battles sit above this scene, so a press on
       // those never reaches here.
+      boost = nextBoost(boost, boosting, deltaMs);
       const walking = events?.walking ?? true;
-      if (walking) offset += (WALK_SPEED * (boosting ? HOLD_BOOST_WALK : 1) * deltaMs) / 1000;
+      if (walking) {
+        const from = offset;
+        offset += (WALK_SPEED * boostPace(boost, HOLD_BOOST_WALK) * deltaMs) / 1000;
+        // Never past whatever is being walked up to: a long frame would carry
+        // the companion a few pixels beyond the spot, which at a door leaves
+        // it standing at the side of the doorway instead of in it.
+        const stop = events?.stopAt;
+        if (stop !== null && stop !== undefined && offset > stop) offset = stop;
+        // A tile of road is a step, the way the games count them.
+        if (session.active && offset > from) walkSteps(session.active, (offset - from) / STEP_PX);
+      }
 
       const { autosave, event } = session.tick(deltaMs, {
-        eventRate: boosting ? HOLD_BOOST_RATE : 1,
+        eventRate: boostPace(boost, HOLD_BOOST_RATE),
       });
 
       tickCrossing(deltaMs, app);
@@ -478,8 +550,11 @@ export function fieldScene(session) {
       // goes back to a few seconds instead of its whole period, so the walk
       // picks it up as soon as the road is clear again.
       if (event) {
-        if (events?.busy || menuOpen || crossing > 0) session.eventTimer = EVENT_RETRY_MS;
-        else {
+        // Nor does one play out under a bridge: it waits until the road ahead
+        // is open sky again.
+        if (events?.busy || menuOpen || crossing > 0 || nearOverpass(session.area, eventGround(offset))) {
+          session.eventTimer = EVENT_RETRY_MS;
+        } else {
           events?.start(session.events.roll(session.rng), offset, app);
           // Ten things happen in a place, and then somewhere else.
           if (session.countEvent()) pendingCrossing = true;
@@ -509,7 +584,10 @@ export function fieldScene(session) {
       paused = value;
       // Whatever was holding the road fast is not holding it any more: a menu
       // opening over it ends the hurry along with everything else.
-      if (value) boosting = false;
+      if (value) {
+        boosting = false;
+        boost = 0;
+      }
     },
 
     get offset() {
@@ -531,7 +609,8 @@ export function fieldScene(session) {
         // clears the head of a Wailord as surely as that of a Wurmple.
         events?.render(lit, offset, actorHeight(companion, session.active));
 
-        if (companion && showActor && !events?.hidesActor) {
+        const alpha = events?.actorAlpha ?? 1;
+        if (companion && showActor && !events?.hidesActor && alpha > 0) {
           const moving = !paused && (events?.walking ?? true);
           const walk = {
             x: COMPANION_X,
@@ -542,12 +621,23 @@ export function fieldScene(session) {
             // a frozen game; the bob says it is picking.
             lift: events?.actorLift ?? 0,
             scale: actorScale(companion, session.active),
+            time: session.playtime,
           };
+          // Faded as it steps through a doorway, shadow and all.
+          lit.save();
+          lit.globalAlpha *= alpha;
           drawStepDust(lit, walk);
-          drawWalker(lit, companion, walk);
+          // Its walk while the road moves, and its standing strip while it
+          // does not.
+          drawWalker(lit, moving ? companion : companionStanding ?? companion, walk);
+          lit.restore();
         }
         closeDaylightLayer(field, timeOfDay());
       }
+
+      // A bridge overhead goes over whoever is walking under it; it is graded
+      // for the hour already, like the road.
+      drawOverlay(field, overlay, Math.round(offset));
 
       // The sky the place is under, in front of everything standing in it —
       // the companion walks in the rain rather than into it at the battle

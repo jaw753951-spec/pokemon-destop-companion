@@ -7,8 +7,9 @@
  */
 import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilitySlot, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
+import { abilitySlot, createPokemon, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
+import { settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -46,6 +47,22 @@ export function useItem(session, slug) {
     }
     if (!session.machines.includes(move)) session.machines.push(move);
     return { used: true, ok: true, message: t('items.taught', { move: localized(moveOf(move)?.name, move) }) };
+  }
+
+  // A legendary's key item changes its shape and stays in the bag.
+  if (item.use?.forme) {
+    const forme = useFormeItem(pokemon, slug);
+    if (forme === false) {
+      return { used: false, ok: false, message: t('items.formeNothing', { name: nameOf(pokemon), item: label }) };
+    }
+    const form = speciesOf(pokemon.speciesId)?.forms?.find((entry) => entry.slug === forme);
+    return {
+      used: true,
+      ok: true,
+      message: form
+        ? t('items.formeChanged', { name: nameOf(pokemon), form: localized(form.name, forme ?? '') })
+        : t('items.formeReverted', { name: nameOf(pokemon) }),
+    };
   }
 
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
@@ -144,6 +161,7 @@ export function equipItem(session, slug) {
   if (pokemon.heldItem) session.addItem(pokemon.heldItem);
   if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip') };
   pokemon.heldItem = slug;
+  settleForme(pokemon);
   return {
     used: true,
     ok: true,
@@ -164,6 +182,7 @@ export function unequipItem(session) {
 
   session.addItem(slug);
   pokemon.heldItem = null;
+  settleForme(pokemon);
   return {
     used: true,
     ok: true,
@@ -196,6 +215,13 @@ export function itemActions(session, slug) {
   if (item.pocket === 'pokeballs') return { use: false, equip: false };
   if (item.pocket === 'machines') return { use: true, equip: false };
   if (item.pocket === 'medicine') return { use: Boolean(item.use), equip: false };
+
+  // A key item for a legendary's shape is used, not held — and only offered
+  // to the species it is for.
+  if (item.use?.forme) {
+    const species = speciesOf(session.active?.speciesId)?.slug ?? '';
+    return { use: Boolean(USE_FORMES.get(slug)?.has(species)), equip: false };
+  }
 
   return {
     use: Boolean(pendingEvolution(session.active, { item: slug })),
@@ -463,6 +489,47 @@ export function healingItemFor(session, pokemon, preferred) {
 }
 
 /**
+ * How far a win tops the companion back up from the bag, as a share of its
+ * full health. `never` leaves it as the fight left it.
+ */
+export const AFTER_BATTLE_TARGETS = { never: 0, hpHalf: 1 / 2, hpTwoThirds: 2 / 3, full: 1 };
+
+/** A backstop on one top-up, so a bag that somehow stops helping cannot spin. */
+const MAX_TOP_UP_ITEMS = 12;
+
+/**
+ * Top a Pokémon up from the bag after a battle, as far as `target` asks.
+ *
+ * Each item is the smallest that closes what is left of the gap, and the
+ * largest on hand when none does — the same "whatever fits" the automatic
+ * throw uses, aimed at the target rather than at a full bar, so a Potion is
+ * not spent where a Potion's worth is not missing and a Hyper Potion is not
+ * spent on a scratch.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string} target a key of {@link AFTER_BATTLE_TARGETS}
+ * @returns {Array<{slug: string, count: number}>} what was used, in order
+ */
+export function healAfterBattle(session, pokemon, target) {
+  const share = AFTER_BATTLE_TARGETS[target] ?? 0;
+  if (share <= 0 || pokemon.hp <= 0) return [];
+  const goal = Math.ceil(maxHp(pokemon) * share);
+
+  /** @type {Map<string, number>} */
+  const used = new Map();
+  for (let step = 0; step < MAX_TOP_UP_ITEMS && pokemon.hp < goal; step++) {
+    const available = healingItems(session, pokemon);
+    if (available.length === 0) break;
+    const gap = goal - pokemon.hp;
+    const pick = available.find((entry) => entry.power >= gap) ?? available[available.length - 1];
+    if (!throwItem(session, pick.slug, pokemon)) break;
+    used.set(pick.slug, (used.get(pick.slug) ?? 0) + 1);
+  }
+  return [...used].map(([slug, count]) => ({ slug, count }));
+}
+
+/**
  * Take one healing item from the bag and apply it, wherever it was thrown
  * from.
  *
@@ -524,6 +591,8 @@ export function restockBerry(session, pokemon) {
  * @returns {any|null}
  */
 export function heldPassive(pokemon, kind) {
+  // A Klutz carries its item and gets nothing from it.
+  if (pokemon?.ability === 'klutz') return null;
   const held = pokemon?.heldItem ? itemOf(pokemon.heldItem)?.held : null;
   return held && held.on === kind ? held : null;
 }
@@ -643,4 +712,64 @@ export function applyHeldEffect(pokemon, held) {
  */
 function emptyMove(pokemon) {
   return pokemon.moves.find((slot) => slot.pp <= 0 && moveOf(slot.move)) ?? null;
+}
+
+/**
+ * How often an item find is a legendary's own item, while that legendary is
+ * the one travelling and does not have it yet.
+ *
+ * A Blue Orb is no use to a Pikachu, and a bag that filled up with seventeen
+ * memories and four drives for Pokémon the player never met would be clutter.
+ * So those items are only ever found by the Pokémon they are for — and rarely,
+ * a tenth of the finds, which is something like one an hour of walking.
+ */
+export const SIGNATURE_FIND_CHANCE = 0.1;
+
+/** Built once: which species each signature item is for. */
+let signature = /** @type {Map<string, string[]>|null} */ (null);
+
+/**
+ * The legendary's own item an item find turns out to be, if it does.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @returns {string|null}
+ */
+export function signatureFind(session) {
+  signature ??= signatureItems();
+  const species = speciesOf(session.active?.speciesId);
+  const slug = species?.slug ?? '';
+  const held = new Set([session.active, ...session.box].map((pokemon) => pokemon?.heldItem).filter(Boolean));
+  // And what it evolves by, where the ordinary finds never hand that out: a
+  // Galarica Cuff, a Leader's Crest, an apple for an Applin.
+  const ordinary = new Set(Object.values(gameData().itemTiers ?? {}).flat());
+  const evolvesBy = (species?.evolutions ?? [])
+    .flatMap((evolution) => [evolution.item, evolution.heldItem])
+    .filter((item) => item && !ordinary.has(item));
+  const wanted = [
+    ...[...signature].filter(([, owners]) => owners.includes(slug)).map(([item]) => item),
+    ...evolvesBy,
+  ].filter((item, index, all) => all.indexOf(item) === index && itemOf(item) && !held.has(item) && session.countOf(item) === 0);
+  if (!wanted.length || !session.rng.chance(SIGNATURE_FIND_CHANCE)) return null;
+  return session.rng.pick(wanted);
+}
+
+/**
+ * A Nincada that became a Ninjask leaves its shell behind: a Shedinja, if
+ * there is a Poké Ball in the bag to put it in and room in the box, the way
+ * the games leave one in a free party slot.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {number} fromSpeciesId the species that just evolved
+ * @param {import('./pokemon.mjs').Pokemon} evolved
+ * @returns {import('./pokemon.mjs').Pokemon|null} the Shedinja, if one was left
+ */
+export function shedAfterEvolving(session, fromSpeciesId, evolved) {
+  const shed = speciesOf(fromSpeciesId)?.evolutions?.find((evolution) => evolution.trigger === 'shed');
+  if (!shed || !speciesOf(shed.to) || session.countOf('poke-ball') <= 0 || session.boxFull) return null;
+  const shell = createPokemon(session.rng, shed.to, levelOf(evolved), { ball: 'poke-ball' });
+  shell.ivs = { ...evolved.ivs };
+  shell.nature = evolved.nature;
+  if (!session.storeInBox(shell)) return null;
+  session.removeItem('poke-ball');
+  return shell;
 }

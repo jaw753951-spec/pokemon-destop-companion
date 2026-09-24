@@ -11,6 +11,7 @@ import { crop, opaqueBounds } from '../lib/image.mjs';
 import { defaultLanguage } from '../../../app/shared/languages.mjs';
 import { LANGUAGES } from '../languages.mjs';
 import { BALL_TIERS, SPRITES } from '../sources.mjs';
+import { signatureItems } from '../../../app/renderer/engine/forms.mjs';
 
 /**
  * The language the tiers and the generated document are judged in: an item with
@@ -52,9 +53,10 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
   await Promise.all(
     Object.keys(items).map((name) =>
       pool(async () => {
-        const icon = await firstAvailable(iconCandidates(name, items[name], machines, moves));
+        const icon = DRAWN_ICONS[name]?.() ?? (await firstAvailable(iconCandidates(name, items[name], machines, moves)));
         if (icon) {
           await writeOut(join(assetDir, 'items', `${name}.png`), icon);
+          items[name].sprite = true;
           saved++;
         } else {
           items[name].sprite = false;
@@ -90,7 +92,16 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
  * @returns {string[]}
  */
 function iconCandidates(name, item, machines, moves) {
-  const candidates = [`${SPRITES}/items/${name}.png`];
+  // The newest items are only drawn in the generation folders, and a few not
+  // at all; those borrow the nearest picture there is.
+  const drawn = ICON_STAND_INS[name] ?? name;
+  const candidates = [
+    `${SPRITES}/items/${drawn}.png`,
+    `${SPRITES}/items/gen9/${drawn}.png`,
+    `${SPRITES}/items/gen8/${drawn}.png`,
+    `${POKESPRITE}/items/key-item/${drawn}.png`,
+    `${POKESPRITE}/items/evo-item/${drawn}.png`,
+  ];
   if (item.pocket === 'machines') {
     const type = moves[machines[name]]?.type;
     const prefix = name.startsWith('hm') ? 'hm' : 'tm';
@@ -99,6 +110,75 @@ function iconCandidates(name, item, machines, moves) {
   }
   return candidates;
 }
+
+/** The PokéSprite item set, which draws a few key items PokeAPI does not. */
+const POKESPRITE = 'https://raw.githubusercontent.com/msikma/pokesprite/master';
+
+/**
+ * Items no published set draws, and the one each is shown as: Legends: Arceus's
+ * crystal and globe look like the orbs they replaced.
+ *
+ * @type {Record<string, string>}
+ */
+const ICON_STAND_INS = {
+  'adamant-crystal': 'adamant-orb',
+  'lustrous-globe': 'lustrous-orb',
+  // The evolution items of the newest games, drawn by nobody yet: each shown
+  // as the nearest thing that is — an apple as an apple, an alloy as a coat
+  // of metal, a cord as silk, armour as armour.
+  'syrupy-apple': 'sweet-apple',
+  'metal-alloy': 'metal-coat',
+  'black-augurite': 'dusk-stone',
+  'peat-block': 'soft-sand',
+  'leaders-crest': 'razor-claw',
+  'linking-cord': 'silk-scarf',
+  'scroll-of-darkness': 'dread-plate',
+  'auspicious-armor': 'protector',
+  'malicious-armor': 'reaper-cloth',
+  'meltan-candy': 'rare-candy',
+  'gimmighoul-coin': 'amulet-coin',
+  'scroll-of-waters': 'splash-plate',
+};
+
+/**
+ * A Tera Orb, drawn here because no item set has one: a faceted crystal ball,
+ * teal at the top and rose at the bottom, fourteen pixels across.
+ *
+ * @returns {Buffer}
+ */
+function drawTeraOrb() {
+  const size = 14;
+  const data = new Uint8Array(size * size * 4);
+  const centre = (size - 1) / 2;
+  const radius = size / 2 - 0.5;
+  const top = [104, 214, 222];
+  const bottom = [236, 118, 184];
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const dx = x - centre;
+      const dy = y - centre;
+      const distance = Math.hypot(dx, dy);
+      if (distance > radius) continue;
+      const offset = (y * size + x) * 4;
+      if (distance > radius - 1) {
+        data.set([40, 44, 70, 255], offset);
+        continue;
+      }
+      // Facets: the sphere cut into six wedges, alternately lit, over a fade
+      // from the top colour to the bottom one.
+      const mix = y / (size - 1);
+      const facet = Math.floor(((Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI)) * 6) % 2 ? 1 : 0.84;
+      const shade = [0, 1, 2].map((i) => Math.round((top[i] * (1 - mix) + bottom[i] * mix) * facet));
+      data.set([...shade, 255], offset);
+    }
+  }
+  // The glint.
+  for (const [x, y] of [[4, 3], [5, 3], [4, 4]]) data.set([255, 255, 255, 255], (y * size + x) * 4);
+  return encodePng(size, size, data);
+}
+
+/** Icons this step draws itself. @type {Record<string, () => Buffer>} */
+const DRAWN_ICONS = { 'tera-orb': drawTeraOrb };
 
 /**
  * The first icon that exists, trimmed to its opaque area.
@@ -148,7 +228,13 @@ export function assignRarityTiers(items, moves = {}) {
 
   for (const [name, item] of Object.entries(items)) {
     if (!item.sprite) continue;
+    // Sword and Shield's records teach what the TMs already do, and would
+    // bury them a hundred deep in the machine pool.
+    if (item.pocket === 'machines' && /^tr\d+$/.test(name)) continue;
     if (item.pocket === 'key') continue;
+    // A legendary's own item turns up only while it is the one travelling,
+    // which the find decides at the time (`fieldevents.mjs`).
+    if (SIGNATURE.has(name)) continue;
     if (EXCLUDED_CATEGORIES.has(item.category)) continue;
     if (unnamed(item)) continue;
 
@@ -214,6 +300,9 @@ const POCKET_LABELS = {
 const TIER_QUANTILES = [0.6, 0.85, 0.97];
 
 /** Categories that would be meaningless or game-breaking as a field pickup. */
+/** The items that are one species' own. */
+const SIGNATURE = signatureItems();
+
 const EXCLUDED_CATEGORIES = new Set([
   'plates',
   'species-specific',

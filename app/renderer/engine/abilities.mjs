@@ -25,6 +25,7 @@
  *   bug from the other side of the screen.
  */
 import { speciesOf } from '../core/data.mjs';
+import { formeAbility } from './forms.mjs';
 import { WEATHER, TERRAIN } from './field.mjs';
 
 /** A quarter of maximum HP, which is what most absorbing abilities pay. */
@@ -136,6 +137,11 @@ export const ABILITIES = {
     taken: (ctx, move) => (move.type === 'fire' ? 2 : hasFlag(move, 'contact') ? 0.5 : 1),
   },
   multiscale: { taken: (ctx) => (fullHealth(ctx.self) ? 0.5 : 1) },
+  // At full health every hit on a Terastal Terapagos lands as not very
+  // effective: whatever the chart said, half.
+  'tera-shell': {
+    taken: (ctx, move, effectiveness) => (fullHealth(ctx.self) && effectiveness > 0.5 ? 0.5 / effectiveness : 1),
+  },
   'shadow-shield': { taken: (ctx) => (fullHealth(ctx.self) ? 0.5 : 1) },
   'solid-rock': { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 0.75 : 1) },
   filter: { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 0.75 : 1) },
@@ -241,6 +247,7 @@ export const ABILITIES = {
   // ---- Conditions the holder does not take.
 
   immunity: { blockStatus: (ctx, status) => status === 'psn' },
+  'pastel-veil': { blockStatus: (ctx, status) => status === 'psn' },
   limber: { blockStatus: (ctx, status) => status === 'par' },
   insomnia: { blockStatus: (ctx, status) => status === 'slp' },
   'vital-spirit': { blockStatus: (ctx, status) => status === 'slp' },
@@ -258,6 +265,71 @@ export const ABILITIES = {
   'sand-stream': { start: (ctx) => ctx.setWeather(WEATHER.SANDSTORM), weatherImmune: true },
   'snow-warning': { start: (ctx) => ctx.setWeather(WEATHER.SNOW) },
   forecast: {},
+  // The primal weathers, as the ordinary ones: this game's weather set a
+  // Pokémon calls up already lasts the battle.
+  'primordial-sea': { start: (ctx) => ctx.setWeather(WEATHER.RAIN) },
+  'desolate-land': { start: (ctx) => ctx.setWeather(WEATHER.SUN) },
+  // A Stellar Terapagos clears the sky and the ground on its way in.
+  'teraform-zero': { start: (ctx) => ctx.clearField() },
+  // These are the forme change itself, which `forms.mjs` and the battle
+  // make; the ability has nothing else to do.
+  'tera-shift': {},
+  multitype: {},
+  'rks-system': {},
+  'zen-mode': {},
+  schooling: {},
+  'shields-down': {},
+  // Blade to strike, Shield to guard: the battle turns it before each move.
+  'stance-change': { stanceChange: true },
+  // Full, then hungry, a turn at a time; its Aura Wheel follows (see
+  // `effectiveMove`).
+  'hunger-switch': {
+    turn: (ctx) => {
+      ctx.self.marks.hangry = !ctx.self.marks.hangry;
+    },
+  },
+
+  // ---- The Paradox Pokémon's boost: the highest stat, half again for Speed
+  // and three-tenths for the rest, in harsh sun or on Electric Terrain — or
+  // on a Booster Energy, spent the moment there is neither.
+  protosynthesis: paradoxBoost((ctx) => ctx.weather === WEATHER.SUN),
+  'quark-drive': paradoxBoost((ctx) => ctx.terrain === TERRAIN.ELECTRIC),
+
+  // ---- Copying.
+  // A Ditto walks in as whatever it faces.
+  imposter: { start: (ctx) => ctx.transform(ctx.foe) },
+
+  // ---- Touching it changes what you are.
+  mummy: { contact: (ctx) => ctx.replaceAbility(ctx.foe, 'mummy') },
+  'lingering-aroma': { contact: (ctx) => ctx.replaceAbility(ctx.foe, 'lingering-aroma') },
+  'wandering-spirit': { contact: (ctx) => ctx.swapAbilities() },
+
+  // ---- On the field for everyone: a Fairy or Dark move a third stronger,
+  // and an Aura Break turning both round (see `auraMultiplier`).
+  'fairy-aura': { aura: 'fairy' },
+  'dark-aura': { aura: 'dark' },
+  'aura-break': { auraBreak: true },
+
+  // Every other ability goes quiet while this one is out.
+  'neutralizing-gas': { neutralizes: true },
+
+  'steely-spirit': { power: (ctx, move) => (move.type === 'steel' ? 1.5 : 1) },
+  // What the weight moves weigh it at (see `weightOf`).
+  'heavy-metal': { weight: 2 },
+  'light-metal': { weight: 0.5 },
+  // It reads what the other side is holding as it comes in.
+  frisk: {
+    start: (ctx) => {
+      if (ctx.foe.pokemon.heldItem) ctx.note('frisked', { item: ctx.foe.pokemon.heldItem });
+    },
+  },
+  // Its held item does nothing (see `heldPassive`).
+  klutz: {},
+
+  // ---- After the battle (see `afterBattle`).
+  'natural-cure': {},
+  regenerator: {},
+  pickup: {},
 
   // The Cramorant that dived after something: the forme it wears is the
   // engine's business (a forme read off the move it just used), so this
@@ -291,7 +363,7 @@ export const ABILITIES = {
   },
   trace: {
     start: (ctx) => {
-      const copied = ctx.foe.pokemon.ability;
+      const copied = abilityName(ctx.foe.pokemon);
       if (!copied || copied === 'trace' || !ABILITIES[copied]) return;
       ctx.self.pokemon.ability = copied;
       ctx.note('abilityTraced', { ability: copied });
@@ -405,6 +477,8 @@ export const ABILITIES = {
   protean: { retypes: 'move' },
   libero: { retypes: 'move' },
   'color-change': { retypes: 'hit' },
+  // It takes the type of the terrain it stands on (see `typesOf`).
+  mimicry: { mimicry: true },
   scrappy: { hitsGhosts: true },
   'minds-eye': { hitsGhosts: true, ignoresEvasion: true },
   corrosion: { corrodes: true },
@@ -529,7 +603,19 @@ const LOCKED_STATES = new Set(['taunt', 'encore', 'disable', 'torment']);
  * @returns {any|null}
  */
 export function abilityEffect(pokemon) {
-  return pokemon?.ability ? ABILITIES[pokemon.ability] ?? null : null;
+  const slug = abilityName(pokemon);
+  return slug ? ABILITIES[slug] ?? null : null;
+}
+
+/**
+ * The ability a Pokémon has right now: the one its forme brings, when a
+ * held-item forme brings one — a masked Ogerpon's — and its own otherwise.
+ *
+ * @param {{speciesId?: number, ability?: string, forme?: string|null}|null|undefined} pokemon
+ * @returns {string|null}
+ */
+export function abilityName(pokemon) {
+  return formeAbility(pokemon) ?? pokemon?.ability ?? null;
 }
 
 /** Whether the engine has been taught this ability. @param {string} slug */
@@ -545,6 +631,72 @@ const hasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
 
 /** @param {any} combatant */
 const fullHealth = (combatant) => combatant.pokemon.hp >= combatant.maxHp;
+
+/** The stats a Paradox boost can land on, in the order ties are settled. */
+const BOOSTABLE = ['atk', 'def', 'spa', 'spd', 'spe'];
+
+/**
+ * Protosynthesis and Quark Drive: the same boost on a different trigger.
+ *
+ * @param {(ctx: any) => boolean} triggered
+ */
+function paradoxBoost(triggered) {
+  const active = (ctx) => triggered(ctx) || Boolean(ctx.self.marks.boosterEnergy);
+  /** @param {any} ctx */
+  const spend = (ctx) => {
+    if (triggered(ctx) || ctx.self.marks.boosterEnergy || ctx.self.pokemon.heldItem !== 'booster-energy') return;
+    ctx.self.marks.boosterEnergy = true;
+    ctx.spendItem(ctx.self);
+  };
+  return {
+    start: spend,
+    turn: spend,
+    stat: (ctx, stat) => {
+      if (!active(ctx)) return 1;
+      const stats = ctx.statsOf(ctx.self);
+      const best = BOOSTABLE.reduce((top, key) => (stats[key] > stats[top] ? key : top), BOOSTABLE[0]);
+      if (stat !== best) return 1;
+      return stat === 'spe' ? 1.5 : 1.3;
+    },
+  };
+}
+
+/**
+ * What the auras on the field make of a move: a third more for a Fairy move
+ * under a Fairy Aura or a Dark one under a Dark Aura, from anyone — and a
+ * quarter less instead while an Aura Break is out too.
+ *
+ * @param {Array<any>} abilities every ability on the field, either side
+ * @param {{type: string}} move
+ */
+export function auraMultiplier(abilities, move) {
+  if (!abilities.some((ability) => ability?.aura === move.type)) return 1;
+  return abilities.some((ability) => ability?.auraBreak) ? 0.75 : 4 / 3;
+}
+
+/**
+ * What an ability does once a battle is over, to the Pokémon that has it: a
+ * Natural Cure lifts its condition and a Regenerator gives back a third of
+ * its health, as each would on being switched out.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {number} maxHp
+ * @returns {'cured'|'regenerated'|null}
+ */
+export function afterBattle(pokemon, maxHp) {
+  if (pokemon.hp <= 0) return null;
+  const ability = abilityName(pokemon);
+  if (ability === 'natural-cure' && pokemon.status) {
+    pokemon.status = null;
+    pokemon.statusTurns = 0;
+    return 'cured';
+  }
+  if (ability === 'regenerator' && pokemon.hp < maxHp) {
+    pokemon.hp = Math.min(maxHp, pokemon.hp + Math.floor(maxHp / 3));
+    return 'regenerated';
+  }
+  return null;
+}
 
 /** @param {any} combatant */
 const halfHealth = (combatant) => combatant.pokemon.hp * 2 <= combatant.maxHp;

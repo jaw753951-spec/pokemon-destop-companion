@@ -24,7 +24,8 @@
 
 /**
  * @param {Buffer} buffer
- * @returns {{duration: number, tracks: Track[]}}
+ * @returns {{duration: number, loop?: number, tracks: Track[]}} `loop` is where
+ *   a looping song's intro ends, in seconds, when the file marks one
  */
 export function parseMidi(buffer) {
   if (buffer.toString('ascii', 0, 4) !== 'MThd') throw new Error('Not a MIDI file');
@@ -37,13 +38,15 @@ export function parseMidi(buffer) {
   const tempoMap = [{ tick: 0, usPerQuarter: 500000 }];
   /** @type {Array<{channel: number, program: number, notes: Array<{tick:number, endTick:number, n:number, v:number}>}>} */
   const rawTracks = [];
+  /** Where the song loops back to, if the file marks it: see `loop` below. */
+  const markers = { loopTick: -1 };
 
   let offset = 14;
   for (let index = 0; index < trackCount && offset < buffer.length; index++) {
     if (buffer.toString('ascii', offset, offset + 4) !== 'MTrk') break;
     const length = buffer.readUInt32BE(offset + 4);
     const end = offset + 8 + length;
-    parseTrack(buffer, offset + 8, end, tempoMap, rawTracks);
+    parseTrack(buffer, offset + 8, end, tempoMap, rawTracks, markers);
     offset = end;
   }
   void format;
@@ -67,12 +70,17 @@ export function parseMidi(buffer) {
     tracks.push({ channel: raw.channel, program: raw.channel === 9 ? 128 : raw.program, notes });
   }
 
-  return { duration: round(duration), tracks };
+  // The decomp marks a looping song's loop with `[` and `]` markers: whatever
+  // comes before the `[` is an intro that plays once. A victory theme is a
+  // two-second fanfare and a long body looped under the experience screen,
+  // and this is what lets a cue play the one without the other.
+  const loop = markers.loopTick > 0 ? { loop: round(toSeconds(markers.loopTick)) } : {};
+  return { duration: round(duration), ...loop, tracks };
 }
 
 const round = (value) => Math.round(value * 1000) / 1000;
 
-function parseTrack(buffer, start, end, tempoMap, rawTracks) {
+function parseTrack(buffer, start, end, tempoMap, rawTracks, markers) {
   let pos = start;
   let tick = 0;
   let runningStatus = 0;
@@ -111,6 +119,9 @@ function parseTrack(buffer, start, end, tempoMap, rawTracks) {
       pos = length.next;
       if (type === 0x51) {
         tempoMap.push({ tick, usPerQuarter: (buffer[pos] << 16) | (buffer[pos + 1] << 8) | buffer[pos + 2] });
+      }
+      if (type === 0x06 && markers.loopTick < 0 && buffer.toString('ascii', pos, pos + length.value) === '[') {
+        markers.loopTick = tick;
       }
       pos += length.value;
       if (type === 0x2f) break;

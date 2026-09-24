@@ -6,12 +6,12 @@
  * after a battle, and when to throw a potion during one.
  */
 import { url } from '../core/bridge.mjs';
-import { itemOf, moveOf } from '../core/data.mjs';
+import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { equipItem, itemActions, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
 import { moveSummary } from './movecard.mjs';
-import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
+import { chooseFromList, chooseItem, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
 const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
@@ -24,7 +24,7 @@ const HEALING_CONDITIONS = ['never', 'hpTwoThirds', 'hpHalf', 'hpThird', 'hpQuar
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} refresh
- * @param {{pocket?: string}} state carried between re-renders
+ * @param {{pocket?: string, selected?: string|null, learnableOnly?: boolean}} state carried between re-renders
  * @returns {HTMLElement}
  */
 export function itemsTab(app, session, refresh, state) {
@@ -47,22 +47,48 @@ export function itemsTab(app, session, refresh, state) {
     return el('div.tab-body.items-tab', {}, [tabs, optionsPane(app, session, refresh)]);
   }
 
+  // A machine the companion cannot learn is one it cannot use, and a case of
+  // fifty TMs is a long way to scroll to find the six that fit. The machine
+  // pocket can be narrowed to those, and greys the rest out when it is not.
+  const machines = pocket === 'machines';
+  const learnable = new Set(machines ? speciesOf(session.active?.speciesId)?.learnset?.machine ?? [] : []);
+  const fits = (/** @type {string} */ slug) => learnable.has(itemOf(slug)?.move ?? '');
+  const onlyLearnable = machines && Boolean(state.learnableOnly);
+
+  const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || fits(entry.slug));
+  // What was being read survives a refresh — using one of three Potions
+  // leaves the other two on the panel — but not the last of it going.
+  if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;
+
   const inspector = el('div.item-inspector');
-  showInspector(inspector, null);
+  const select = (slug) => {
+    state.selected = slug;
+    for (const row of list.querySelectorAll('.item-row')) {
+      row.setAttribute('aria-pressed', String(/** @type {HTMLElement} */ (row).dataset.slug === slug));
+    }
+    showInspector(app, session, inspector, slug, refresh);
+  };
 
   const list = scrollable(el('div.item-list'));
-  const entries = session.pocket(pocket);
 
   if (entries.length === 0) {
-    list.append(el('div.empty', { text: t('items.empty') }));
+    list.append(el('div.empty', { text: onlyLearnable ? t('items.noLearnable') : t('items.empty') }));
   } else {
     list.append(
       ...entries
         .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)))
         .map(({ slug, count, item }) =>
-          el('button.item-row', {
+          el(machines && !fits(slug) ? 'button.item-row.unlearnable' : 'button.item-row', {
             type: 'button',
-            onClick: () => openMenu(app, session, slug, inspector, refresh),
+            dataset: { slug },
+            'aria-pressed': String(slug === state.selected),
+            // Reading an item is the click: what it does, and what can be
+            // done with it, are on the panel beside the list rather than in
+            // a menu over it.
+            onClick: () => {
+              app.audio.blip('select');
+              select(slug);
+            },
           }, [
             el('img', { src: url('assets', `items/${slug}.png`), alt: '' }),
             el('span.item-name', { text: localized(item.name, slug) }),
@@ -71,8 +97,24 @@ export function itemsTab(app, session, refresh, state) {
         ),
     );
   }
+  showInspector(app, session, inspector, state.selected ?? null, refresh);
 
-  return el('div.tab-body.items-tab', {}, [tabs, el('div.items-split', {}, [list, inspector])]);
+  const filter = machines
+    ? el('div.pocket-filter', {}, [
+        el('button.chip', {
+          type: 'button',
+          text: t('items.learnableOnly'),
+          'aria-pressed': String(onlyLearnable),
+          onClick: () => {
+            app.audio.blip('select');
+            state.learnableOnly = !onlyLearnable;
+            refresh();
+          },
+        }),
+      ])
+    : null;
+
+  return el('div.tab-body.items-tab', {}, [tabs, filter, el('div.items-split', {}, [list, inspector])]);
 }
 
 /**
@@ -98,7 +140,51 @@ function optionsPane(app, session, refresh) {
     el('p.meta', { text: t('items.healingUseNote') }),
     healingItemRow(app, session, policy, refresh),
     healingConditionRow(app, policy, refresh),
+
+    el('div.section-title', { text: t('items.afterBattle') }),
+    el('p.meta', { text: t('items.afterBattleNote') }),
+    afterBattleRow(app, policy, refresh),
   ]);
+}
+
+/** How far a win tops the companion back up, fullest last. */
+function afterBattleRow(app, policy, refresh) {
+  const target = policy.afterBattle;
+
+  return el('div.setting.item-option', {}, [
+    el('span.label', { text: t('items.afterBattleTarget') }),
+    el('span.spacer'),
+    el(`button.chip${target === 'never' ? '.off' : ''}`, {
+      type: 'button',
+      text: t(`items.afterBattle.${target}`),
+      onClick: async () => {
+        app.audio.blip('select');
+        const chosen = await chooseFromList(app, t('items.afterBattleTarget'),
+          Object.keys(AFTER_BATTLE_TARGETS).map((value) => ({
+            value,
+            label: t(`items.afterBattle.${value}`),
+            detail: value === target ? t('auto.current') : '',
+          })));
+        if (chosen === null) return;
+        policy.afterBattle = chosen;
+        refresh();
+      },
+    }),
+  ]);
+}
+
+/**
+ * Every berry in the bag, whichever pocket the data files it in — the restock
+ * order once left out a berry the data had put among the medicine — in the
+ * order of their names.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ */
+function heldBerries(session) {
+  const pockets = new Map([...session.pocket('berries'), ...session.pocket('medicine')].map((entry) => [entry.slug, entry]));
+  return [...pockets.values()]
+    .filter((entry) => entry.item.pocket === 'berries' || entry.slug.endsWith('-berry'))
+    .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)));
 }
 
 /**
@@ -117,15 +203,20 @@ function berryRow(app, session, policy, index, refresh) {
       text: item ? localized(item.name, slug) : t('items.unset'),
       onClick: async () => {
         app.audio.blip('select');
-        const held = session.pocket('berries');
-        const chosen = await chooseFromList(app, t('items.priority', { rank: index + 1 }), [
-          { value: '', label: t('items.unset'), detail: '' },
-          ...held.map((entry) => ({
+        const chosen = await chooseItem(app, t('items.priority', { rank: index + 1 }),
+          heldBerries(session).map((entry) => ({
             value: entry.slug,
             label: localized(entry.item.name, entry.slug),
-            detail: t('items.count', { count: entry.count }),
+            icon: url('assets', `items/${entry.slug}.png`),
+            count: entry.count,
+            text: localized(entry.item.text, ''),
           })),
-        ]);
+          {
+            current: slug,
+            clearLabel: t('items.unset'),
+            confirmLabel: t('items.berryPick'),
+            empty: t('items.noBerries'),
+          });
         if (chosen === null) return;
         policy.berries[index] = chosen || null;
         refresh();
@@ -191,58 +282,18 @@ function healingConditionRow(app, policy, refresh) {
 }
 
 /**
+ * What an item is, and what can be done with it: the description, and along
+ * the bottom the buttons for whatever this item is offered for.
+ *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
- * @param {string} slug
- * @param {HTMLElement} inspector
- * @param {() => void} refresh
- */
-async function openMenu(app, session, slug, inspector, refresh) {
-  const item = itemOf(slug);
-  if (!item) return;
-
-  // What the item is for decides what it is offered for: a potion is used, a
-  // Leftovers is carried, and a ball is neither — it is thrown at something
-  // the companion has knocked down, from the capture screen.
-  const actions = itemActions(session, slug);
-
-  const choice = await chooseAction(app, localized(item.name, slug), [
-    ...(actions.use ? [{ value: 'use', label: t('items.use') }] : []),
-    ...(actions.equip ? [{ value: 'equip', label: t('items.equip') }] : []),
-    { value: 'inspect', label: t('items.inspect') },
-    { value: 'toss', label: t('items.toss'), danger: true },
-  ]);
-
-  if (choice === 'inspect') {
-    showInspector(inspector, slug);
-    return;
-  }
-
-  if (choice === 'toss') {
-    if (!(await confirm(app, t('items.tossConfirm'), { danger: true }))) return;
-    session.removeItem(slug);
-    app.toast(t('items.tossed', { name: localized(item.name, slug) }));
-    refresh();
-    return;
-  }
-
-  if (choice === 'use' || choice === 'equip') {
-    const result = choice === 'equip' ? equipItem(session, slug) : useItem(session, slug);
-    app.toast(result.message ?? t('items.cannotUse'));
-    // A refusal is worth a sound too: a TM the companion cannot learn says so
-    // and nothing else happens, which used to be silent.
-    app.audio.blip(result.ok ? 'confirm' : 'error');
-    if (result.used) refresh();
-  }
-}
-
-/**
  * @param {HTMLElement} inspector
  * @param {string|null} slug
+ * @param {() => void} refresh
  */
-function showInspector(inspector, slug) {
+function showInspector(app, session, inspector, slug, refresh) {
   if (!slug) {
-    inspector.replaceChildren(el('span.meta', { text: t('items.inspect') }));
+    inspector.replaceChildren(el('span.meta.inspect-hint', { text: t('items.inspectHint') }));
     return;
   }
   const item = itemOf(slug);
@@ -271,5 +322,47 @@ function showInspector(inspector, slug) {
     // than it acts on today; an item says so itself rather than leaving the
     // player to find out by using it.
     item.works ? null : el('span.meta.inspect-inert', { text: t('items.noEffectYet') }),
+    itemButtons(app, session, slug, refresh),
+  ]);
+}
+
+/**
+ * The buttons under an item's description.
+ *
+ * What the item is for decides what it is offered for: a potion is used, a
+ * Leftovers is handed over to carry, and a ball is neither — it is thrown at
+ * something the companion has knocked down, from the capture screen. Tossing
+ * is always there, quieter than the rest, and asks first.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} slug
+ * @param {() => void} refresh
+ */
+function itemButtons(app, session, slug, refresh) {
+  const item = itemOf(slug);
+  const actions = itemActions(session, slug);
+
+  /** @param {'use'|'equip'} kind */
+  const act = (kind) => {
+    const result = kind === 'equip' ? equipItem(session, slug) : useItem(session, slug);
+    app.toast(result.message ?? t('items.cannotUse'));
+    // A refusal is worth a sound too: a TM the companion cannot learn says so
+    // and nothing else happens, which used to be silent.
+    app.audio.blip(result.ok ? 'confirm' : 'error');
+    if (result.used) refresh();
+  };
+
+  return el('div.inspect-actions', {}, [
+    actions.use ? button(t('items.use'), () => act('use'), { className: 'small' }) : null,
+    actions.equip ? button(t('items.equip'), () => act('equip'), { className: 'small' }) : null,
+    el('span.spacer'),
+    button(t('items.toss'), async () => {
+      app.audio.blip('select');
+      if (!(await confirm(app, t('items.tossConfirm'), { danger: true }))) return;
+      session.removeItem(slug);
+      app.toast(t('items.tossed', { name: localized(item?.name, slug) }));
+      refresh();
+    }, { className: 'small ghost' }),
   ]);
 }

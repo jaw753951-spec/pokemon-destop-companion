@@ -123,7 +123,11 @@ test('a wild Pokémon draws from its whole ability pool, hidden included', optio
 
   const seen = new Set();
   const rng = new Rng(5);
-  for (let roll = 0; roll < 200; roll++) seen.add(rollWildPokemon(rng, area, companion).ability);
+  // Some of the wild comes from the whole Pokédex; only the Dittos count.
+  for (let roll = 0; roll < 300; roll++) {
+    const wild = rollWildPokemon(rng, area, companion);
+    if (wild.speciesId === DITTO) seen.add(wild.ability);
+  }
   assert.deepEqual([...seen].sort(), ['imposter', 'limber']);
 
   // A Pokémon a trainer sends out draws from the ordinary ones only, which is
@@ -512,8 +516,10 @@ test('a PP Up raises the ceiling rather than filling the bar', options, () => {
 });
 
 test('an Everstone stops the levelling kind of evolution and nothing else', options, () => {
+  // Pichu evolves on friendship, which this one has plenty of.
   const pichu = createPokemon(new Rng(3), 172, 30);
-  assert.ok(pendingEvolution(pichu), 'a level-30 Pichu should be ready');
+  pichu.friendship = 230;
+  assert.ok(pendingEvolution(pichu), 'a fond Pichu should be ready');
 
   pichu.heldItem = 'everstone';
   assert.equal(pendingEvolution(pichu), null);

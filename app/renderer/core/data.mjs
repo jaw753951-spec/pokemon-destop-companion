@@ -24,6 +24,8 @@ import { loadJson } from './bridge.mjs';
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
+ * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}}} credits who
+ *   drew what the game borrows, for the credits the licence asks for
  */
 
 /** @type {GameData|null} */
@@ -51,17 +53,46 @@ export async function loadGameData() {
 
   // Authored data is optional: a checkout without it still runs, just without
   // trainers or the league.
-  const [trainerClasses, leaders, leagues] = await Promise.all([
+  const [trainerClasses, leaders, leagues, credits, itemTexts, moveTexts] = await Promise.all([
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
+    // Written by the walkers step; a build from before it has nothing to credit.
+    loadJson('data', 'credits.json').catch(() => ({})),
+    loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
+    loadJson('authored', 'move-texts.json').then((file) => file.moves ?? {}).catch(() => ({})),
   ]);
+  mendItems(items, itemTexts);
+  // Moves take the same patch: the newest ones come through with only the
+  // English description, and the Korean screen showed it as it was.
+  mendItems(moves, moveTexts);
 
   data = {
     species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,
-    trainerClasses, leaders, leagues,
+    trainerClasses, leaders, leagues, credits,
   };
   return data;
+}
+
+/**
+ * Put the authored descriptions — and the odd name — on the items PokeAPI
+ * publishes without them.
+ *
+ * A handful of items come through with no description in any language, and
+ * a few with the English one standing in for the Korean; the bag showed the
+ * first as a blank panel. The authored sheet fills both in, one field at a
+ * time, and names nothing that is not in the bag's data.
+ *
+ * @param {Record<string, any>} items
+ * @param {Record<string, {name?: Record<string, string>, text?: Record<string, string>}>} authored
+ */
+export function mendItems(items, authored) {
+  for (const [slug, patch] of Object.entries(authored ?? {})) {
+    const item = items?.[slug];
+    if (!item) continue;
+    if (patch.text) item.text = { ...(item.text ?? {}), ...patch.text };
+    if (patch.name) item.name = { ...(item.name ?? {}), ...patch.name };
+  }
 }
 
 /**
@@ -118,7 +149,7 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * doing silently: a missing picture is worse than a missing sparkle.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'} kind
+ * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
  * @returns {{path: string, meta: any}|null}
  */
 export function artOf(pokemon, kind) {
@@ -127,18 +158,20 @@ export function artOf(pokemon, kind) {
   if (!entry) return null;
 
   // An alternate forme is a picture of its own beside the default's, which is
-  // why the forme is part of the path rather than a filter over it. There is
-  // no back or box icon published for the formes, so those fall back to the
-  // default's — a Mimikyu that lost its disguise still walks on the same
-  // feet, and the player's own busted Mimikyu is drawn mirrored as ever.
+  // why the forme is part of the path rather than a filter over it. A back is
+  // published for only some formes (a masked Ogerpon's) and no box icon for
+  // any, so those fall back to the default's — a Mimikyu that lost its
+  // disguise still walks on the same feet, and the player's own busted
+  // Mimikyu is drawn mirrored as ever.
   const forme = pokemon.forme;
-  if (forme && kind === 'front') {
-    const formMeta = entry[`form-${forme}`];
+  if (forme && (kind === 'front' || kind === 'back')) {
+    const key = `${kind === 'back' ? 'back-' : ''}form-${forme}`;
+    const formMeta = entry[key];
     if (formMeta) {
-      const formShiny = pokemon.shiny ? entry.shiny?.[`form-${forme}`] : null;
+      const formShiny = pokemon.shiny ? entry.shiny?.[key] : null;
       const form = formShiny ?? formMeta;
       return {
-        path: `pokemon/${pokemon.speciesId}/front-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
+        path: `pokemon/${pokemon.speciesId}/${kind}-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
         meta: form,
       };
     }
@@ -173,7 +206,7 @@ export const spriteKey = (pokemon) =>
  * CSS background rather than decoding a sprite strip.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'} kind
+ * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
  */
 export const artPath = (pokemon, kind) => artOf(pokemon, kind)?.path ?? null;
 

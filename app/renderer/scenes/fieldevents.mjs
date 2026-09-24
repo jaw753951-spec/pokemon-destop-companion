@@ -8,13 +8,14 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, groundY } from '../render/field.mjs';
+import { signatureFind } from '../engine/items.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, walkerArt } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -47,6 +48,28 @@ export function gatherBob(active) {
   if (!active || !GATHERING.has(active.phase)) return 0;
   const elapsed = active.elapsed ?? 0;
   return Math.round(Math.abs(Math.sin((elapsed / GATHER_BOB_MS) * Math.PI)) * GATHER_BOB_PX);
+}
+
+/**
+ * How much road an event occupies either side of where it plays out, in field
+ * pixels: the companion's own half-width behind the meeting spot, and the
+ * widest prop — the Pokémon Center — in front of it.
+ */
+const EVENT_BEHIND = 24;
+const EVENT_AHEAD = 80;
+
+/**
+ * The stretch of road the next event would play out on, if it started now.
+ *
+ * In the strip's own coordinates before wrapping: a point `x` of it is drawn
+ * at the strip's column `x mod width`, the same way the background is.
+ *
+ * @param {number} offset the field's current world scroll
+ * @returns {[number, number]}
+ */
+export function eventGround(offset) {
+  const spawnAt = offset + (FIELD_WIDTH - COMPANION_X) + SPAWN_MARGIN;
+  return [COMPANION_X + spawnAt - MEET_GAP - EVENT_BEHIND, COMPANION_X + spawnAt + EVENT_AHEAD];
 }
 
 /**
@@ -99,9 +122,26 @@ export function createEventRunner({ session, onBattle }) {
       return Boolean(active?.hidesActor);
     },
 
-    /** How far the companion is bobbing as it gathers, in field pixels. */
+    /** How far the companion is off the ground — bobbing as it gathers, or
+     * stepping through a door — in field pixels. */
     get actorLift() {
-      return gatherBob(active);
+      return gatherBob(active) + doorStepOf(active).lift;
+    },
+
+    /** How much of the companion is showing: less of it as it steps indoors. */
+    get actorAlpha() {
+      return doorStepOf(active).alpha;
+    },
+
+    /**
+     * The furthest the walk may carry the world before the event is met, or
+     * null when nothing is being walked up to. The field holds the scroll
+     * here, so a long frame cannot carry the companion past a door it was
+     * meant to stop in front of.
+     */
+    get stopAt() {
+      if (active?.phase !== 'approach') return null;
+      return active.worldX - (active.meetGap ?? MEET_GAP);
     },
 
     /**
@@ -295,7 +335,8 @@ function startBall(session, spawnAt) {
   const tier = session.rng.weighted(BALL_TIERS.map((entry) => ({ value: entry, weight: entry.chance })))
     ?? BALL_TIERS[0];
   const pool = gameData().itemTiers[tier.ball] ?? [];
-  const item = pool.length ? session.rng.pick(pool) : 'poke-ball';
+  // Now and then, the item the travelling legendary is waiting on.
+  const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 
   const state = {
     kind: 'ball',
@@ -356,21 +397,50 @@ const SUPPLIES = [
  *
  * Which ball follows the companion's level for the same reason the potion
  * does: a Poké Ball is what you throw at what you meet at level ten and a
- * waste of a turn against what you meet at fifty.
+ * waste of a turn against what you meet at fifty. The better balls come in
+ * early, because the stop hands over only one or two — a handful of Poké
+ * Balls a visit made the pickups on the road worthless, and a couple of good
+ * ones is worth more than a pocketful of the ones that bounce off.
  *
  * @type {Array<{level: number, item: string}>} highest level last
  */
-const BALL_SUPPLIES = [
-  { level: 25, item: 'poke-ball' },
-  { level: 50, item: 'great-ball' },
+export const BALL_SUPPLIES = [
+  { level: 15, item: 'poke-ball' },
+  { level: 30, item: 'great-ball' },
   { level: Infinity, item: 'ultra-ball' },
 ];
 
-/** How many of that ball the stop hands over. */
-const BALL_SUPPLY_COUNT = 5;
+/** How many of that ball the stop hands over: one or two, even odds. */
+export const BALL_SUPPLY_COUNT = { min: 1, max: 2 };
+
+/**
+ * The balls one visit hands over, for a companion at this level.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {number} level
+ * @returns {{item: string, count: number}}
+ */
+export function ballSupply(rng, level) {
+  const entry = BALL_SUPPLIES.find((row) => level < row.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
+  return { item: entry.item, count: rng.int(BALL_SUPPLY_COUNT.min, BALL_SUPPLY_COUNT.max) };
+}
 
 /** How long the companion stays inside, out of sight, being seen to. */
 const CENTER_STAY_MS = 5000;
+
+/**
+ * How long stepping through the doorway takes, and how far up the screen —
+ * into the building, since its door faces the viewer — the step goes.
+ */
+const DOOR_STEP_MS = 300;
+const DOOR_STEP_PX = 5;
+
+/**
+ * How long the door holds open behind a companion walking away from it, and
+ * then each frame of it closing.
+ */
+const DOOR_HOLD_MS = 150;
+const DOOR_CLOSE_FRAME_MS = 90;
 
 /**
  * How long the Center stays on screen after the visit, while the walk carries
@@ -387,23 +457,59 @@ const CENTER_PASS_MS = 6500;
  * Frame 0 is the door the building itself draws — shut. The three frames after
  * it are the games' own door animation, played forwards to open and backwards
  * to close, which is exactly how the cartridge does it.
+ *
+ * The companion goes in and comes out by stepping through the doorway (`step`)
+ * rather than vanishing from in front of it and reappearing there. It used to
+ * stand at the door while it opened, blink out, and on the way back blink in
+ * and stand there again while the door shut — a second and more of a Pokémon
+ * at the side of a door, which read as it doing something *with* the door
+ * rather than going through it. Now the door shuts behind it as it walks on.
  */
 export const CENTER_STEPS = [
   { frame: 1, ms: 90 },
   { frame: 2, ms: 90 },
-  { frame: 3, ms: 240 },
+  { frame: 3, ms: 120 },
+  { frame: 3, ms: DOOR_STEP_MS, step: 'in' },
   { frame: 3, ms: 140, inside: true },
   { frame: 2, ms: 90, inside: true },
   { frame: 1, ms: 90, inside: true },
   { frame: 0, ms: CENTER_STAY_MS, inside: true, heal: true },
   { frame: 1, ms: 90, inside: true },
   { frame: 2, ms: 90, inside: true },
-  { frame: 3, ms: 240, inside: true },
-  { frame: 3, ms: 200 },
-  { frame: 2, ms: 90 },
-  { frame: 1, ms: 90 },
-  { frame: 0, ms: 300 },
+  { frame: 3, ms: 120, inside: true },
+  { frame: 3, ms: DOOR_STEP_MS, step: 'out' },
 ];
+
+/**
+ * Where the companion is in a step through the doorway.
+ *
+ * Going in, it rises into the doorway and fades into the dark behind it;
+ * coming out is the same played backwards. Any other beat leaves it on the
+ * ground and whole.
+ *
+ * @param {{step?: string, ms: number, frame?: number}|null|undefined} beat a
+ *   beat of `CENTER_STEPS`; `step` is `'in'` or `'out'` on the two that have one
+ * @param {number} remainingMs how much of the beat is left
+ * @returns {{lift: number, alpha: number}}
+ */
+export function doorStep(beat, remainingMs) {
+  if (!beat?.step) return { lift: 0, alpha: 1 };
+  const done = Math.min(1, Math.max(0, 1 - remainingMs / beat.ms));
+  const indoors = beat.step === 'in' ? done : 1 - done;
+  return { lift: Math.round(indoors * DOOR_STEP_PX), alpha: 1 - indoors };
+}
+
+/** @param {any} active */
+const doorStepOf = (active) => doorStep(active?.phase === 'visit' ? active.beat : null, active?.timer ?? 0);
+
+/**
+ * Which door frame shows behind a companion walking away from the Center.
+ * @param {number} sinceMs how long ago it stepped out
+ */
+export function closingDoorFrame(sinceMs) {
+  if (sinceMs < DOOR_HOLD_MS) return 3;
+  return Math.max(0, 2 - Math.floor((sinceMs - DOOR_HOLD_MS) / DOOR_CLOSE_FRAME_MS));
+}
 
 /**
  * The next beat of a Center visit: a door frame, the walk past afterwards, or
@@ -444,11 +550,13 @@ function startHeal(session, spawnAt) {
     phase: 'approach',
     timer: 0,
     flash: 0,
-    // Right up to the doorstep, rather than the tile short of it that a berry
-    // tree or a trainer is met at.
-    meetGap: 4,
+    // Square in front of the door, rather than the tile short of it that a
+    // berry tree or a trainer is met at: it is about to walk through it.
+    meetGap: 0,
     hidesActor: false,
-    prop: { kind: 'center', sprite: null, door: null, frame: 0 },
+    /** The beat of the visit playing now, for the step through the door. */
+    beat: null,
+    prop: { kind: 'center', sprite: null, door: null, frame: 0, closingFrom: null },
     carried: null,
 
     onArrive: () => 'visit',
@@ -459,6 +567,7 @@ function startHeal(session, spawnAt) {
       const next = centerBeat(step, state.phase === 'passing');
       if (!next) return null;
 
+      state.beat = next.beat ?? null;
       if (next.beat) {
         state.prop.frame = next.beat.frame;
         state.hidesActor = Boolean(next.beat.inside);
@@ -467,7 +576,9 @@ function startHeal(session, spawnAt) {
         // The visit is over, but the building is not: the companion walks on
         // past the Center and the map carries it off the left edge like any
         // other roadside scenery, instead of the place vanishing on the spot.
+        // The door it came out of shuts behind it as it goes.
         state.hidesActor = false;
+        state.prop.closingFrom = state.elapsed ?? 0;
       }
       state.phase = next.phase;
       return { phase: next.phase, duration: next.duration };
@@ -492,8 +603,8 @@ function restAndResupply(session, app) {
   const supply = SUPPLIES.find((entry) => level < entry.level) ?? SUPPLIES[SUPPLIES.length - 1];
   session.addItem(supply.item, SUPPLY_COUNT);
 
-  const balls = BALL_SUPPLIES.find((entry) => level < entry.level) ?? BALL_SUPPLIES[BALL_SUPPLIES.length - 1];
-  session.addItem(balls.item, BALL_SUPPLY_COUNT);
+  const balls = ballSupply(session.rng, level);
+  session.addItem(balls.item, balls.count);
 
   app.audio.playJingle(gameData().bgm.cues.heal ?? null);
   app.toast(
@@ -505,7 +616,7 @@ function restAndResupply(session, app) {
       }),
       t('event.supplied', {
         name: localized(itemOf(balls.item)?.name, balls.item),
-        count: BALL_SUPPLY_COUNT,
+        count: balls.count,
       }),
     ].join('\n'),
     3600,
@@ -535,9 +646,10 @@ function startWild(session, spawnAt) {
     },
   };
 
-  const art = artOf(wild, 'icon');
+  // Standing its ground in the road, in the same art the companion walks in.
+  const art = walkerArt(wild, 'idle');
   if (art) {
-    loadSprite(art.path, { ...art.meta, frames: 1, delay: 1000 }).then((sprite) => {
+    loadSprite(art.path, art.meta).then((sprite) => {
       state.prop.sprite = sprite;
     });
   }
@@ -666,18 +778,34 @@ function drawProp(context, state, screenX) {
     return;
   }
   if (prop.kind === 'center') {
-    drawCenter(context, prop, screenX);
+    const frame = prop.closingFrom === null ? prop.frame : closingDoorFrame((state.elapsed ?? 0) - prop.closingFrom);
+    drawCenter(context, { ...prop, frame }, screenX);
     return;
   }
 
-  // A Pokémon or trainer waiting on the path, at the size the companion walks
-  // at so the two meet as equals rather than as a giant and a doll. A wild
-  // Pokémon is sized off the dex like the companion is, so the Sableye in the
-  // road is the same Sableye that would be walking it.
   const sprite = /** @type {Sprite} */ (prop.sprite);
+
+  // A wild Pokémon is drawn exactly as the companion is — the same art, the
+  // same scale, the same shadow — turned to face it, so the Sableye in the
+  // road is the same Sableye that would be walking it. It stands by the clock
+  // rather than the event's, which only starts once the two have met.
+  if (prop.kind === 'pokemon') {
+    drawWalker(context, sprite, {
+      x: screenX,
+      y: groundY(),
+      distance: 0,
+      moving: false,
+      facing: 'left',
+      scale: actorScale(sprite, prop.pokemon),
+      time: performance.now(),
+    });
+    return;
+  }
+
+  // A trainer waiting on the path, at the size the props are drawn at.
   sprite.draw(context, screenX, groundY(), {
     frame: sprite.frameAt(state.elapsed ?? 0),
-    scale: prop.kind === 'pokemon' ? actorScale(sprite, prop.pokemon) : ACTOR_SCALE,
+    scale: ACTOR_SCALE,
   });
 }
 
@@ -694,6 +822,11 @@ function drawProp(context, state, screenX) {
  * back to a bare stalk the moment it was picked: the tree the companion had
  * just walked up to vanished and left a twig. Naming the stages instead means
  * a picked tree keeps its shape and loses only what was picked off it.
+ *
+ * `bare` is only the fallback, though: the flowers on that stage are a few
+ * loose pixels that read as the sprite breaking up once the fruit is gone, so
+ * the build names the grown tree instead (`picked`) wherever that stage is a
+ * tree rather than a stalk.
  */
 const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
 
@@ -713,7 +846,8 @@ function drawBerryTree(context, prop, screenX, elapsed = 0) {
   // The build says which frames it found the fruit on; the table above is the
   // answer for a manifest written before it did.
   const ripe = Array.isArray(meta?.fruit) && meta.fruit.length ? meta.fruit : BERRY_STAGES.ripe;
-  const stage = prop.frame === 'ripe' ? ripe : BERRY_STAGES.bare;
+  const picked = Array.isArray(meta?.picked) && meta.picked.length ? meta.picked : BERRY_STAGES.bare;
+  const stage = prop.frame === 'ripe' ? ripe : picked;
 
   const wanted = stage[Math.floor(elapsed / BERRY_SWAY_MS) % stage.length];
   // A sheet the build cut differently — fewer frames than Emerald's six —

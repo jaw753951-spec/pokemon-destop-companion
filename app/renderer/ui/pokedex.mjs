@@ -26,9 +26,12 @@ export function pokedexScene({ session, onClose }) {
       const detail = el('div.dex-detail');
       const grid = scrollable(el('div.dex-grid'));
 
+      // A regional Pokémon sits right after the one it is a variety of, and
+      // shares its number.
+      const dexOf = (id) => speciesOf(id)?.dex ?? id;
       const ids = Object.keys(gameData().species)
         .map(Number)
-        .sort((a, b) => a - b);
+        .sort((a, b) => dexOf(a) - dexOf(b) || a - b);
 
       setChildren(grid, [
         ...ids.map((id) => entryButton(app, session, id, detail)),
@@ -72,7 +75,7 @@ function entryButton(app, session, id, detail) {
     },
   }, [
     el('img', { src: url('assets', `pokemon/${id}/icon.png`), alt: '' }),
-    el('span.dex-number', { text: String(id).padStart(4, '0') }),
+    el('span.dex-number', { text: String(species?.dex ?? id).padStart(4, '0') }),
     session.champions.has(id) ? el('span.dex-champion', { text: '★' }) : null,
   ]);
 }
@@ -94,7 +97,7 @@ function showDetail(session, detail, id) {
 
   if (!seen) {
     setChildren(detail, [
-      el('span.dex-detail-number', { text: `No.${String(id).padStart(4, '0')}` }),
+      el('span.dex-detail-number', { text: `No.${String(species?.dex ?? id).padStart(4, '0')}` }),
       el('span.dex-detail-name', { text: t('dex.unknown') }),
       el('span.meta', { text: t('dex.notSeen') }),
     ]);
@@ -103,7 +106,7 @@ function showDetail(session, detail, id) {
 
   setChildren(detail, [
     el('img.dex-detail-sprite', { src: url('assets', `pokemon/${id}/icon.png`), alt: '' }),
-    el('span.dex-detail-number', { text: `No.${String(id).padStart(4, '0')}` }),
+    el('span.dex-detail-number', { text: `No.${String(species?.dex ?? id).padStart(4, '0')}` }),
     el('span.dex-detail-name', { text: localized(species?.name, '') }),
     session.champions.has(id) ? el('span.dex-champion-mark', { text: t('dex.championBadge') }) : null,
 

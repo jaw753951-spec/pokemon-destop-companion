@@ -41,7 +41,9 @@ export function forgetImage(path) {
 export class Sprite {
   /**
    * @param {HTMLImageElement} image
-   * @param {{width: number, height: number, frames: number, delay: number}} meta
+   * @param {{width: number, height: number, frames: number, delay: number, durations?: number[], facing?: 'left'|'right'}} meta
+   *   `durations` times each frame on its own, for a strip that does not hold
+   *   them all equally; `facing` is which way the art looks
    */
   constructor(image, meta) {
     this.image = image;
@@ -49,11 +51,18 @@ export class Sprite {
     this.height = meta.height;
     this.frames = Math.max(1, meta.frames);
     this.delay = Math.max(16, meta.delay || 120);
+    /** @type {number[]|null} */
+    this.durations =
+      Array.isArray(meta.durations) && meta.durations.length === this.frames
+        ? meta.durations.map((value) => Math.max(16, value))
+        : null;
+    /** @type {'left'|'right'} */
+    this.facing = meta.facing ?? 'left';
   }
 
   /** Total loop length in milliseconds. */
   get duration() {
-    return this.frames * this.delay;
+    return this.durations ? this.durations.reduce((sum, value) => sum + value, 0) : this.frames * this.delay;
   }
 
   /**
@@ -61,7 +70,13 @@ export class Sprite {
    * @returns {number} the frame index to show
    */
   frameAt(elapsedMs) {
-    return Math.floor(elapsedMs / this.delay) % this.frames;
+    if (!this.durations) return Math.floor(elapsedMs / this.delay) % this.frames;
+    let into = ((elapsedMs % this.duration) + this.duration) % this.duration;
+    for (let index = 0; index < this.frames; index++) {
+      into -= this.durations[index];
+      if (into < 0) return index;
+    }
+    return this.frames - 1;
   }
 
   /**
@@ -95,7 +110,7 @@ export class Sprite {
 
 /**
  * @param {string} path
- * @param {{width: number, height: number, frames: number, delay: number}} meta
+ * @param {{width: number, height: number, frames: number, delay: number, durations?: number[], facing?: 'left'|'right'}} meta
  * @returns {Promise<Sprite>}
  */
 export async function loadSprite(path, meta) {

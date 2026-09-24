@@ -7,14 +7,20 @@
  * size, which puts about fifteen tiles across the window — the framing a Game
  * Boy Advance actually had, instead of twice as much map at half the size. The
  * map fills that frame, because a letterboxed strip reads as scenery instead
- * of a place. The companion is drawn from its box icon, the only official art
- * already in proportion to a 16px tile. And the walk cycle is driven by
+ * of a place. The companion walks in the PMD Sprite Collab's art, drawn at one
+ * density for the whole dex and at one scale here. And the walk cycle is driven by
  * distance travelled rather than by the clock, so the sprite is tied to the
  * ground the way a stepped tile-grid sprite is — speed up the walk and the
  * legs go faster, stop and they stop mid-stride.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
-import { speciesOf } from '../core/data.mjs';
+import {
+  FIELD_HEIGHT,
+  FIELD_WIDTH,
+  FIELD_ZOOM,
+  HOLD_BOOST_GLIDE_MS,
+  HOLD_BOOST_RAMP_MS,
+} from '../../shared/constants.mjs';
+import { artOf } from '../core/data.mjs';
 
 /**
  * Where the companion's feet sit.
@@ -56,87 +62,93 @@ export function setGroundY(value) {
 export const ACTOR_SCALE = 1.5;
 
 /**
- * How tall a Pokémon of average size stands on the field, in field pixels.
+ * How much larger than its own art a Pokémon is drawn on the field: not at
+ * all, for every one of them.
  *
- * The box icons are not drawn to a common scale. They are drawn to fill a grid
- * cell, so a Sableye — half a metre of Pokémon — arrives 30 pixels tall while
- * a Caterpie arrives at 16, and at a flat multiplier the Sableye towered over
- * the road at nearly half the window's height. Sizing off the art meant the
- * roster had no scale at all: what you saw was how much of a cell the artist
- * filled, which is not a fact about the Pokémon.
- *
- * So the drawing is normalised away and the **Pokédex** decides instead: every
- * species is drawn to a height computed from its own listed height, which is
- * the one measurement that means the same thing for all 1,025 of them.
+ * The field used to draw each species from its box icon at a scale worked out
+ * from its Pokédex height, so no two Pokémon were made of the same size of
+ * pixel and hardly any of them of whole ones. They walk in the PMD Sprite
+ * Collab's art now, which is drawn to one density and already sized to the
+ * Pokémon, so there is nothing left to correct for: one scale for the whole
+ * dex, and the field's own zoom makes each art pixel two screen pixels.
  */
-export const ACTOR_HEIGHT = 26;
+export const POKEMON_SCALE = 1;
 
 /**
- * How strongly the dex's height moves a species off that figure.
- *
- * A straight ratio is useless here — Wailord is fifty times Caterpie's height
- * and cannot be drawn fifty times as tall — so the ratio is taken to a
- * fractional power, which is the usual way to put a range this wide on a
- * screen. At 0.4 a Wailord ends up about four times a Caterpie: plainly the
- * bigger animal, still something the window can hold.
- */
-const ACTOR_HEIGHT_EXPONENT = 0.4;
-
-/** The band every Pokémon's drawn height is kept inside, in field pixels. */
-const ACTOR_HEIGHT_RANGE = { min: 18, max: 44 };
-
-/**
- * And the band its scale is kept inside, whatever the sum says.
- *
- * Blowing a 14-pixel icon up past double turns it to mush, and shrinking a
- * large one below six-tenths loses the details that make it recognisable, so
- * the art gets a say after the dex has had its one.
- */
-const ACTOR_SCALE_RANGE = { min: 0.6, max: 2 };
-
-/** The height the dex lists for a species, in metres. */
-function speciesHeightM(pokemon) {
-  // PokeAPI files height in decimetres; a species the dex has no figure for is
-  // treated as a metre, which is close to the median.
-  const decimetres = pokemon ? speciesOf(pokemon.speciesId)?.height : null;
-  return decimetres > 0 ? decimetres / 10 : 1;
-}
-
-/**
- * What to draw a Pokémon's field art at so the whole roster shares one scale.
+ * What to draw a Pokémon's field art at: {@link POKEMON_SCALE}, whoever it is.
+ * Anything without art of its own is drawn at the scale the props use.
  *
  * @param {{width: number, height: number}|null|undefined} sprite
- * @param {{speciesId: number}|null|undefined} pokemon
+ * @param {{speciesId: number}|null|undefined} [pokemon]
  * @returns {number}
  */
 export function actorScale(sprite, pokemon) {
-  if (!sprite?.height) return ACTOR_SCALE;
-
-  const wanted = clamp(
-    ACTOR_HEIGHT * speciesHeightM(pokemon) ** ACTOR_HEIGHT_EXPONENT,
-    ACTOR_HEIGHT_RANGE.min,
-    ACTOR_HEIGHT_RANGE.max,
-  );
-  return clamp(wanted / sprite.height, ACTOR_SCALE_RANGE.min, ACTOR_SCALE_RANGE.max);
+  void pokemon;
+  return sprite?.height ? POKEMON_SCALE : ACTOR_SCALE;
 }
+
+/** How tall a Pokémon without art is taken to be, for what is drawn over it. */
+export const ACTOR_HEIGHT = 24;
 
 /**
  * How tall that Pokémon actually comes out, which is what anything drawn over
  * its head — a carried berry, say — has to clear.
  *
  * @param {{width: number, height: number}|null|undefined} sprite
- * @param {{speciesId: number}|null|undefined} pokemon
+ * @param {{speciesId: number}|null|undefined} [pokemon]
  */
 export function actorHeight(sprite, pokemon) {
   if (!sprite?.height) return ACTOR_HEIGHT;
   return Math.round(sprite.height * actorScale(sprite, pokemon));
 }
 
-/** @param {number} value @param {number} low @param {number} high */
-const clamp = (value, low, high) => Math.min(high, Math.max(low, value));
+/**
+ * The art a Pokémon walks or stands in, and which way that art faces.
+ *
+ * The Sprite Collab's strips face right, down the road; a species the collab
+ * has not drawn falls back on its box icon, which faces left and is a single
+ * still picture. Standing art falls back on walking art for a species drawn
+ * walking but never standing.
+ *
+ * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * @param {'walk'|'idle'} [pose]
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, durations?: number[], facing: 'left'|'right'}}|null}
+ */
+export function walkerArt(pokemon, pose = 'walk') {
+  const art = artOf(pokemon, pose) ?? (pose === 'idle' ? artOf(pokemon, 'walk') : null);
+  if (art) return { path: art.path, meta: { ...art.meta, facing: 'right' } };
+  const icon = artOf(pokemon, 'icon');
+  if (!icon) return null;
+  return { path: icon.path, meta: { ...icon.meta, frames: 1, delay: 1000, facing: 'left' } };
+}
 
 /** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
+
+/**
+ * How far the hurry has come on after another frame, from 0 (the ordinary
+ * pace) to 1 (all of it): up while the pointer is held, gliding down after.
+ *
+ * @param {number} level where it was
+ * @param {boolean} held whether the pointer is down
+ * @param {number} deltaMs
+ */
+export function nextBoost(level, held, deltaMs) {
+  if (held) return Math.min(1, level + deltaMs / HOLD_BOOST_RAMP_MS);
+  return Math.max(0, level - deltaMs / HOLD_BOOST_GLIDE_MS);
+}
+
+/**
+ * The multiple of the ordinary pace a hurry this far on comes to, eased at
+ * both ends so the change of speed has no corner in it.
+ *
+ * @param {number} level from {@link nextBoost}
+ * @param {number} full the multiple at full hurry
+ */
+export function boostPace(level, full) {
+  const t = Math.min(1, Math.max(0, level));
+  return 1 + (full - 1) * t * t * (3 - 2 * t);
+}
 
 /** The companion holds this column while the world slides past it. */
 export const COMPANION_X = Math.round(FIELD_WIDTH * 0.32);
@@ -210,6 +222,58 @@ export function drawBackground(context, background, offset) {
 }
 
 /**
+ * Draw what the map puts over the people on it — a bridge overhead — tiled
+ * exactly as the background under it is.
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {HTMLImageElement|null} overlay
+ * @param {number} offset
+ */
+export function drawOverlay(context, overlay, offset) {
+  if (!overlay) return;
+  const width = overlay.naturalWidth;
+  const height = overlay.naturalHeight;
+  const top = FIELD_HEIGHT - height;
+  let start = -(((offset % width) + width) % width);
+  while (start < FIELD_WIDTH) {
+    context.drawImage(overlay, Math.round(start), top, width, height);
+    start += width;
+  }
+}
+
+/**
+ * How far either side of a bridge an event is kept away, in field pixels.
+ *
+ * A trainer half under the deck, or a Pokémon Center with a bridge through
+ * its roof, is not a picture the map was ever meant to show.
+ */
+export const OVERPASS_MARGIN = 40;
+
+/**
+ * Whether a stretch of road runs under, or too close to, something the map
+ * draws over the lane.
+ *
+ * @param {{width: number, covered?: Array<[number, number]>}|null|undefined} area
+ * @param {[number, number]} ground strip coordinates before wrapping, as
+ *   `eventGround` gives them
+ * @param {number} [margin]
+ */
+export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
+  const spans = area?.covered;
+  if (!spans?.length || !area.width) return false;
+  const width = area.width;
+  // Each span stands once per repeat of the strip; the stretch is compared
+  // with the copies either side of it as well as its own.
+  const base = Math.floor(from / width) * width;
+  for (const shift of [base - width, base, base + width]) {
+    for (const [start, end] of spans) {
+      if (from < shift + end + margin && to > shift + start - margin) return true;
+    }
+  }
+  return false;
+}
+
+/**
  * A soft ellipse under a sprite, which grounds it against the background.
  * @param {CanvasRenderingContext2D} context
  * @param {number} x
@@ -218,7 +282,9 @@ export function drawBackground(context, background, offset) {
  */
 export function drawShadow(context, x, y, width) {
   context.save();
-  context.globalAlpha = 0.25;
+  // Relative to whatever the sprite is drawn at, so a companion fading into
+  // a doorway takes its shadow with it.
+  context.globalAlpha *= 0.25;
   context.fillStyle = '#000';
   context.beginPath();
   context.ellipse(x, y, Math.max(5, width * 0.4), Math.max(2, width * 0.15), 0, 0, Math.PI * 2);
@@ -238,14 +304,32 @@ export function walkFrame(distance) {
 }
 
 /**
- * Draw the companion as an overworld sprite, facing the way it is going.
+ * Which frame of its walk a Pokémon is on after travelling this far.
  *
- * Box icons are drawn three-quarters on, turned towards the viewer's left, so
- * mirroring them turns the Pokémon down the road it is walking and puts its
- * tail behind it. The lean is a shear rather than a whole-sprite shift: the
- * feet stay planted on the ground row and the displacement grows towards the
- * head, so the body rocks over its own footing. Standing still resets to the
- * neutral beat, which is what the games do when you let go of the d-pad.
+ * Driven by distance like the four-beat walk above, so the feet keep pace
+ * with the road — a hurried companion steps faster, one stopped in front of a
+ * berry tree does not step at all — and timed by the strip's own frame
+ * lengths, taken at the ordinary walking pace.
+ *
+ * @param {import('../core/assets.mjs').Sprite} sprite
+ * @param {number} distance field pixels covered
+ */
+export function strideFrame(sprite, distance) {
+  return sprite.frameAt(Math.max(0, (distance / WALK_SPEED) * 1000));
+}
+
+/**
+ * Draw a Pokémon as an overworld sprite, facing the way it is going.
+ *
+ * Art with frames of its own animates: its walk while it moves, by distance,
+ * and whatever strip it was handed — its standing one, for a stopped
+ * companion — by the clock while it does not. A single still drawing, the box
+ * icon a species without walking art falls back on, is made to walk instead:
+ * the lean is a shear rather than a whole-sprite shift, so the feet stay
+ * planted on the ground row and the displacement grows towards the head, and
+ * the body rocks over its own footing.
+ *
+ * Art facing the other way is mirrored about its own centre column.
  *
  * @param {CanvasRenderingContext2D} context
  * @param {import('../core/assets.mjs').Sprite} sprite
@@ -254,18 +338,24 @@ export function walkFrame(distance) {
  *   y: number,
  *   distance: number,
  *   moving: boolean,
- *   flip?: boolean,
+ *   facing?: 'left'|'right',
  *   scale?: number,
  *   lift?: number,
+ *   time?: number,
  * }} options `lift` raises the sprite off the ground without its shadow, for
- *   a companion busy with something where it stands
+ *   a companion busy with something where it stands; `time` is the clock a
+ *   standing strip plays by
  */
 export function drawWalker(
   context,
   sprite,
-  { x, y, distance, moving, flip = true, scale = ACTOR_SCALE, lift: raised = 0 },
+  { x, y, distance, moving, facing = 'right', scale = POKEMON_SCALE, lift: raised = 0, time = 0 },
 ) {
-  const { lift, lean } = moving ? walkFrame(distance) : WALK_CYCLE[0];
+  const animated = sprite.frames > 1;
+  const frame = !animated ? 0 : moving ? strideFrame(sprite, distance) : sprite.frameAt(time);
+  const { lift, lean } = moving && !animated ? walkFrame(distance) : WALK_CYCLE[0];
+  const flip = (sprite.facing ?? 'left') !== facing;
+  const sx = frame * sprite.width;
 
   // Whole pixels in the field's own space: a sprite whose scale leaves it half
   // a pixel wide lands on a half pixel at one edge and a whole one at the
@@ -289,7 +379,7 @@ export function drawWalker(
   }
 
   if (lean === 0) {
-    context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, width, height);
+    context.drawImage(sprite.image, sx, 0, sprite.width, sprite.height, left, top, width, height);
   } else {
     // One draw per row is a few dozen tiny blits for a sprite this size, which
     // is cheaper than the offscreen canvas an equivalent transform would need.
@@ -307,7 +397,7 @@ export function drawWalker(
       const rowBottom = top + Math.round((row + 1) * scale);
       context.drawImage(
         sprite.image,
-        0,
+        sx,
         row,
         sprite.width,
         1,
@@ -336,7 +426,7 @@ export function drawStepDust(context, { x, y, distance, moving }) {
 
   const fade = 1 - progress / 0.55;
   context.save();
-  context.globalAlpha = 0.28 * fade;
+  context.globalAlpha *= 0.28 * fade;
   context.fillStyle = '#e8e2cf';
   const spread = 3 + (1 - fade) * 4;
   context.fillRect(Math.round(x - 9 - spread), Math.round(y - 1), 2, 1);

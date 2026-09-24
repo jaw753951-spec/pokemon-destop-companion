@@ -15,6 +15,7 @@ import { name as localized, t } from '../core/i18n.mjs';
 import { Rng } from '../core/rng.mjs';
 import { createPokemon } from '../engine/pokemon.mjs';
 import { confirm } from '../ui/dialog.mjs';
+import { walkerPortrait } from '../ui/portrait.mjs';
 import { startRun } from './field.mjs';
 
 /** The level a starter begins at, as in the main series. */
@@ -66,7 +67,7 @@ function ballButton(app, speciesId, slot, caption, stage) {
 
   let cried = false;
   const reveal = () => {
-    stage.replaceChildren(portrait(speciesId));
+    stage.replaceChildren(portrait(speciesId, label));
     caption.textContent = label;
     // The cry belongs to opening the ball, not to the pointer passing over it.
     if (!cried) app.audio.playCry(speciesId);
@@ -91,7 +92,25 @@ function ballButton(app, speciesId, slot, caption, stage) {
 }
 
 /**
- * The battle sprite, at twice size and held on its first frame.
+ * The Pokémon as it will walk the road with you, drawn large.
+ *
+ * The same art, facing and proportions as the field, so the Pokémon picked
+ * here is recognisably the one that sets off from the next screen.
+ *
+ * @param {number} speciesId
+ * @param {string} label
+ */
+function portrait(speciesId, label) {
+  return walkerPortrait({ speciesId }, { zoom: STARTER_ZOOM, maxHeight: STARTER_MAX_HEIGHT, label }) ?? battlePortrait(speciesId);
+}
+
+/** Screen pixels per field pixel on the starter table, and the most it may stand. */
+const STARTER_ZOOM = 4;
+const STARTER_MAX_HEIGHT = 120;
+
+/**
+ * The battle sprite, at twice size and held on its first frame — for a species
+ * the field has no art for.
  *
  * The strip is one wide image of every animation frame, so it is shown as a
  * background sized to the whole strip and parked at its start — an `img` would
@@ -99,7 +118,7 @@ function ballButton(app, speciesId, slot, caption, stage) {
  *
  * @param {number} speciesId
  */
-function portrait(speciesId) {
+function battlePortrait(speciesId) {
   const meta = gameData().sprites[speciesId]?.front;
   if (!meta) return el('div.starter-sprite');
 

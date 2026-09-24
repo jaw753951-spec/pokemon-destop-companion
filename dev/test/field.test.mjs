@@ -1,8 +1,10 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { drawWalker, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
-import { CENTER_STEPS, centerBeat, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import { boostPace, drawWalker, nearOverpass, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
+import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the
@@ -46,6 +48,39 @@ test('a negative distance still resolves to a real beat', () => {
   assert.ok(walkFrame(-1));
 });
 
+// ------------------------------------------------------- hurrying the road
+
+test('the hurry comes on quickly and glides off after the pointer is let go', () => {
+  // Pressed, it is at full pace within a few frames rather than on the first.
+  let level = nextBoost(0, true, 16);
+  assert.ok(level > 0 && level < 1, 'the first frame of a press is not yet a run');
+  for (let frame = 0; frame < 20; frame++) level = nextBoost(level, true, 16);
+  assert.equal(level, 1);
+  assert.equal(boostPace(level, HOLD_BOOST_WALK), HOLD_BOOST_WALK);
+
+  // Let go, the pace falls away over the glide instead of on the next frame…
+  const paces = [];
+  for (let ms = 0; ms < HOLD_BOOST_GLIDE_MS; ms += 16) {
+    level = nextBoost(level, false, 16);
+    paces.push(boostPace(level, HOLD_BOOST_WALK));
+  }
+  assert.ok(paces[0] > 2, `the frame after letting go still runs at ${paces[0]}`);
+  for (let index = 1; index < paces.length; index++) assert.ok(paces[index] <= paces[index - 1]);
+
+  // …and is back to a walk once it has, with nothing banked.
+  level = nextBoost(level, false, 16);
+  assert.equal(level, 0);
+  assert.equal(boostPace(level, HOLD_BOOST_WALK), 1);
+});
+
+test('the glide has no corner at either end', () => {
+  // Eased, so the step between one frame's pace and the next is smallest at
+  // the ends: it leaves the run and arrives at the walk gently.
+  const step = (level) => boostPace(level, HOLD_BOOST_WALK) - boostPace(level - 0.02, HOLD_BOOST_WALK);
+  assert.ok(step(1) < step(0.5));
+  assert.ok(step(0.02) < step(0.5));
+});
+
 // ------------------------------------------------- the rest stop's own script
 
 test('the Center visit plays its door script, walks past, and then ends', () => {
@@ -76,6 +111,47 @@ test('the companion is healed exactly once per visit', () => {
   assert.equal(heals.length, 1);
   // Behind the closed door, which is the point of going in.
   assert.equal(heals[0].inside, true);
+});
+
+test('the companion walks through the door rather than standing beside it', () => {
+  // In through the open door, and out of it again: the beat before the visit
+  // goes indoors is a step in, and the last beat of all is a step out.
+  const firstInside = CENTER_STEPS.findIndex((beat) => beat.inside);
+  assert.equal(CENTER_STEPS[firstInside - 1].step, 'in');
+  assert.equal(CENTER_STEPS[firstInside - 1].frame, 3, 'it steps in through an open door');
+  const last = CENTER_STEPS[CENTER_STEPS.length - 1];
+  assert.equal(last.step, 'out');
+  assert.equal(last.frame, 3, 'it steps out through an open door');
+  assert.ok(!last.inside);
+
+  // Nothing after it has the companion standing at the door while it shuts:
+  // the walk-past starts the moment it is out.
+  const stood = CENTER_STEPS.filter((beat) => !beat.inside && !beat.step).reduce((sum, beat) => sum + beat.ms, 0);
+  assert.ok(stood <= 400, `the companion waits ${stood}ms at the door`);
+});
+
+test('a step through the door fades the companion in or out', () => {
+  const into = { step: 'in', ms: 300 };
+  assert.deepEqual(doorStep(into, 300), { lift: 0, alpha: 1 });
+  assert.equal(doorStep(into, 0).alpha, 0);
+  assert.ok(doorStep(into, 0).lift > 0, 'it steps up into the doorway');
+
+  const out = { step: 'out', ms: 300 };
+  assert.equal(doorStep(out, 300).alpha, 0);
+  assert.deepEqual(doorStep(out, 0), { lift: 0, alpha: 1 });
+
+  // Any other beat leaves it whole and on the ground.
+  assert.deepEqual(doorStep({ frame: 3, ms: 90 }, 40), { lift: 0, alpha: 1 });
+  assert.deepEqual(doorStep(null, 0), { lift: 0, alpha: 1 });
+});
+
+test('the door shuts behind the companion as it walks away', () => {
+  assert.equal(closingDoorFrame(0), 3);
+  const frames = [];
+  for (let ms = 0; ms <= 1000; ms += 30) frames.push(closingDoorFrame(ms));
+  // Open, then closing one frame at a time, and shut for good.
+  assert.deepEqual([...new Set(frames)], [3, 2, 1, 0]);
+  assert.equal(frames[frames.length - 1], 0);
 });
 
 // ------------------------------------------------------ gathering on the spot
@@ -187,4 +263,31 @@ test('a scene that closes itself mid-frame does not take the loop with it', asyn
   });
   assert.equal(below, 1);
   assert.equal(app.stack.length, 1);
+});
+
+// ------------------------------------------------------ the rest stop's balls
+
+test('a rest stop hands over one or two balls, and the better ones early', () => {
+  const rng = new Rng(7);
+  const counts = new Set();
+  for (let roll = 0; roll < 200; roll++) counts.add(ballSupply(rng, 10).count);
+  assert.deepEqual([...counts].sort(), [1, 2]);
+
+  assert.equal(ballSupply(rng, 5).item, 'poke-ball');
+  assert.equal(ballSupply(rng, 15).item, 'great-ball');
+  assert.equal(ballSupply(rng, 30).item, 'ultra-ball');
+  assert.equal(ballSupply(rng, 100).item, 'ultra-ball');
+});
+
+test('an event is kept off the road under a bridge, and a little way either side', () => {
+  const area = { width: 1000, covered: /** @type {Array<[number, number]>} */ ([[240, 320]]) };
+  assert.equal(nearOverpass(area, [100, 180]), false, 'well clear of it');
+  assert.equal(nearOverpass(area, [180, 260]), true, 'reaching under it');
+  assert.equal(nearOverpass(area, [330, 400]), true, 'just past it, within the margin');
+  assert.equal(nearOverpass(area, [400, 480]), false);
+  // The strip repeats, and so does the bridge in it.
+  assert.equal(nearOverpass(area, [2250, 2300]), true);
+  assert.equal(nearOverpass(area, [2100, 2180]), false);
+  // An area with nothing overhead never holds one back.
+  assert.equal(nearOverpass({ width: 1000 }, [240, 320]), false);
 });

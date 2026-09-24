@@ -4,13 +4,15 @@ import assert from 'node:assert/strict';
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
-import { berryToHold, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
-import { createPokemon, maxHp } from '../../app/renderer/engine/pokemon.mjs';
+import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
+import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
 import { assignRarityTiers } from '../tools/build/items.mjs';
 import { BALL_TIERS } from '../tools/sources.mjs';
+import { RETIRED_MOVES } from '../tools/build/dex.mjs';
 
 /** @param {Partial<any>} overrides */
 function item(overrides = {}) {
@@ -106,7 +108,8 @@ test('an item the engine reads states what it does', withData, () => {
 
   // An evolution can name an item to hold as well as one to use, and a King's
   // Rock is filed under held items rather than under evolution.
-  const evolutionItems = new Set();
+  // The Linking Cord is what a trade evolution is given in its place.
+  const evolutionItems = new Set([TRADE_ITEM]);
   for (const entry of Object.values(gameData().species)) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
@@ -173,6 +176,10 @@ function fakeSession(bag) {
   return /** @type {any} */ ({
     bag,
     countOf: (slug) => bag[slug] ?? 0,
+    removeItem: (slug) => {
+      bag[slug] -= 1;
+      if (bag[slug] <= 0) delete bag[slug];
+    },
     pocket: (pocket) =>
       Object.entries(bag)
         .filter(([slug]) => itemOf(slug)?.pocket === pocket)
@@ -214,9 +221,84 @@ test('the automatic throw takes the smallest potion that covers the damage', wit
   assert.equal(healingItemFor(session, pokemon, 'full-restore'), null);
 });
 
+test('a win tops the companion up to full, smallest potion first', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 5, 'super-potion': 2, 'max-potion': 1 });
+
+  // Fifteen short: one Potion closes it, and nothing bigger is touched.
+  pokemon.hp = maxHp(pokemon) - 15;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'potion', count: 1 }]);
+  assert.equal(pokemon.hp, maxHp(pokemon));
+  assert.equal(session.bag['super-potion'], 2);
+
+  // At full already, the bag is left alone.
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), []);
+  assert.equal(session.bag.potion, 4);
+});
+
+test('a top-up stops at the target the player set, and never is never', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const max = maxHp(pokemon);
+  const session = fakeSession({ potion: 20 });
+
+  pokemon.hp = 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never'), []);
+  assert.equal(pokemon.hp, 1);
+
+  healAfterBattle(session, pokemon, 'hpHalf');
+  assert.ok(pokemon.hp >= max / 2, `healed to ${pokemon.hp} of ${max}`);
+  // A Potion at a time, so it lands within one Potion past the half.
+  assert.ok(pokemon.hp < max / 2 + 20, `overshot to ${pokemon.hp} of ${max}`);
+});
+
+test('a top-up spends what the bag has when it cannot reach the target', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ potion: 2 });
+
+  pokemon.hp = 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'potion', count: 2 }]);
+  assert.equal(pokemon.hp, 41);
+  assert.equal(session.countOf('potion'), 0);
+});
+
+test('the after-battle top-up defaults to full, for new and old saves alike', () => {
+  assert.equal(defaultItemPolicy().afterBattle, 'full');
+  assert.equal(normalizeItemPolicy(null).afterBattle, 'full');
+  // A save written before the setting existed.
+  assert.equal(normalizeItemPolicy({ berries: [], healing: { item: null, condition: 'hpHalf' } }).afterBattle, 'full');
+  assert.equal(normalizeItemPolicy({ afterBattle: 'hpHalf' }).afterBattle, 'hpHalf');
+});
+
 test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {
   const session = fakeSession({ 'sitrus-berry': 1 });
   assert.equal(berryToHold(session, [null, 'oran-berry', 'sitrus-berry']), 'sitrus-berry');
   assert.equal(berryToHold(session, [null, null, null]), null);
   assert.equal(berryToHold(session, ['oran-berry']), null);
+});
+
+test('every item the bag can hold says what it is, in Korean as well as English', withData, () => {
+  const blank = [];
+  const borrowed = [];
+  for (const [slug, entry] of Object.entries(gameData().items)) {
+    // A machine is described by the move it teaches.
+    if (entry.pocket === 'machines') continue;
+    if (!entry.text?.ko || !entry.text?.en) blank.push(slug);
+    else if (entry.text.ko === entry.text.en) borrowed.push(slug);
+  }
+  assert.deepEqual(blank, [], 'items with no description');
+  assert.deepEqual(borrowed, [], 'items whose Korean description is the English one');
+});
+
+test('every move says what it does in Korean, not in English', withData, () => {
+  const blank = [];
+  const borrowed = [];
+  for (const [slug, move] of Object.entries(gameData().moves)) {
+    // Colosseum's Shadow moves and the Starmobiles' torques, which the dex
+    // build leaves out.
+    if (move.type === 'shadow' || RETIRED_MOVES.has(slug)) continue;
+    if (!move.text?.ko) blank.push(slug);
+    else if (move.text.ko === move.text.en || !/[가-힣]/.test(move.text.ko)) borrowed.push(slug);
+  }
+  assert.deepEqual(blank, [], 'moves with no Korean description');
+  assert.deepEqual(borrowed, [], 'moves whose Korean description is the English one');
 });
