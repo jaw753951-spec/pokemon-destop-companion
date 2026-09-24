@@ -196,26 +196,41 @@ test('an Ice Face comes off the same way', options, () => {
   assert.ok(log.some((entry) => entry.kind === 'formBroken'));
 });
 
-test('Gulp Missile catches something on Surf and lets it go after', options, () => {
+test('Gulp Missile catches something on Surf and spits it at the next hit', options, () => {
   const cramorant = fixed(CRAMORANT, 50, ['surf'], 'gulp-missile');
-  const battle = fight(cramorant);
+  // A foe that takes a Surf twice and never hits back.
+  const battle = fight(cramorant, { foes: [fixed(9, 80, ['defense-curl'])] });
 
   // Walked in with nothing caught: the bird's own shape, marked plain.
-  assert.equal(battle.player.lastMove, null);
   battle.evaluateFormes([]);
   assert.equal(battle.player.marks.forme ?? null, null);
 
-  // The move goes off, the catch is worn, and the combatant is what carries
-  // the move it last used.
-  battle.player.lastMove = 'surf';
+  // Above half it comes up with an Arrokuda, and keeps it through a turn of
+  // doing something else.
+  battle.takeTurn();
+  assert.equal(battle.player.marks.forme, 'cramorant-gulping');
+  battle.player.lastMove = 'tackle';
   battle.evaluateFormes([]);
   assert.equal(battle.player.marks.forme, 'cramorant-gulping');
 
-  // The turn the bird does something else, the catch is gone.
-  battle.player.lastMove = 'tackle';
-  battle.evaluateFormes([]);
+  // The next hit it takes gets the catch back: a quarter of the attacker's
+  // health and a Defense drop, and the bird is itself again.
+  const attacker = battle.foe;
+  const before = attacker.pokemon.hp;
+  const guard = attacker.stages.def;
+  battle.answerHit(attacker, battle.player, moveOf('tackle'), 5, 1, []);
+  assert.equal(before - attacker.pokemon.hp, Math.floor(attacker.maxHp / 4));
+  assert.equal(attacker.stages.def, guard - 1);
   assert.equal(battle.player.marks.forme ?? null, null);
   assert.equal(spriteKey(cramorant), `${CRAMORANT}`);
+
+  // At half health or below the catch is a Pikachu, and it paralyses.
+  cramorant.hp = Math.floor(maxHp(cramorant) / 2);
+  battle.player.marks.gulp = null;
+  battle.takeTurn();
+  assert.equal(battle.player.marks.forme, 'cramorant-gorging');
+  battle.answerHit(battle.foe, battle.player, moveOf('tackle'), 5, 1, []);
+  assert.equal(battle.foe.pokemon.status, 'par');
 });
 
 test('a forme that left never sticks: the revert is a change like any other', options, () => {

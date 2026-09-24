@@ -28,6 +28,7 @@ import { statsOf } from './pokemon.mjs';
 export const FORM_ABILITY = new Map([
   ['castform', 'forecast'],
   ['darmanitan', 'zen-mode'],
+  ['darmanitan-galar-standard', 'zen-mode'],
   ['wishiwashi', 'schooling'],
   ['minior', 'shields-down'],
   ['mimikyu', 'disguise'],
@@ -351,6 +352,7 @@ const FORECAST_FORMS = new Map([
  *   relicSongs?: number,
  *   stance?: string|null,
  *   hangry?: boolean,
+ *   gulp?: 'gulping'|'gorging'|null,
  * }} state
  * @returns {string|null} the forme slug to take, or null to keep the current one
  */
@@ -395,8 +397,9 @@ export function formeFor(pokemon, state) {
     }
 
     // Below half the fire takes hold; above it, back to normal.
+    // A Galarian Darmanitan has a Zen Mode of its own.
     case 'zen-mode':
-      return half ? find('darmanitan-zen') : plain;
+      return half ? find('darmanitan-zen') ?? find('darmanitan-galar-zen') : plain;
 
     // Together above a quarter, scattered below it.
     case 'schooling':
@@ -416,10 +419,11 @@ export function formeFor(pokemon, state) {
     case 'ice-face':
       return state.broken ? find('eiscue-noice') : plain;
 
-    // Whatever Surf or Dive caught, it keeps — until the throw is made.
+    // Whatever Surf or Dive caught, it keeps until the throw is made: an
+    // Arrokuda above half health, a Pikachu at half or below.
     case 'gulp-missile':
-      return state.usedMove === 'surf' ? find('cramorant-gulping')
-        : state.usedMove === 'dive' ? find('cramorant-gorging')
+      return state.gulp === 'gulping' ? find('cramorant-gulping')
+        : state.gulp === 'gorging' ? find('cramorant-gorging')
         : plain;
 
     // Blade to strike, Shield to guard; it walks in guarding.

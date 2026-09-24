@@ -701,6 +701,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           ability: data.ability ? localized(abilityOf(data.ability)?.name, data.ability) : '',
           type: data.type ? localized(gameData().types[data.type]?.name, data.type) : '',
           count: data.count ?? '',
+          stat: data.stat ? t(`stat.${data.stat}`) : '',
         }));
         updateBars();
         break;

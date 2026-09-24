@@ -12,7 +12,7 @@ import { url } from '../core/bridge.mjs';
 import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilityName, abilityWorks } from '../engine/abilities.mjs';
+import { abilityName, abilityInert, abilityWorks } from '../engine/abilities.mjs';
 import { standingTypes } from '../engine/forms.mjs';
 import { unequipItem } from '../engine/items.mjs';
 import { itemOf } from '../core/data.mjs';
@@ -330,9 +330,13 @@ function abilityLine(app, pokemon) {
         void describe(app, {
           title: localized(ability?.name, slug),
           subtitle: hidden ? t('pokemon.hiddenAbility') : null,
-          body: abilityWorks(slug)
-            ? localized(ability?.text, ability?.effect ?? '')
-            : t('items.noEffectYet'),
+          body: localized(ability?.text, ability?.effect ?? ''),
+          // What it says is always shown; whether it does it here goes under.
+          extra: abilityInert(slug)
+            ? el('span.meta', { text: t('pokemon.abilityInert') })
+            : abilityWorks(slug)
+              ? null
+              : el('span.meta', { text: t('items.noEffectYet') }),
         });
       },
     }),
