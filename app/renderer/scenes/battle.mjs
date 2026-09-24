@@ -1094,6 +1094,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         crits: battle.player.marks.crits ?? 0,
         box: session.box,
         raining: weatherForArea(session.area) === 'rain',
+        areaTags: session.area?.tags ?? [],
       });
       if (evolution) {
         const from = nameOf(session.active);

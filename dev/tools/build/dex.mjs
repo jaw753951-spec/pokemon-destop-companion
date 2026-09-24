@@ -9,6 +9,8 @@
 import { join } from 'node:path';
 
 import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
+import { evaluateShowdownMoves, showdownEffect } from '../lib/showdown.mjs';
+import { layOfficialKorean } from '../lib/official-text.mjs';
 import {
   flavorBundle,
   genusBundle,
@@ -33,7 +35,8 @@ export async function buildDex({ dataDir, sample, log, pool }) {
   const abilities = await buildAbilities(pool, log);
   const species = await buildSpecies(pool, log, limit);
 
-  await attachMoveFlags(moves, log);
+  await attachShowdown(moves, log);
+  await layOfficialKorean({ species, moves, abilities, items: everyItem }, log);
 
   // Which items the game ships is decided here rather than in the screens.
   const items = shippedItems(everyItem, { machines, moves, species, log });
@@ -83,6 +86,7 @@ function shippedItems(items, { machines, moves, species, log }) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
       if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+      for (const held of evolution.heldItems ?? []) evolutionItems.add(held);
     }
   }
 
@@ -176,6 +180,9 @@ const RETIRED_CATEGORIES = {
 const KEPT_ITEMS = {
   'bottle-cap': true,
   'gold-bottle-cap': true,
+  // What a Honey Gather brings back, and what a Pokémon smells from off the
+  // path: used from the bag, it calls the next wild Pokémon out.
+  honey: true,
 };
 
 /**
@@ -217,6 +224,12 @@ const FORM_ITEMS = {
   'reins-of-unity': { use: { forme: true } },
   meteorite: { use: { forme: true } },
   'zygarde-cube': { use: { forme: true } },
+  'rotom-catalog': { use: { forme: true } },
+  // A Nectar is drunk: it changes an Oricorio's style and is gone.
+  'red-nectar': { use: { forme: true, consumed: true } },
+  'yellow-nectar': { use: { forme: true, consumed: true } },
+  'pink-nectar': { use: { forme: true, consumed: true } },
+  'purple-nectar': { use: { forme: true, consumed: true } },
 };
 
 /**
@@ -406,45 +419,84 @@ const MOVE_EFFECT_PATCHES = {
 };
 
 /**
- * Hang each move's classification off it: contact, punch, sound, powder and
- * the rest of the flags the abilities and held items are written against.
+ * Hang what Showdown knows about each move off it: its classification
+ * (contact, punch, sound, powder and the rest of the flags the abilities and
+ * held items are written against), who its stat changes land on, and the side
+ * effects PokeAPI leaves out.
  *
- * Showdown's table is a TypeScript module rather than JSON, but the shape it
- * needs to be read at is shallow — one block per move, each with a `num` that
- * is the move's national number and a `flags` object — so a reader for exactly
- * that shape is smaller and steadier than pulling in a parser. Anything whose
- * number is missing or zero is a Showdown invention (the CAP moves, the Z-move
- * variants) and has no move here to belong to.
+ * PokeAPI files a Close Combat's Defense drop and a Growl's Attack drop the
+ * same way, with nothing saying that one is the user's price and the other
+ * the target's loss, and the Gen 8–9 moves arrive with no effect data at all —
+ * a Population Bomb that hits once, a Bitter Blade that drains nothing. The
+ * Showdown table states both, move by move, so it is read as the object it is
+ * (see `lib/showdown.mjs`) and fills in whatever PokeAPI left empty; nothing
+ * PokeAPI does state is overwritten. Anything whose number is missing or zero
+ * is a Showdown invention (the CAP moves, the Z-move variants) and has no
+ * move here to belong to.
  *
  * @param {Record<string, any>} moves
  * @param {(message: string) => void} log
  */
-async function attachMoveFlags(moves, log) {
+async function attachShowdown(moves, log) {
   const source = await fetchBuffer(`${SHOWDOWN}/moves.ts`, { allowMissing: true });
+  if (!source) {
+    for (const move of Object.values(moves)) move.flags = [];
+    log('moves flags unavailable — the classification source could not be read');
+    return;
+  }
 
-  /** @type {Map<number, string[]>} */
+  /** @type {Map<number, any>} */
   const byNumber = new Map();
-  if (source) {
-    for (const block of source.toString('utf8').split(/\n\t(?:"[^"]+"|\w+): \{\n/).slice(1)) {
-      const number = /^\t\tnum: (\d+),$/m.exec(block);
-      const flags = /^\t\tflags: \{([^}]*)\},$/m.exec(block);
-      if (!number || !flags || Number(number[1]) === 0) continue;
-
-      const kept = [...flags[1].matchAll(/(\w+): 1/g)]
-        .map((match) => match[1])
-        .filter((flag) => MOVE_FLAG_SET.has(flag));
-      if (kept.length) byNumber.set(Number(number[1]), kept);
-    }
+  for (const entry of Object.values(evaluateShowdownMoves(source.toString('utf8')))) {
+    if (!entry?.num || entry.isZ || entry.isMax || entry.isNonstandard === 'CAP') continue;
+    if (!byNumber.has(entry.num)) byNumber.set(entry.num, entry);
   }
 
   let flagged = 0;
+  let filled = 0;
   for (const move of Object.values(moves)) {
-    move.flags = byNumber.get(move.id) ?? [];
+    const sd = byNumber.get(move.id);
+    move.flags = Object.keys(sd?.flags ?? {}).filter((flag) => sd.flags[flag] && MOVE_FLAG_SET.has(flag));
     if (move.flags.length) flagged++;
+    if (!sd) continue;
+
+    const effect = showdownEffect(sd);
+    // A move that cannot miss is `true` there and 0 in PokeAPI's newest
+    // entries; 0 read as a percentage is a move that never lands.
+    if (effect.accuracy === null || move.accuracy === 0) move.accuracy = effect.accuracy ?? null;
+
+    // Who each stage lands on is Showdown's to say; PokeAPI only lists them.
+    if (effect.stats.length) {
+      move.statChanges = effect.stats;
+    } else {
+      move.statChanges = (move.statChanges ?? []).map((change) => ({ ...change, self: move.damageClass === 'status' && move.target === 'user' }));
+    }
+
+    const before = JSON.stringify(move.meta);
+    const meta = { ...EMPTY_META, ...(move.meta ?? {}) };
+    if (!meta.minHits && effect.minHits) {
+      meta.minHits = effect.minHits;
+      meta.maxHits = effect.maxHits;
+    }
+    if (!meta.drain && effect.drain) meta.drain = effect.drain;
+    if (!meta.healing && effect.healing && move.damageClass === 'status') meta.healing = effect.healing;
+    if (!meta.critRate && effect.critRate) meta.critRate = effect.critRate;
+    if (!meta.statChance && effect.stats.length) meta.statChance = effect.statChance;
+    if ((meta.ailment === 'none' || meta.ailment === 'unknown') && effect.secondary.ailment) {
+      meta.ailment = effect.secondary.ailment;
+      meta.ailmentChance = move.damageClass === 'status' ? 0 : effect.secondary.ailmentChance;
+    }
+    if (!meta.flinchChance && effect.secondary.flinchChance) meta.flinchChance = effect.secondary.flinchChance;
+    if (effect.secondary.toxic) meta.toxic = true;
+    if (effect.multiAccuracy) meta.multiAccuracy = true;
+    move.meta = meta;
+    if (JSON.stringify(meta) !== before) filled++;
+
+    if (effect.ally) move.allyOnly = true;
+    if (Object.keys(effect.rules).length) move.rules = effect.rules;
   }
 
-  if (!source) log('moves flags unavailable — the classification source could not be read');
-  else log(`moves ${flagged} classified (contact, punch, sound, powder and the rest)`);
+  log(`moves ${flagged} classified (contact, punch, sound, powder and the rest), ${filled} given effect data`);
 }
 
 /**
@@ -513,6 +565,15 @@ const FORM_ONLY_ABILITIES = new Set([
   'delta-stream',
   'battle-bond',
   'power-construct',
+  // Legends: Z-A's new Mega Evolutions' abilities, which no Pokémon here can
+  // have without the Mega Stone this game retires.
+  'piercing-drill',
+  'dragonize',
+  'mega-sol',
+  'spicy-spray',
+  'eelevate',
+  'fire-mane',
+  'aura-guard',
 ]);
 async function buildItems(pool, log, natures) {
   const categoryIndex = await fetchJson(`${POKEAPI}/item-category/index.json`);
@@ -555,6 +616,7 @@ async function buildItems(pool, log, natures) {
           sprite: Boolean(item.sprites?.default),
         };
         unwritten(out[name], name, natures);
+        corrected(out[name], name);
       }),
     ),
   );
@@ -1087,6 +1149,88 @@ function unwritten(item, slug, natures) {
   if (written) Object.assign(item, written);
 }
 
+/**
+ * Rules PokeAPI states for a generation long gone, or does not state at all,
+ * written as the current games have them. Each replaces whatever the effect
+ * sentence was parsed into.
+ *
+ * - The Sticky Barb hurts its holder each turn and jumps to whatever touches
+ *   it; the sentence upstream reads like a Rocky Helmet.
+ * - The five confusion berries heal a third at a quarter since Gen 8 and
+ *   confuse a holder whose nature dislikes their flavour (the stat the nature
+ *   lowers).
+ * - The Soul Dew has powered up Latias's and Latios's Psychic and Dragon moves
+ *   since Gen 7; the Metal Powder and Quick Powder only work on a Ditto that
+ *   has not transformed, and the Metal Powder doubles Defense alone.
+ * - The Lax Incense and the Quick Claw use their Gen 4+ numbers.
+ * - The rest are the items whose effect is written nowhere upstream.
+ *
+ * @type {Record<string, {held?: any, use?: any, attributes?: string[]}>}
+ */
+const CORRECTED = {
+  'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
+  'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },
+  'wiki-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spa' } },
+  'mago-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spe' } },
+  'aguav-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spd' } },
+  'iapapa-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'def' } },
+  'soul-dew': { held: { on: 'damage', species: ['latias', 'latios'], moveTypes: ['psychic', 'dragon'], multiplier: 1.2 } },
+  'metal-powder': { held: { on: 'stat', species: ['ditto'], stats: ['def'], multiplier: 2, untransformed: true } },
+  'quick-powder': { held: { on: 'stat', species: ['ditto'], stats: ['spe'], multiplier: 2, untransformed: true } },
+  'lax-incense': { held: { on: 'evasion', multiplier: 0.9 } },
+  'quick-claw': { held: { on: 'first', chance: 0.2 } },
+  // Farfetch'd, its Galarian variety (by the species it belongs to) and the
+  // Sirfetch'd that variety becomes.
+  stick: { held: { on: 'crit', stages: 2, species: ['farfetchd', 'sirfetchd'] } },
+  'toxic-orb': { held: { on: 'selfStatus', status: 'psn', toxic: true } },
+  'booster-energy': { held: { on: 'booster' }, attributes: ['holdable', 'holdable-active'] },
+  'room-service': { held: { on: 'room', stats: ['spe'], stages: -1, consumed: true } },
+  'adrenaline-orb': { held: { on: 'intimidated', stats: ['spe'], stages: 1, consumed: true } },
+  'big-root': { held: { on: 'drainBoost', multiplier: 1.3 } },
+  'mirror-herb': { held: { on: 'mirror', consumed: true } },
+  'ability-shield': { held: { on: 'shield', ability: true } },
+  'blank-plate': { held: { on: 'damage', moveType: 'normal', multiplier: 1.2 } },
+  'binding-band': { held: { on: 'bind', fraction: 1 / 6 } },
+  'grip-claw': { held: { on: 'bindTurns', turns: 7 } },
+  'destiny-knot': { held: { on: 'destiny' } },
+  'soothe-bell': { held: { on: 'friendship', multiplier: 1.5 } },
+  'cleanse-tag': { held: { on: 'repel' } },
+  'ring-target': { held: { on: 'ringTarget' } },
+  'pure-incense': { held: { on: 'repel' } },
+  'red-card': { held: { on: 'redCard', consumed: true } },
+  'eject-button': { held: { on: 'eject', consumed: true } },
+  'eject-pack': { held: { on: 'ejectPack', consumed: true } },
+  'pewter-crunchies': { use: { status: 'any' } },
+  'fresh-start-mochi': { use: { resetEffort: true } },
+  honey: { use: { lure: true } },
+};
+
+/**
+ * Put the current games' rule on an item whose upstream sentence is old or
+ * missing (see `CORRECTED`), and the two families that are rules by name: the
+ * Gems, and the six Power items, which pay eight points of effort since Gen 7.
+ *
+ * @param {any} item the record being built, modified in place
+ * @param {string} slug
+ */
+function corrected(item, slug) {
+  const fix = CORRECTED[slug];
+  if (fix?.held) item.held = fix.held;
+  if (fix?.use) item.use = fix.use;
+  if (fix?.attributes) item.attributes = [...new Set([...(item.attributes ?? []), ...fix.attributes])];
+
+  const gem = /^([a-z]+)-gem$/.exec(slug);
+  if (gem && gem[1] !== 'rare' && gem[1] !== 'star') {
+    item.held = { on: 'gem', moveType: gem[1], multiplier: 1.3, consumed: true };
+  }
+  if (item.held?.on === 'effort' && item.held.bonus) {
+    item.held = { ...item.held, bonus: { ...item.held.bonus, amount: POWER_ITEM_EFFORT } };
+  }
+}
+
+/** What a Power item adds to the stat it names, per Pokémon defeated. */
+const POWER_ITEM_EFFORT = 8;
+
 /** What each size of Exp. Candy is worth, as the games pay it. */
 const EXP_CANDY = { xs: 100, s: 800, m: 3000, l: 10000, xl: 30000 };
 
@@ -1305,6 +1449,10 @@ async function buildSpecies(pool, log, limit) {
           // place of the species' (`urshifu-single-strike`); dropped once the
           // chains are walked.
           variety: pokemon.name,
+          // Every variety's name, so an evolution into a form that is only a
+          // look (a West Sea Gastrodon) can be told from one into a variety
+          // this game does not carry; dropped with `variety`.
+          varieties: species.varieties.map((entry) => entry.pokemon.name),
         };
 
         const chainId = out[id].evolutionChain;
@@ -1345,12 +1493,63 @@ const REGIONAL_NAMES = {
   'tauros-paldea-combat-breed': { ko: '팔데아 켄타로스(컴뱃종)', en: 'Paldean Tauros (Combat Breed)' },
   'tauros-paldea-blaze-breed': { ko: '팔데아 켄타로스(블레이즈종)', en: 'Paldean Tauros (Blaze Breed)' },
   'tauros-paldea-aqua-breed': { ko: '팔데아 켄타로스(워터종)', en: 'Paldean Tauros (Aqua Breed)' },
-  'basculin-white-striped': { ko: '배쓰나이(흰줄무늬의 모습)', en: 'Basculin (White-Striped Form)' },
+  'basculin-white-striped': { ko: '배쓰나이(백색근의 모습)', en: 'Basculin (White-Striped Form)' },
   'urshifu-rapid-strike': { ko: '우라오스(연격의 태세)', en: 'Urshifu (Rapid Strike Style)' },
+  // The varieties below are not regional, but they are Pokémon of their own
+  // in the same way: their own types, stats, abilities or moves, met in the
+  // wild or evolved into by a rule of their own (see `VARIANT_EVOLUTIONS`).
+  // The form names are the Korean games' own (Scarlet/Violet's zkn_form).
+  'lycanroc-midnight': { ko: '루가루암(한밤중의 모습)', en: 'Lycanroc (Midnight Form)' },
+  'lycanroc-dusk': { ko: '루가루암(황혼의 모습)', en: 'Lycanroc (Dusk Form)' },
+  'toxtricity-low-key': { ko: '스트린더(로우한 모습)', en: 'Toxtricity (Low Key Form)' },
+  'indeedee-female': { ko: '에써르(암컷의 모습)', en: 'Indeedee (Female)' },
+  'meowstic-female': { ko: '냐오닉스(암컷의 모습)', en: 'Meowstic (Female)' },
+  'oinkologne-female': { ko: '퍼퓨돈(암컷의 모습)', en: 'Oinkologne (Female)' },
+  'basculegion-female': { ko: '대쓰여너(암컷의 모습)', en: 'Basculegion (Female)' },
+  'basculin-blue-striped': { ko: '배쓰나이(청색근의 모습)', en: 'Basculin (Blue-Striped Form)' },
+  'ursaluna-bloodmoon': { ko: '다투곰(붉은 달)', en: 'Ursaluna (Bloodmoon)' },
+  'wormadam-sandy': { ko: '도롱마담(모래땅도롱)', en: 'Wormadam (Sandy Cloak)' },
+  'wormadam-trash': { ko: '도롱마담(슈레도롱)', en: 'Wormadam (Trash Cloak)' },
+  'pumpkaboo-small': { ko: '호바귀(작은 사이즈)', en: 'Pumpkaboo (Small Size)' },
+  'pumpkaboo-large': { ko: '호바귀(큰 사이즈)', en: 'Pumpkaboo (Large Size)' },
+  'pumpkaboo-super': { ko: '호바귀(특대 사이즈)', en: 'Pumpkaboo (Super Size)' },
+  'gourgeist-small': { ko: '펌킨인(작은 사이즈)', en: 'Gourgeist (Small Size)' },
+  'gourgeist-large': { ko: '펌킨인(큰 사이즈)', en: 'Gourgeist (Large Size)' },
+  'gourgeist-super': { ko: '펌킨인(특대 사이즈)', en: 'Gourgeist (Super Size)' },
 };
 
-/** Varieties kept as Pokémon of their own though their name names no region. */
-const REGIONAL_EXTRAS = new Set(['basculin-white-striped', 'urshifu-rapid-strike']);
+/**
+ * Varieties kept as Pokémon of their own though their name names no region,
+ * each with the tag that stands where a region would — which is also what an
+ * evolution looks for to stay in the same variety (a small Pumpkaboo becomes
+ * a small Gourgeist).
+ *
+ * @type {Map<string, string>}
+ */
+const VARIANTS = new Map([
+  ['basculin-white-striped', 'other'],
+  ['urshifu-rapid-strike', 'other'],
+  ['lycanroc-midnight', 'midnight'],
+  ['lycanroc-dusk', 'dusk'],
+  ['toxtricity-low-key', 'low-key'],
+  ['indeedee-female', 'female'],
+  ['meowstic-female', 'female'],
+  ['oinkologne-female', 'female'],
+  ['basculegion-female', 'female'],
+  ['basculin-blue-striped', 'blue-striped'],
+  ['ursaluna-bloodmoon', 'bloodmoon'],
+  ['wormadam-sandy', 'sandy'],
+  ['wormadam-trash', 'trash'],
+  ['pumpkaboo-small', 'small'],
+  ['pumpkaboo-large', 'large'],
+  ['pumpkaboo-super', 'super'],
+  ['gourgeist-small', 'small'],
+  ['gourgeist-large', 'large'],
+  ['gourgeist-super', 'super'],
+]);
+
+/** The varieties that are the female of a species whose look differs by sex. */
+const FEMALE_VARIANTS = new Set(['indeedee-female', 'meowstic-female', 'oinkologne-female', 'basculegion-female']);
 
 /**
  * Whether a variety is a regional Pokémon: its own types, stats, moves and
@@ -1361,7 +1560,7 @@ const REGIONAL_EXTRAS = new Set(['basculin-white-striped', 'urshifu-rapid-strike
  * @param {string} name a variety's slug
  */
 const isRegional = (name) =>
-  REGIONAL_EXTRAS.has(name) || (/-(alola|galar|hisui|paldea)(-|$)/.test(name) && !/totem|zen|cap/.test(name));
+  VARIANTS.has(name) || (/-(alola|galar|hisui|paldea)(-|$)/.test(name) && !/totem|zen|cap/.test(name));
 
 /**
  * Add every regional variety as a species of its own, under its variety id.
@@ -1416,8 +1615,18 @@ async function addRegionalSpecies(out, pool) {
             evolutions: [],
             forms: [],
             dex: base.id,
-            regional: region ?? 'other',
+            regional: region ?? VARIANTS.get(pokemon.name) ?? 'other',
+            ...(FEMALE_VARIANTS.has(pokemon.name) ? { gender: 'female' } : {}),
           };
+          // A female variety is where a female of the species goes.
+          if (FEMALE_VARIANTS.has(pokemon.name)) base.femaleVariant = id;
+          // A regional forme — a Galarian Darmanitan's Zen Mode — belongs to
+          // the regional variety rather than to the species it shares a
+          // record with.
+          if (region) {
+            out[id].forms = (base.forms ?? []).filter((form) => form.slug.includes(`-${region}`));
+            base.forms = (base.forms ?? []).filter((form) => !form.slug.includes(`-${region}`));
+          }
         }
       }),
     ),
@@ -1517,6 +1726,9 @@ async function buildForms(species) {
           return record;
         }, {}),
         sprite: Boolean(pokemon.sprites?.other?.showdown?.front_default || pokemon.sprites?.front_default),
+        // What a forme a player chooses can learn that the species cannot: a
+        // Rider Calyrex's Glacial Lance, a Rotom's appliance move.
+        ...(OWN_ABILITY_TRIGGERS.has(formeTrigger) ? { learnset: extractLearnset(pokemon.moves) } : {}),
       };
     }),
   );
@@ -1591,7 +1803,13 @@ async function buildTypeForms(species, trigger) {
  */
 const FORM_FORME = new Map([
   ['castform', null],
-  ['darmanitan', ['darmanitan-zen']],
+  // The Galarian Zen Mode moves over to the Galarian variety once the
+  // regional species are built.
+  ['darmanitan', ['darmanitan-zen', 'darmanitan-galar-zen']],
+  // A Rotom Catalog, a Nectar, and a Secret Sword.
+  ['rotom', null],
+  ['oricorio', null],
+  ['keldeo', ['keldeo-resolute']],
   ['wishiwashi', ['wishiwashi-school']],
   ['minior', ['minior-red']],
   ['mimikyu', ['mimikyu-busted']],
@@ -1737,6 +1955,11 @@ const FORM_TRIGGER = new Map([
   ['zygarde', 'use'],
   // Relic Song turns it, and turns it back.
   ['meloetta', 'move'],
+  // A Rotom in an appliance, an Oricorio that sipped a Nectar, a Keldeo that
+  // knows Secret Sword: shapes it stands in outside a battle too.
+  ['rotom', 'use'],
+  ['oricorio', 'use'],
+  ['keldeo', 'use'],
 ]);
 
 /**
@@ -1916,7 +2139,10 @@ async function attachEvolutions(species, chains, pool) {
       return working.length ? working : edges.slice(0, 1);
     });
   }
-  for (const entry of Object.values(species)) delete entry.variety;
+  for (const entry of Object.values(species)) {
+    delete entry.variety;
+    delete entry.varieties;
+  }
 }
 
 /**
@@ -1944,7 +2170,11 @@ function walkChain(node, species) {
       // leads nowhere it can go.
       const evolvedForm = detail.evolved_pokemon_form?.name;
       const plainForm = evolvedForm === species[childId].slug || evolvedForm === species[childId].variety;
-      if (evolvedForm && !plainForm && !bySlug.has(evolvedForm)) continue;
+      // A form that is only a look — a West Sea Gastrodon, a Meadow Vivillon,
+      // an Antique Polteageist — is the species itself here; only a real
+      // variety this game does not carry leads nowhere.
+      const cosmetic = evolvedForm && !(species[childId].varieties ?? []).includes(evolvedForm);
+      if (evolvedForm && !plainForm && !cosmetic && !bySlug.has(evolvedForm)) continue;
       let to = bySlug.get(evolvedForm ?? '') ?? childId;
       // A regional Pokémon evolves into the same region's variety of the next
       // one where there is one, even where the rule does not spell it out.
@@ -2032,6 +2262,7 @@ function evolutionWorks(edge) {
       edge.knownMove ||
       edge.knownMoveType ||
       edge.heldItem ||
+      edge.heldItems?.length ||
       edge.steps ||
       edge.recoil ||
       edge.partySpecies,
@@ -2051,7 +2282,19 @@ const FRIENDSHIP_EVOLVES = 160;
 const EVOLUTION_TWEAKS = {
   solgaleo: { timeOfDay: 'day' },
   lunala: { timeOfDay: 'night' },
+  // A Rockruff with Own Tempo is the one that becomes the Dusk Form.
+  'lycanroc-dusk': { ability: 'own-tempo' },
+  // A Toxel's nature decides which Toxtricity it grows into.
+  toxtricity: { natures: ['hardy', 'brave', 'adamant', 'naughty', 'docile', 'impish', 'lax', 'hasty', 'jolly', 'naive', 'rash', 'sassy', 'quirky'] },
+  'toxtricity-low-key': { natures: ['lonely', 'bold', 'relaxed', 'timid', 'serious', 'modest', 'mild', 'quiet', 'bashful', 'calm', 'gentle', 'careful'] },
+  // A Burmy's cloak is whatever it last stood on: sand and rock, or the
+  // walls of a town, or anything growing.
+  'wormadam-sandy': { areaTags: ['cave', 'desert', 'sand', 'mountain', 'rough', 'beach', 'volcano', 'ash'] },
+  'wormadam-trash': { areaTags: ['urban', 'electric', 'ruins', 'graveyard'] },
 };
+
+/** The Sweets a Milcery can be holding when it evolves. */
+const SWEETS = ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet'];
 
 /**
  * What stands in for a rule this game has no way to meet — a number of steps,
@@ -2067,6 +2310,7 @@ const EVOLUTION_FALLBACKS = {
   wyrdeer: { trigger: 'use-move', usedMove: 'psyshield-bash', moveCount: 20 },
   // Recoil taken without fainting, counted on the Pokémon.
   basculegion: { recoil: 294 },
+  'basculegion-female': { recoil: 294 },
   // A thousand steps walked alongside, which a companion does all day.
   pawmot: { steps: 1000 },
   brambleghast: { steps: 1000 },
@@ -2075,8 +2319,8 @@ const EVOLUTION_FALLBACKS = {
   maushold: { minLevel: 25 },
   // A rock arch this game has no map of: the level Yamask evolves at.
   runerigus: { minLevel: 34 },
-  // Spun, with its Sweet held: levelled, with its Sweet held.
-  alcremie: { minLevel: 25 },
+  // Spun, with its Sweet held: levelled, with any Sweet held.
+  alcremie: { heldItems: SWEETS },
   // Three Bisharp with their own crests beaten: levelled with the crest.
   kingambit: { heldItem: 'leaders-crest' },
   // The two towers, as their scrolls.

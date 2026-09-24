@@ -154,7 +154,6 @@ export const ABILITIES = {
   // ---- Types the holder is simply not hit by, and the ones it drinks.
 
   levitate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
-  eelevate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
   'volt-absorb': { absorb: (ctx, move) => (move.type === 'electric' ? { heal: ABSORB_HEAL } : null) },
   'water-absorb': { absorb: (ctx, move) => (move.type === 'water' ? { heal: ABSORB_HEAL } : null) },
   'earth-eater': { absorb: (ctx, move) => (move.type === 'ground' ? { heal: ABSORB_HEAL } : null) },
@@ -482,11 +481,6 @@ export const ABILITIES = {
   scrappy: { hitsGhosts: true },
   'minds-eye': { hitsGhosts: true, ignoresEvasion: true },
   corrosion: { corrodes: true },
-  dragonize: { moveType: (ctx, move) => (move.type === 'normal' ? 'dragon' : null), power: platePower },
-  'fire-mane': { power: (ctx, move) => (move.type === 'fire' ? 1.5 : 1) },
-  // "Its moves behave as though the sun were out", which is the whole of it.
-  'mega-sol': { actsSunny: true },
-  'aura-guard': { taken: (ctx, move) => (hasFlag(move, 'contact') ? 0.5 : 1) },
   'wonder-guard': { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 1 : 0) },
 
   // ---- Conditions turned to advantage, and conditions refused.
@@ -516,7 +510,6 @@ export const ABILITIES = {
 
   'poison-touch': { contact: (ctx) => ctx.inflict(ctx.foe, 'psn', 0.3) },
   'cursed-body': { hit: (ctx) => ctx.disable(ctx.foe, 0.3) },
-  'spicy-spray': { hit: (ctx) => ctx.inflict(ctx.foe, 'brn', 1) },
   'perish-body': { contact: (ctx) => ctx.perish() },
   'toxic-debris': {
     hit: (ctx, move) => { if (move.damageClass === 'physical') ctx.layHazard('toxicSpikes'); },
@@ -553,7 +546,6 @@ export const ABILITIES = {
   'armor-tail': { blocksPriority: true },
   'long-reach': { noContact: true },
   'unseen-fist': { unseenFist: true },
-  'piercing-drill': { piercing: true },
   'mycelium-might': { movesLastWithStatus: true, ignoresAbilities: true },
   infiltrator: { infiltrates: true },
   pressure: { pressures: true },

@@ -344,6 +344,11 @@
         "ko": "레벨 48 이상인 멜탄에게 사용하면 멜메탈로 진화한다. 사용하면 없어진다.",
         "en": "Use it on a Meltan of level 48 or higher to evolve it into Melmetal. It is used up."
       }
+    },
+    "hm08": {
+      "name": {
+        "ko": "비전머신08"
+      }
     }
   }
 }

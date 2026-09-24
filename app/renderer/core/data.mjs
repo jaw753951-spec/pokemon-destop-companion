@@ -53,7 +53,7 @@ export async function loadGameData() {
 
   // Authored data is optional: a checkout without it still runs, just without
   // trainers or the league.
-  const [trainerClasses, leaders, leagues, credits, itemTexts, moveTexts] = await Promise.all([
+  const [trainerClasses, leaders, leagues, credits, itemTexts, moveTexts, speciesTexts, abilityTexts] = await Promise.all([
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
@@ -61,11 +61,16 @@ export async function loadGameData() {
     loadJson('data', 'credits.json').catch(() => ({})),
     loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
     loadJson('authored', 'move-texts.json').then((file) => file.moves ?? {}).catch(() => ({})),
+    loadJson('authored', 'species-texts.json').then((file) => file.species ?? {}).catch(() => ({})),
+    loadJson('authored', 'ability-texts.json').then((file) => file.abilities ?? {}).catch(() => ({})),
   ]);
   mendItems(items, itemTexts);
   // Moves take the same patch: the newest ones come through with only the
   // English description, and the Korean screen showed it as it was.
   mendItems(moves, moveTexts);
+  // And the Pokédex entries and abilities no official source has in Korean.
+  mendItems(abilities, abilityTexts);
+  mendSpecies(species, speciesTexts);
 
   data = {
     species, moves, items, machines, natures, abilities, types, areas, sprites, actors, bgm, itemTiers, battle,
@@ -93,6 +98,19 @@ export function mendItems(items, authored) {
     if (patch.text) item.text = { ...(item.text ?? {}), ...patch.text };
     if (patch.name) item.name = { ...(item.name ?? {}), ...patch.name };
   }
+}
+
+/**
+ * The same patch for the Pokédex, whose records are filed by number: the
+ * sheet names a species by its slug, and every record with that slug — a
+ * regional variety shares its species' entry — takes it.
+ *
+ * @param {Record<string, any>} species
+ * @param {Record<string, {name?: Record<string, string>, text?: Record<string, string>}>} authored
+ */
+export function mendSpecies(species, authored) {
+  const bySlug = Object.fromEntries(Object.values(species ?? {}).map((entry) => [entry.slug, entry]));
+  mendItems(bySlug, authored);
 }
 
 /**

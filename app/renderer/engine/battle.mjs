@@ -331,9 +331,6 @@ export class Battle {
    * @returns {string|null}
    */
   weatherFor(forCombatant) {
-    // A Mega Sol carries its own sunshine, whatever the sky is doing.
-    if (forCombatant && this.ownAbility(forCombatant)?.actsSunny) return WEATHER.SUN;
-
     for (const combatant of [this.player, this.foe]) {
       if (combatant && this.ownAbility(combatant)?.suppressWeather) return null;
     }
@@ -1643,10 +1640,9 @@ export class Battle {
     }
     if (PROTECT_BYPASS.has(moveName)) return false;
 
-    // An Unseen Fist reaches through one as long as it is touching, and a
-    // Piercing Drill simply goes through.
+    // An Unseen Fist reaches through one as long as it is touching.
     const ability = this.abilityOf(attacker);
-    if (ability?.piercing || (ability?.unseenFist && hasFlag(move, 'contact'))) return false;
+    if (ability?.unseenFist && hasFlag(move, 'contact')) return false;
 
     log.push({ kind: 'protected', side: defender.side });
 

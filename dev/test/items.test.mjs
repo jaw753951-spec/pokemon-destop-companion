@@ -114,6 +114,7 @@ test('an item the engine reads states what it does', withData, () => {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
       if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+      for (const held of evolution.heldItems ?? []) evolutionItems.add(held);
     }
   }
 
@@ -159,8 +160,8 @@ test('only what this game will never have is dropped', withData, () => {
   }
 
   // And the ones still waiting, which belong to systems this game does not
-  // have yet: switching out, infatuation, happiness.
-  for (const slug of ['shed-shell', 'eject-button', 'red-card', 'destiny-knot', 'soothe-bell']) {
+  // have: switching the companion out, fleeing, Dynamax, Let's Go's catching.
+  for (const slug of ['shed-shell', 'smoke-ball', 'pass-orb', 'dynamax-candy', 'golden-razz-berry']) {
     assert.ok(items[slug], `${slug} should have been kept`);
     assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
   }

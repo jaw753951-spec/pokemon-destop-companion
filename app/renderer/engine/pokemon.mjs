@@ -511,6 +511,7 @@ export const TRADE_ITEM = 'linking-cord';
  *   crits?: number,
  *   box?: Array<Pokemon|null>,
  *   raining?: boolean,
+ *   areaTags?: string[],
  * }} [context] `crits` is how many critical hits it landed in the battle it
  *   has just finished; `box` the Pokémon that count as its party
  * @returns {{to: number, trigger: string}|null}
@@ -545,6 +546,7 @@ export function pendingEvolution(pokemon, context = {}) {
         evolution.knownMove ||
         evolution.knownMoveType ||
         evolution.heldItem ||
+        evolution.heldItems?.length ||
         evolution.steps ||
         evolution.recoil ||
         evolution.partySpecies;
@@ -555,6 +557,13 @@ export function pendingEvolution(pokemon, context = {}) {
       if (evolution.knownMoveType && !knowsType(evolution.knownMoveType)) continue;
       if (evolution.timeOfDay && context.timeOfDay && !matchesTime(evolution.timeOfDay, context.timeOfDay)) continue;
       if (evolution.heldItem && pokemon.heldItem !== evolution.heldItem) continue;
+      // Any one of several: a Milcery holding whichever Sweet.
+      if (evolution.heldItems?.length && !evolution.heldItems.includes(pokemon.heldItem ?? '')) continue;
+      // A Rockruff with Own Tempo, a Toxel of the right nature, a Burmy on
+      // the ground its cloak is made of.
+      if (evolution.ability && pokemon.ability !== evolution.ability) continue;
+      if (evolution.natures?.length && !evolution.natures.includes(pokemon.nature)) continue;
+      if (evolution.areaTags?.length && !(context.areaTags ?? []).some((tag) => evolution.areaTags.includes(tag))) continue;
       if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
       if (evolution.steps && (pokemon.steps ?? 0) < evolution.steps) continue;
       if (evolution.recoil && (pokemon.recoilTaken ?? 0) < evolution.recoil) continue;
@@ -570,7 +579,7 @@ export function pendingEvolution(pokemon, context = {}) {
       // The more particular rule wins: an Eevee that knows a Fairy move
       // becomes a Sylveon however fond of its trainer it is.
       const weight =
-        2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
+        2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem, evolution.heldItems?.length, evolution.ability, evolution.areaTags?.length].filter(Boolean).length +
         [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
       levelled.push({ to: evolution.to, weight });
       continue;
