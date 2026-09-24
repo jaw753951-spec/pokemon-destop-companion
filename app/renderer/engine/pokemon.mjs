@@ -379,7 +379,7 @@ export function experienceProgress(pokemon) {
  *
  * @param {Pokemon} pokemon
  * @param {{baseStats: Record<string, number>, baseExp: number, level: number}} defeated
- * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number}} [options]
+ * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number, effortBonus?: {stat: string, amount: number}|null}} [options]
  * @returns {{experience: number, levelsGained: number, newLevel: number, learnable: string[]}}
  */
 export function gainFromDefeat(pokemon, defeated, options = {}) {
@@ -397,19 +397,23 @@ export function gainFromDefeat(pokemon, defeated, options = {}) {
 
   const effort = effortYield(defeated.baseStats);
   const effortMultiplier = options.effortMultiplier ?? 1;
-  pokemon.evs = addEffort(
-    pokemon.evs,
+  const earned =
     effortMultiplier === 1
-      ? effort
-      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier])),
-  );
+      ? { ...effort }
+      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier]));
+  // A Power item adds its own stat's worth on top of whatever the defeat
+  // paid, eight points a time.
+  const bonus = options.effortBonus;
+  if (bonus?.stat) earned[bonus.stat] = (earned[bonus.stat] ?? 0) + bonus.amount;
+  pokemon.evs = addEffort(pokemon.evs, earned);
 
   const after = levelOf(pokemon);
   // A level-up tops up the extra hit points immediately, as the games do.
   if (after > before) pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + (after - before) * 2);
 
   return {
-    experience: amount,
+    // What was actually added, a Lucky Egg's share included.
+    experience: gained,
     levelsGained: after - before,
     newLevel: after,
     learnable: movesLearnedBetween(pokemon, before, after),
@@ -464,6 +468,8 @@ export function setMove(pokemon, slot, move) {
   if (slot < pokemon.moves.length) pokemon.moves[slot] = entry;
   else pokemon.moves.push(entry);
   pokemon.moves = pokemon.moves.slice(0, 4);
+  // A Keldeo's shape follows whether it knows Secret Sword.
+  settleForme(pokemon);
 }
 
 /**

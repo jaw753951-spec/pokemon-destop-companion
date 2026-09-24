@@ -5,13 +5,14 @@
  * hold along the bottom with their real odds printed underneath, and the
  * throws you have left counted in the corner. Three throws, then it flees.
  */
-import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
+import { abilityName } from '../engine/abilities.mjs';
 import { fullyHeal } from '../engine/pokemon.mjs';
 import { Battler, battlerArt, battlerScale, mirrorFor } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -38,6 +39,8 @@ const BALL_DRAWN = 14;
  */
 export function captureScene({ session, target, onFinish }) {
   let attempts = CAPTURE_ATTEMPTS;
+  // Whether a Ball Fetch has already brought one back.
+  let fetched = false;
   let busy = false;
   let settled = false;
 
@@ -237,6 +240,21 @@ export function captureScene({ session, target, onFinish }) {
     ]);
   }
 
+  /**
+   * What the balls that care about the moment need to know about it.
+   *
+   * @returns {import('../engine/capture.mjs').CaptureContext}
+   */
+  function throwContext() {
+    return {
+      throws: CAPTURE_ATTEMPTS - attempts,
+      active: session.active,
+      caught: session.caught,
+      areaTags: session.area?.tags ?? [],
+      time: timeOfDay(),
+    };
+  }
+
   /** @param {import('../core/app.mjs').App} app */
   function renderBalls(app) {
     const held = session.balls();
@@ -247,7 +265,7 @@ export function captureScene({ session, target, onFinish }) {
 
     setChildren(balls, [
       ...held.map(({ slug, count, item }) => {
-        const chance = Math.round(captureChance(target, slug) * 100);
+        const chance = Math.round(captureChance(target, slug, throwContext()) * 100);
         return el('button.capture-ball', {
           type: 'button',
           disabled: busy,
@@ -270,13 +288,16 @@ export function captureScene({ session, target, onFinish }) {
     if (busy || settled || attempts <= 0) return;
     if (!session.removeItem(ball)) return;
 
+    // The context is read before this throw is counted: a Quick Ball's
+    // first throw is the one with none before it.
+    const context = throwContext();
     busy = true;
     attempts--;
     renderCounter();
     renderBalls(app);
     app.audio.blip('select');
 
-    const result = attemptCapture(session.rng, target, ball);
+    const result = attemptCapture(session.rng, target, ball, context);
     // The ball goes up, the Pokémon goes in, and it rocks once per shake the
     // roll passed. Nothing is said until that has played out.
     throwAt(ball, Math.max(1, result.shakes), result.caught);
@@ -316,6 +337,13 @@ export function captureScene({ session, target, onFinish }) {
     busy = false;
     thrown = null;
     if (battler) battler.visible = true;
+
+    // A Ball Fetch goes and gets the first ball that missed.
+    if (!fetched && abilityName(session.active) === 'ball-fetch' && ball !== 'master-ball') {
+      fetched = true;
+      session.addItem(ball);
+      app.toast(t('battle.pickup', { name: (session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '')), item: localized(gameData().items[ball]?.name, ball) }), 2600);
+    }
 
     if (attempts <= 0) {
       settled = true;

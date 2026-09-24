@@ -100,10 +100,13 @@ export class EventScheduler {
 
   /**
    * Roll the next event and record it.
+   *
    * @param {import('../core/rng.mjs').Rng} rng
+   * @param {{wild?: number}} [modifiers] what the companion is carrying makes
+   *   of the odds: a Cleanse Tag's two thirds on a wild Pokémon turning up
    * @returns {EventKind}
    */
-  roll(rng) {
+  roll(rng, modifiers = {}) {
     if (this.forced) {
       const forced = this.forced;
       this.forced = null;
@@ -112,6 +115,7 @@ export class EventScheduler {
     }
 
     const weights = this.weights();
+    if (modifiers.wild !== undefined) weights.wild *= modifiers.wild;
     const chosen = rng.weighted(EVENT_KINDS.map((kind) => ({ value: kind, weight: weights[kind] })));
     const kind = /** @type {EventKind} */ (chosen ?? EVENT_KINDS[0]);
 

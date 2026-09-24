@@ -1111,6 +1111,13 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         app.toast(t('battle.pickup', { name: nameOf(session.active), item: localized(gameData().items[found]?.name, found) }), 3200);
       }
     }
+    // A Honey Gather comes back with Honey now and then, likelier the higher
+    // its level: five percent for every ten levels begun.
+    const honeyChance = Math.ceil(levelOf(session.active) / 10) * 0.05;
+    if (abilityName(session.active) === 'honey-gather' && gameData().items.honey && session.rng.chance(honeyChance)) {
+      session.addItem('honey');
+      app.toast(t('battle.pickup', { name: nameOf(session.active), item: localized(gameData().items.honey?.name, 'honey') }), 3200);
+    }
 
     // Friendship: levelling up earns it, fainting costs a little.
     const levels = levelOf(session.active) - startLevel;

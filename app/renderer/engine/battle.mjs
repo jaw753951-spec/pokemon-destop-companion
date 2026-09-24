@@ -9,7 +9,7 @@
  */
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
 import { gameData, itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { ABILITIES, abilityEffect, abilityName, afterBattle, auraMultiplier } from './abilities.mjs';
+import { ABILITIES, abilityEffect, abilityName, afterBattle, auraMultiplier, hasSecondary } from './abilities.mjs';
 import { formeFor, heldForme, SIGNATURE_MOVES, signatureType, standingForme, START_FORMES } from './forms.mjs';
 import {
   AFTER_HIT,
@@ -3445,7 +3445,10 @@ export class Battle {
     if (shell && attacker.pokemon.hp > 0) this.gainHp(attacker, Math.max(1, Math.floor(dealt * shell.fraction)), log);
 
     const orb = heldPassive(attacker.pokemon, 'damage');
-    if (orb?.cost && !this.recoilFree(attacker) && !this.abilityOf(attacker)?.noSecondary) {
+    // A Magic Guard pays nothing; a Sheer Force pays nothing for a move whose
+    // side effect it gave up. A Rock Head is no help: this is not recoil.
+    const sheer = this.abilityOf(attacker)?.noSecondary && hasSecondary(move);
+    if (orb?.cost && !this.abilityOf(attacker)?.indirectImmune && !sheer) {
       this.loseHp(attacker, Math.max(1, Math.floor(attacker.maxHp * orb.cost)), log, { recoil: true });
     }
 
@@ -4411,6 +4414,13 @@ export class Battle {
     if (!addVolatile(target, VOLATILE.INFATUATION, Infinity)) return false;
 
     log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.INFATUATION } });
+    // A Destiny Knot ties the one who did it in the same knot.
+    if (heldPassive(target.pokemon, 'destiny') && source !== target && !hasVolatile(source, VOLATILE.INFATUATION)) {
+      const mark = log.length;
+      if (this.infatuate(target, source, log)) {
+        log.splice(mark, 0, { kind: 'heldFired', side: target.side, data: { item: target.pokemon.heldItem } });
+      }
+    }
     this.eatOneBerry(target, log);
     return true;
   }
@@ -4644,6 +4654,7 @@ export class Battle {
         trainerBattle: this.trainerBattle,
         experienceMultiplier: heldPassive(this.player.pokemon, 'experience')?.multiplier ?? 1,
         effortMultiplier: heldPassive(this.player.pokemon, 'effort')?.multiplier ?? 1,
+        effortBonus: heldPassive(this.player.pokemon, 'effort')?.bonus ?? null,
       },
     );
     this.rewards.push(reward);

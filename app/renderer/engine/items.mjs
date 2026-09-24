@@ -7,9 +7,30 @@
  */
 import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilitySlot, createPokemon, evolveInto, levelOf, maxHp, maxPp, pendingEvolution } from './pokemon.mjs';
+import { abilitySlot, createPokemon, evolveInto, levelOf, maxHp, maxPp, pendingEvolution, setMove } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
-import { settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
+import { FORME_MOVES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
+
+/**
+ * What a player picks for an item that works on one move or one stat.
+ *
+ * @typedef {{move?: number, stat?: string}} ItemChoice
+ */
+
+/**
+ * What an item needs picked before it is used: a move for an Ether or a PP
+ * Up, a stat for a Bottle Cap — or nothing.
+ *
+ * @param {string} slug
+ * @returns {'move'|'stat'|null}
+ */
+export function itemNeedsChoice(slug) {
+  const use = itemOf(slug)?.use;
+  if (!use) return null;
+  if (use.pp?.scope === 'one' || use.ppUp) return 'move';
+  if (use.genes === 'one') return 'stat';
+  return null;
+}
 
 /**
  * Apply an item to the travelling Pokémon.
@@ -19,9 +40,11 @@ import { settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.m
  *
  * @param {import('../engine/session.mjs').Session} session
  * @param {string} slug
+ * @param {ItemChoice} [choice] the move or stat a one-target item is for;
+ *   without one it goes to the first move that can use it, or the weakest gene
  * @returns {{used: boolean, ok: boolean, message: string}}
  */
-export function useItem(session, slug) {
+export function useItem(session, slug, choice = {}) {
   const item = itemOf(slug);
   const pokemon = session.active;
   if (!item) return { used: false, ok: false, message: t('items.cannotUse') };
@@ -51,10 +74,14 @@ export function useItem(session, slug) {
 
   // A legendary's key item changes its shape and stays in the bag.
   if (item.use?.forme) {
+    const before = pokemon.standing ?? speciesOf(pokemon.speciesId)?.slug ?? '';
     const forme = useFormeItem(pokemon, slug);
     if (forme === false) {
       return { used: false, ok: false, message: t('items.formeNothing', { name: nameOf(pokemon), item: label }) };
     }
+    swapFormeMove(pokemon, before, forme ?? speciesOf(pokemon.speciesId)?.slug ?? '');
+    // A nectar is drunk; a catalog or a meteorite stays in the bag.
+    if (item.use.consumed) session.removeItem(slug);
     const form = speciesOf(pokemon.speciesId)?.forms?.find((entry) => entry.slug === forme);
     return {
       used: true,
@@ -65,10 +92,20 @@ export function useItem(session, slug) {
     };
   }
 
+  // Honey's scent calls a wild Pokémon over as the next thing to happen.
+  if (item.use?.lure) {
+    if (session.events.forced === 'wild') {
+      return { used: false, ok: false, message: t('items.cannotUse') };
+    }
+    session.events.force('wild');
+    session.removeItem(slug);
+    return { used: true, ok: true, message: t('items.lured', { item: label }) };
+  }
+
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
   // Rare Candy — does it here, whichever pocket it sits in.
   if (item.use) {
-    if (applyUse(pokemon, item)) {
+    if (applyUse(pokemon, item, choice)) {
       session.removeItem(slug);
       return { used: true, ok: true, message: t('items.used', { name: label }) };
     }
@@ -252,9 +289,10 @@ function nameOf(pokemon) {
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {any} item
+ * @param {ItemChoice} [choice]
  * @returns {boolean} whether anything changed
  */
-function applyUse(pokemon, item) {
+function applyUse(pokemon, item, choice = {}) {
   const use = item.use;
   if (!use) return false;
 
@@ -284,8 +322,13 @@ function applyUse(pokemon, item) {
     changed = true;
   }
 
-  if (use.pp) changed = restorePp(pokemon, use.pp) || changed;
+  if (use.pp) changed = restorePp(pokemon, use.pp, choice.move) || changed;
   if (use.effort) changed = changeEffort(pokemon, use.effort) || changed;
+  // A Fresh-Start Mochi takes every effort point back.
+  if (use.resetEffort && STATS.some((stat) => (pokemon.evs[stat] ?? 0) > 0)) {
+    pokemon.evs = Object.fromEntries(STATS.map((stat) => [stat, 0]));
+    changed = true;
+  }
 
   if (use.level) {
     const level = levelOf(pokemon);
@@ -312,28 +355,60 @@ function applyUse(pokemon, item) {
   }
 
   // A Bottle Cap maxes the genes: one stat, or all of them.
-  if (use.genes) changed = maximizeGenes(pokemon, use.genes) || changed;
+  if (use.genes) changed = maximizeGenes(pokemon, use.genes, choice.stat) || changed;
 
   // An Ability Capsule swaps the two ordinary abilities; an Ability Patch
   // hands over the hidden one, and hands it back if it is already out.
   if (use.ability) changed = switchAbility(pokemon, use.ability) || changed;
 
   // A PP Up raises a move's ceiling rather than filling it.
-  if (use.ppUp) changed = raiseMaxPp(pokemon, use.ppUp) || changed;
+  if (use.ppUp) changed = raiseMaxPp(pokemon, use.ppUp, choice.move) || changed;
 
   return changed;
 }
 
 /**
- * The stat a Bottle Cap should be spent on: the lowest one, which is where a
- * player would spend it and what makes "one" a choice worth making at all.
+ * What the companion's held item makes of the next field event: a Cleanse
+ * Tag or a Pure Incense keeps a third of the wild Pokémon away.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @returns {{wild?: number}}
+ */
+export function eventModifiers(session) {
+  return heldPassive(session.active, 'repel') ? { wild: 2 / 3 } : {};
+}
+
+/**
+ * Swap the move one shape brought for the one the next shape brings, the
+ * way a Rotom forgets its Overheat on the way out of the oven. The old move's
+ * slot takes the new one; a Rotom that had forgotten the old move learns the
+ * new one in a free slot if it has one, and otherwise goes without.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string} from the shape it was in
+ * @param {string} to the shape it is in now
+ */
+function swapFormeMove(pokemon, from, to) {
+  const old = FORME_MOVES.get(from);
+  const next = FORME_MOVES.get(to);
+  if (!next || old === next || !moveOf(next)) return;
+  if (pokemon.moves.some((slot) => slot.move === next)) return;
+  const at = pokemon.moves.findIndex((slot) => slot.move === old);
+  if (at >= 0) setMove(pokemon, at, next);
+  else if (pokemon.moves.length < 4) setMove(pokemon, pokemon.moves.length, next);
+}
+
+/**
+ * Max the genes a Bottle Cap is spent on: the stat the player picked, or —
+ * with no pick, as the auto-use has none — the lowest one.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {'one'|'all'} scope
+ * @param {string} [stat]
  */
-function maximizeGenes(pokemon, scope) {
+function maximizeGenes(pokemon, scope, stat) {
   const weakest = [...STATS].sort((a, b) => (pokemon.ivs[a] ?? 0) - (pokemon.ivs[b] ?? 0))[0];
-  const stats = scope === 'all' ? [...STATS] : [weakest];
+  const stats = scope === 'all' ? [...STATS] : [stat && STATS.includes(stat) ? stat : weakest];
   let changed = false;
   for (const stat of stats) {
     if ((pokemon.ivs[stat] ?? 0) >= MAX_IV) continue;
@@ -382,9 +457,11 @@ function switchAbility(pokemon, how) {
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {{fraction: number, max: number}} ppUp
+ * @param {number} [index] the move slot picked, if one was
  */
-function raiseMaxPp(pokemon, ppUp) {
-  const slot = pokemon.moves.find((entry) => (entry.ppUp ?? 0) < ppUp.max - 1e-9 && moveOf(entry.move));
+function raiseMaxPp(pokemon, ppUp, index) {
+  const room = (entry) => entry && (entry.ppUp ?? 0) < ppUp.max - 1e-9 && moveOf(entry.move);
+  const slot = index !== undefined ? (room(pokemon.moves[index]) ? pokemon.moves[index] : null) : pokemon.moves.find(room);
   if (!slot) return false;
 
   const before = maxPp(slot);
@@ -401,10 +478,12 @@ const MAX_IV = 31;
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {{amount: number|'full', scope: 'one'|'all'}} pp
+ * @param {number} [index] the move slot picked, if one was
  */
-function restorePp(pokemon, pp) {
+function restorePp(pokemon, pp, index) {
   const spent = pokemon.moves.filter((slot) => slot.pp < maxPp(slot));
-  const targets = pp.scope === 'all' ? spent : spent.slice(0, 1);
+  const chosen = index !== undefined ? spent.filter((slot) => slot === pokemon.moves[index]) : spent.slice(0, 1);
+  const targets = pp.scope === 'all' ? spent : chosen;
   if (targets.length === 0) return false;
 
   for (const slot of targets) {
@@ -639,7 +718,11 @@ export function heldShield(pokemon, against) {
  */
 export function itemSuits(held, pokemon) {
   if (!held?.species?.length) return true;
-  const slug = (speciesOf(pokemon.speciesId)?.slug ?? '').replace(/[^a-z0-9]/g, '');
+  // A regional form is the species the item was made for: an Alolan Marowak
+  // swings a Thick Club as any Marowak does.
+  const species = speciesOf(pokemon.speciesId);
+  const base = species?.dex ? speciesOf(species.dex) : species;
+  const slug = (base?.slug ?? '').replace(/[^a-z0-9]/g, '');
   return held.species.includes(slug);
 }
 

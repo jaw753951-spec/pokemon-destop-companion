@@ -336,6 +336,10 @@ export const ABILITIES = {
   'natural-cure': {},
   regenerator: {},
   pickup: {},
+  // Honey now and then after a battle; the first ball that misses, fetched
+  // back (see the battle and capture screens).
+  'honey-gather': {},
+  'ball-fetch': {},
 
   // The Cramorant that dived after something: it catches on a Surf or a
   // Dive and spits the catch at the next thing that hits it (see `answerHit`).
@@ -773,7 +777,7 @@ const snowing = (weather) => weather === WEATHER.HAIL || weather === WEATHER.SNO
 const stab = (combatant, move) => speciesOf(combatant.pokemon.speciesId)?.types.includes(move.type);
 
 /** Whether a move carries a secondary effect for Sheer Force to trade away. */
-function hasSecondary(move) {
+export function hasSecondary(move) {
   const meta = move?.meta;
   if (!meta) return false;
   return (

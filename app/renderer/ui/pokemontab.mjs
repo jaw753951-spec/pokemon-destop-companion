@@ -119,7 +119,10 @@ function heldLine(app, session, refresh) {
             const off = await describe(app, {
               title: localized(item?.name, held),
               subtitle: item?.pocket ? t(`items.pocket.${item.pocket}`) : null,
-              body: localized(item?.text, '') || (item?.works ? '' : t('items.noEffectYet')),
+              body: localized(item?.text, ''),
+              // The description says what the item is for; whether it does
+              // it here goes underneath, as the bag's inspect screen puts it.
+              extra: item?.works ? null : el('span.meta', { text: t('items.noEffectYet') }),
               action: { label: t('items.takeBack'), danger: true },
             });
             if (!off) return;

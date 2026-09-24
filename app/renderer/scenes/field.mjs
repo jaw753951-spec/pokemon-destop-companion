@@ -19,7 +19,7 @@ import { gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { walkSteps } from '../engine/pokemon.mjs';
 
 import { name as localized, t } from '../core/i18n.mjs';
-import { healAfterBattle, restockBerry } from '../engine/items.mjs';
+import { eventModifiers, healAfterBattle, restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
 import {
   actorHeight,
@@ -562,7 +562,7 @@ export function fieldScene(session) {
         if (events?.busy || menuOpen || crossing > 0 || nearOverpass(session.area, eventGround(offset))) {
           session.eventTimer = EVENT_RETRY_MS;
         } else {
-          events?.start(session.events.roll(session.rng), offset, app);
+          events?.start(session.events.roll(session.rng, eventModifiers(session)), offset, app);
           // Ten things happen in a place, and then somewhere else.
           if (session.countEvent()) pendingCrossing = true;
         }

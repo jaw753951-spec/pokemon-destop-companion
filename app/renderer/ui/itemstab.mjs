@@ -9,9 +9,11 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { AFTER_BATTLE_TARGETS, equipItem, itemActions, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, itemActions, itemNeedsChoice, useItem } from '../engine/items.mjs';
+import { maxPp } from '../engine/pokemon.mjs';
+import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
-import { chooseFromList, chooseItem, confirm } from './dialog.mjs';
+import { chooseAction, chooseFromList, chooseItem, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
 const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
@@ -344,8 +346,30 @@ function itemButtons(app, session, slug, refresh) {
   const actions = itemActions(session, slug);
 
   /** @param {'use'|'equip'} kind */
-  const act = (kind) => {
-    const result = kind === 'equip' ? equipItem(session, slug) : useItem(session, slug);
+  const act = async (kind) => {
+    // An Ether, a PP Up or a Bottle Cap works on one thing, and the player
+    // says which.
+    /** @type {import('../engine/items.mjs').ItemChoice} */
+    let choice = {};
+    const needs = kind === 'use' ? itemNeedsChoice(slug) : null;
+    if (needs === 'move') {
+      const pokemon = session.active;
+      const picked = await chooseAction(app, t('items.chooseMove'), pokemon.moves.map((entry, index) => ({
+        label: `${localized(moveOf(entry.move)?.name, entry.move)} ${entry.pp}/${maxPp(entry)}`,
+        value: String(index),
+      })));
+      if (picked === null) return;
+      choice = { move: Number(picked) };
+    } else if (needs === 'stat') {
+      const pokemon = session.active;
+      const picked = await chooseAction(app, t('items.chooseStat'), STATS.map((stat) => ({
+        label: `${t(`stat.${stat}`)} ${pokemon.ivs[stat] ?? 0}`,
+        value: stat,
+      })));
+      if (picked === null) return;
+      choice = { stat: picked };
+    }
+    const result = kind === 'equip' ? equipItem(session, slug) : useItem(session, slug, choice);
     app.toast(result.message ?? t('items.cannotUse'));
     // A refusal is worth a sound too: a TM the companion cannot learn says so
     // and nothing else happens, which used to be silent.
