@@ -69,9 +69,14 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npx electron-builder --${{ matrix.platform }} --publish never
 
+      # The packages only have to live long enough for the release job below
+      # and the itch.io workflow to pick them up, which both happen within
+      # minutes. Kept for the default 90 days, the three platforms come to
+      # ~750 MB a build and fill the account's Actions storage on their own.
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}
+          retention-days: 1
           path: |
             dist/*.zip
             dist/*.dmg
