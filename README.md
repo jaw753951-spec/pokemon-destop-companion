@@ -924,7 +924,7 @@ BGM 2MB · 트레이너 1MB · 전투 배경과 뱃지 1MB) + 데이터 4MB 입�
 ## 배포 · 패키징
 
 `npm run dist` 은 `electron-builder` 로 현재 OS용 패키지를 만듭니다. 대상은
-Windows(zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
+Windows(zip), macOS(dmg, 애플 실리콘·인텔 공용 universal), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
 컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
 
 윈도우는 설치본 없이 zip만 냅니다. 설치 프로그램은 서명이 없으면 경고가 한 겹 더 붙고,
@@ -939,13 +939,16 @@ Windows(zip), macOS(dmg, x64·arm64), Linux(AppImage)이며 산출물은 `dist/`
 아이콘은 `npm run icon` 이 `dev/build/icon.png` 를 그립니다. 저장소에 커밋되는 유일한 그림이며,
 포켓몬 저작물이 아닌 자체 도형입니다.
 
-GitHub Actions 워크플로는 세 개입니다.
+GitHub Actions 워크플로는 두 개입니다.
 
 | 워크플로 | 시점 | 하는 일 |
 | --- | --- | --- |
-| `check.yml` | 모든 푸시·PR | 에셋 빌드 → `npm run typecheck` → `npm test` |
-| `build.yml` | `v*` 태그 푸시 (또는 수동) | 3개 OS 매트릭스로 패키징 → **드래프트 릴리스**에 업로드 |
-| `itch.yml` | `build.yml` 성공 후 | `ITCH_API_KEY`·`ITCH_TARGET` 이 설정된 경우에만 `butler push` |
+| `check.yml` | `main` 푸시 · PR (또는 수동) | 에셋 빌드 → `npm run typecheck` → `npm test` |
+| `build.yml` | `v*` 태그 푸시 (또는 수동) | 3개 OS 매트릭스로 패키징 → 릴리스에 업로드 |
+
+작업 브랜치는 푸시마다가 아니라 PR에서 검사하고, 같은 브랜치에 새로 푸시하면 앞선 검사는
+취소됩니다. 빌드 산출물은 Actions 저장 공간을 금방 채우므로 릴리스 빌드는 1일, 빌드만 하는
+수동 실행은 3일 뒤 지워집니다. 릴리스에 올라간 파일은 그대로 남습니다.
 
 에셋 다운로드는 `dev/tools/**` 와 `package-lock.json` 해시를 키로 `actions/cache` 에 캐시되므로,
 게임 코드만 바꾼 빌드는 내려받기를 건너뜁니다. 서명 인증서가 없어 macOS 빌드는 서명되지
@@ -955,8 +958,20 @@ GitHub Actions 워크플로는 세 개입니다.
 
 ```bash
 npm version 0.1.1        # package.json 버전 갱신 + 태그
-git push --follow-tags   # build.yml 이 태그를 받아 드래프트 릴리스 생성
+git push --follow-tags   # build.yml 이 태그를 받아 릴리스 생성
 ```
+
+### GitHub에서 바로 빌드하기
+
+로컬 환경 없이 GitHub 웹에서 패키지를 만들 수 있습니다.
+
+1. 저장소의 **Actions** 탭 → 왼쪽 목록에서 **Build** 선택
+2. 오른쪽 **Run workflow** → 빌드할 브랜치를 고르고 아래 값을 채운 뒤 실행
+
+| 입력 | 비워 두면 | 채우면 |
+| --- | --- | --- |
+| `release_tag` | 빌드만 합니다. 실행 페이지 아래 **Artifacts** 에서 3일 동안 받을 수 있습니다 | 그 태그(예: `v0.3.1`)로 릴리스를 만들어 올립니다. 태그가 없으면 새로 만듭니다 |
+| `platforms` | `all` — 세 OS 모두 | `win` · `mac` · `linux` 중 하나만 빌드합니다. 테스트용이라 `release_tag` 와 함께 쓸 수 없습니다 |
 
 ## 언어
 
