@@ -459,6 +459,7 @@
   "move.mudSport.end": "The effects of Mud Sport have faded.",
   "move.naturePower": "Nature Power turned into {move}!",
   "move.obtained": "{name} obtained {item}.",
+  "move.fling": "{name} flung its {item}!",
   "move.octolock": "{name} can no longer escape because of Octolock!",
   "move.ohko": "It's a one-hit KO!",
   "move.painSplit": "The battlers shared their pain!",

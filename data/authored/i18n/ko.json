@@ -459,6 +459,7 @@
   "move.mudSport.end": "흙놀이의 효과가 없어졌다!",
   "move.naturePower": "자연의힘은 {move}이(가) 되었다!",
   "move.obtained": "{name}은(는) {item}을(를) 손에 넣었다!",
+  "move.fling": "{name}은(는) {item}을(를) 내던졌다!",
   "move.octolock": "{name}은(는) 문어굳히기 때문에 도망칠 수 없게 되었다!",
   "move.ohko": "일격필살!",
   "move.painSplit": "서로의 체력을 나누어 가졌다!",

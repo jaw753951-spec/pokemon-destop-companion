@@ -625,9 +625,26 @@ async function buildItems(pool, log, natures) {
     ),
   );
 
+  // What a berry turns into when a Natural Gift throws it. PokeAPI keeps the
+  // powers Diamond and Pearl gave; X and Y raised every one of them by 20.
+  const berries = await fetchJson(`${POKEAPI}/berry/index.json`);
+  await Promise.all(
+    berries.results.map((entry) =>
+      pool(async () => {
+        const berry = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`, { allowMissing: true });
+        const item = berry && out[berry.item?.name];
+        if (!item || !berry.natural_gift_power || !berry.natural_gift_type) return;
+        item.naturalGift = { power: berry.natural_gift_power + NATURAL_GIFT_RAISE, type: berry.natural_gift_type.name };
+      }),
+    ),
+  );
+
   log(`items ${Object.keys(out).length} across ${[...POCKETS].join('/')}`);
   return out;
 }
+
+/** How much X and Y added to every berry's Natural Gift power. */
+const NATURAL_GIFT_RAISE = 20;
 
 /**
  * What an item does while a Pokémon is holding it, read from the one place

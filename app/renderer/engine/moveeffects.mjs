@@ -370,6 +370,14 @@ function canFling(battle, user, slug) {
   return slug === 'fling' ? (item.flingPower ?? 0) > 0 : Boolean(item.naturalGift);
 }
 
+/** The items that hand over a condition of their own when a Fling throws them. */
+const FLUNG_AILMENTS = {
+  'flame-orb': 'burn',
+  'toxic-orb': 'poison',
+  'light-ball': 'paralysis',
+  'poison-barb': 'poison',
+};
+
 /**
  * Status moves whose effect is a rule of its own. Each returns whether it did
  * anything; a false return is a "하지만 실패했다!".
@@ -948,6 +956,25 @@ function guard(battle, user, key, line) {
  * @type {Record<string, (ctx: {battle: any, user: any, target: any, move: any, log: any[], damage: number}) => void>}
  */
 export const AFTER_HIT = {
+  // What was flung does to the target what it would have done to its holder.
+  fling: ({ battle, user, target, log }) => {
+    const slug = user.turn.flung;
+    const item = slug ? itemOf(slug) : null;
+    if (!item || target.pokemon.hp <= 0) return;
+    if (item.pocket === 'berries') {
+      battle.eatBerryNow(target, log, slug);
+      return;
+    }
+    const orb = item.held?.on === 'selfStatus' ? item.held.status : null;
+    const ailment = FLUNG_AILMENTS[slug] ?? (orb === 'tox' ? 'poison' : orb === 'brn' ? 'burn' : null);
+    if (ailment) battle.inflictAilment(user, target, ailment, log, { toxic: slug === 'toxic-orb' });
+    if ((slug === 'kings-rock' || slug === 'razor-fang') && !target.turn.moved) target.flinched = true;
+    // The herbs work on whoever they land on.
+    if (slug === 'white-herb') {
+      for (const stat of Object.keys(target.stages)) if (target.stages[stat] < 0) target.stages[stat] = 0;
+    }
+    if (slug === 'mental-herb') battle.freeMind(target, log);
+  },
   'knock-off': ({ battle, user, target }) => {
     const slug = removableItem(battle, target);
     if (!slug) return;

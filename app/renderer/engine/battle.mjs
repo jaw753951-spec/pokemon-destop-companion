@@ -81,7 +81,7 @@ import { stageMultiplier } from './stats.mjs';
  * @property {number} repeats how many turns running that has been the move
  * @property {boolean} movedLast whether it acted second on the previous turn
  * @property {number} maxHp
- * @property {{hitBy: any[], damage: number, lastHit: any, moved: boolean, lowered: boolean}} turn what it did
+ * @property {{hitBy: any[], damage: number, lastHit: any, moved: boolean, lowered: boolean, flung: string|null}} turn what it did
  *   and had done to it this turn
  * @property {{speciesId: number, forme: string|null, stats: Record<string, number>, moves: Array<{move: string, pp: number}>}} [transform]
  *   what a Transform or an Imposter made it, for the rest of the battle
@@ -187,7 +187,14 @@ const SUBSTITUTE_BYPASS = new Set(['perish-song', 'roar', 'whirlwind', 'transfor
 const FIELD_MESSAGES = new Set(['gravity', 'wonderRoom', 'magicRoom', 'waterSport', 'mudSport', 'mist', 'safeguard']);
 
 /** What a combatant did and had done to it this turn, which a few moves ask about. */
-const freshTurn = () => ({ hitBy: /** @type {any[]} */ ([]), damage: 0, lastHit: /** @type {any} */ (null), moved: false, lowered: false });
+const freshTurn = () => ({
+  hitBy: /** @type {any[]} */ ([]),
+  damage: 0,
+  lastHit: /** @type {any} */ (null),
+  moved: false,
+  lowered: false,
+  flung: /** @type {string|null} */ (null),
+});
 
 /** How many turn ends a Perish Song's count lasts. */
 const PERISH_TURNS = 3;
@@ -2403,6 +2410,15 @@ export class Battle {
       return;
     }
 
+    // A Fling and a Natural Gift spend the item as they are used, whether or
+    // not they then land; the power and type were read off it already.
+    if ((moveName === 'fling' || moveName === 'natural-gift') && attacker.pokemon.heldItem) {
+      attacker.turn.flung = attacker.pokemon.heldItem;
+      if (moveName === 'fling') this.say(attacker, 'move.fling', { item: attacker.pokemon.heldItem });
+      this.consumeItem(attacker);
+      this.settleHeldFormes(log);
+    }
+
     // Off the field for the turn: in the sky, underground, underwater or
     // simply gone. Only the moves that go looking reach it.
     const hidden = defender.marks.hidden;
@@ -2995,6 +3011,13 @@ export class Battle {
     combatant.marks.ateBerry = slug;
     log.push({ kind: 'berry', side: combatant.side, data: { item: slug } });
 
+    // A Figy and its kin taste of one stat; a nature that lowers that stat
+    // cannot stand the flavour, and the Pokémon is left confused.
+    if (held.dislikes) {
+      const nature = gameData().natures?.[combatant.pokemon.nature];
+      if (nature?.decreased === held.dislikes && nature.increased !== nature.decreased) this.confuse(combatant, log);
+    }
+
     // A Cheek Pouch is paid for eating whatever it was.
     if (ability?.onBerry) {
       log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
@@ -3527,6 +3550,15 @@ export class Battle {
       defender.marks.popped = true;
       log.push({ kind: 'berry', side: defender.side, data: { item: defender.pokemon.heldItem } });
       defender.pokemon.heldItem = null;
+    }
+
+    // A Sticky Barb clings to whatever touched its holder, if that hand is
+    // empty.
+    const barb = heldPassive(defender.pokemon, 'turn');
+    if (barb?.sticky && attacker.pokemon.hp > 0 && !attacker.pokemon.heldItem && this.touches(attacker, defender, move)) {
+      attacker.pokemon.heldItem = defender.pokemon.heldItem;
+      defender.pokemon.heldItem = null;
+      this.say(attacker, 'move.obtained', { item: attacker.pokemon.heldItem });
     }
 
     if (defender.pokemon.hp > 0) {
@@ -4118,16 +4150,26 @@ export class Battle {
    */
   eatMentalHerb(combatant, log) {
     if (!heldPassive(combatant.pokemon, 'free')) return;
+    if (!this.freeMind(combatant, log)) return;
+    log.push({ kind: 'heldFired', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
+    combatant.pokemon.heldItem = null;
+  }
 
+  /**
+   * Lift what a Mental Herb lifts: the infatuation and the moves the other
+   * side has locked or taken away.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  freeMind(combatant, log) {
     let freed = false;
     for (const state of [VOLATILE.INFATUATION, VOLATILE.TAUNT, VOLATILE.ENCORE, VOLATILE.DISABLE, VOLATILE.TORMENT]) {
       if (!clearVolatile(combatant, state)) continue;
       log.push({ kind: 'volatileEnded', side: combatant.side, data: { state } });
       freed = true;
     }
-    if (!freed) return;
-    log.push({ kind: 'heldFired', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
-    combatant.pokemon.heldItem = null;
+    return freed;
   }
 
   /**
