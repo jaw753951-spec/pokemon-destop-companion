@@ -12,13 +12,19 @@ on:
   # Releasing by hand as well as by tag. Pushing a tag is not always available
   # — some checkouts hold credentials that may push branches but not tags — and
   # the workflow's own token can create the tag, so the release is reachable
-  # either way. Left empty, a dispatch only builds.
+  # either way. Left empty, a dispatch only builds — a test build to download
+  # from the run page, which can also be narrowed to the one OS being tried.
   workflow_dispatch:
     inputs:
       release_tag:
         description: 'Publish a release under this tag (e.g. v0.1). Empty = build only.'
         required: false
         default: ''
+      platforms:
+        description: 'Which OS to build. A release needs all.'
+        type: choice
+        options: [all, win, mac, linux]
+        default: all
 
 permissions:
   contents: write
@@ -28,16 +34,25 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: win
-          - os: macos-latest
-            platform: mac
+        # A tag push has no inputs, so it falls through to all three.
+        include: >-
+          ${{ fromJSON(
+            inputs.platforms == 'win' && '[{"os":"windows-latest","platform":"win"}]' ||
+            inputs.platforms == 'mac' && '[{"os":"macos-latest","platform":"mac"}]' ||
+            inputs.platforms == 'linux' && '[{"os":"ubuntu-latest","platform":"linux"}]' ||
+            '[{"os":"ubuntu-latest","platform":"linux"},{"os":"windows-latest","platform":"win"},{"os":"macos-latest","platform":"mac"}]'
+          ) }}
     runs-on: ${{ matrix.os }}
 
     steps:
+      # The release job keeps the release to exactly what this run built, so a
+      # release from one OS would strip the other two from it.
+      - name: Refuse a release from part of the platforms
+        if: inputs.release_tag != '' && inputs.platforms != 'all'
+        run: |
+          echo "::error::A release needs every platform; set platforms to 'all' or leave release_tag empty."
+          exit 1
+
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
@@ -73,10 +88,12 @@ jobs:
       # and the itch.io workflow to pick them up, which both happen within
       # minutes. Kept for the default 90 days, the three platforms come to
       # ~750 MB a build and fill the account's Actions storage on their own.
+      # A build-only dispatch has no release to download from, so its packages
+      # stay a few days for someone to fetch them from the run page.
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.platform }}
-          retention-days: 1
+          retention-days: ${{ (github.event_name == 'workflow_dispatch' && inputs.release_tag == '') && 3 || 1 }}
           path: |
             dist/*.zip
             dist/*.dmg
@@ -85,7 +102,7 @@ jobs:
 
   release:
     needs: package
-    if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.release_tag != '' && inputs.platforms == 'all')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4
