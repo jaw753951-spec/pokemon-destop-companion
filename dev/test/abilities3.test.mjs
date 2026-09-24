@@ -134,3 +134,18 @@ test('the abilities a single battle never lets act say so', options, () => {
   }
   assert.ok(!abilityInert('intimidate'));
 });
+
+test('a wild Pokémon held by a Shadow Tag or a Mean Look cannot Teleport away', options, () => {
+  const free = fight(make('wobbuffet', 30, ['splash'], 'telepathy'), make('abra', 20, ['teleport']));
+  free.takeTurn();
+  assert.equal(free.outcome, 'fled');
+
+  const tagged = fight(make('wobbuffet', 30, ['splash'], 'shadow-tag'), make('abra', 20, ['teleport']));
+  tagged.takeTurn();
+  assert.equal(tagged.outcome, 'ongoing');
+
+  // A Ghost type slips it all.
+  const ghost = fight(make('wobbuffet', 30, ['splash'], 'shadow-tag'), make('gastly', 20, ['teleport']));
+  ghost.takeTurn();
+  assert.equal(ghost.outcome, 'fled');
+});

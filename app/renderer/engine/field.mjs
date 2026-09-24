@@ -137,6 +137,8 @@ export class Field {
     this.tailwind = { player: 0, foe: 0 };
     /** The pseudo-weathers: turns left on each. */
     this.gravity = 0;
+    /** The turn an Ion Deluge charged, or -1. */
+    this.ionDeluge = -1;
     this.wonderRoom = 0;
     this.magicRoom = 0;
     this.waterSport = 0;
@@ -281,7 +283,7 @@ export class Field {
       if (this[key] > 0 && --this[key] <= 0) expired.push({ kind: key, value: key });
     }
     for (const side of /** @type {const} */ (['player', 'foe'])) {
-      for (const key of /** @type {const} */ (['mist', 'safeguard'])) {
+      for (const key of /** @type {const} */ (['mist', 'safeguard', 'luckyChant'])) {
         if (this.sides[side][key] > 0 && --this.sides[side][key] <= 0) expired.push({ kind: key, value: key, side });
       }
     }
@@ -429,7 +431,7 @@ export function terrainBlocksPriority(terrain, priority, defenderGrounded) {
 }
 
 /** A side with nothing on the ground. */
-const freshSide = () => ({ mist: 0, safeguard: 0, wideGuard: -1, quickGuard: -1, craftyShield: -1 });
+const freshSide = () => ({ mist: 0, safeguard: 0, luckyChant: 0, wideGuard: -1, quickGuard: -1, craftyShield: -1 });
 
 const freshHazards = () => ({ spikes: 0, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 });
 

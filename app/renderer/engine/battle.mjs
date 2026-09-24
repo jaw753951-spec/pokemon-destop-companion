@@ -184,7 +184,7 @@ const NO_REPEAT = new Set(['blood-moon', 'gigaton-hammer']);
 const SUBSTITUTE_BYPASS = new Set(['perish-song', 'roar', 'whirlwind', 'transform', 'psych-up', 'role-play', 'spite', 'haze', 'court-change', 'doodle']);
 
 /** The field clocks whose running out is one of the move lines. */
-const FIELD_MESSAGES = new Set(['gravity', 'wonderRoom', 'magicRoom', 'waterSport', 'mudSport', 'mist', 'safeguard']);
+const FIELD_MESSAGES = new Set(['gravity', 'wonderRoom', 'magicRoom', 'waterSport', 'mudSport', 'mist', 'safeguard', 'luckyChant']);
 
 /** What a combatant did and had done to it this turn, which a few moves ask about. */
 const freshTurn = () => ({
@@ -620,7 +620,8 @@ export class Battle {
    * @param {string} stat
    */
   rawStat(combatant, stat) {
-    return combatant.transform?.stats?.[stat] ?? statsOf(combatant.pokemon, combatant.marks.forme ?? null)[stat];
+    const read = swappedStat(combatant, stat);
+    return combatant.transform?.stats?.[read] ?? statsOf(combatant.pokemon, combatant.marks.forme ?? null)[read];
   }
 
   /**
@@ -889,9 +890,31 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   flee(user, log) {
-    if (this.trainerBattle) return false;
+    if (this.trainerBattle || !this.canEscape(user)) return false;
     this.say(user, 'move.fled');
     this.finish(user.side === 'player' ? 'escaped' : 'fled', log);
+    return true;
+  }
+
+  /**
+   * Whether a Pokémon is free to leave: nothing holding it — a Mean Look, a
+   * bind, its own roots — and nothing on the other side that keeps it there:
+   * a Shadow Tag, an Arena Trap under a grounded foot, a Magnet Pull on
+   * steel. A Ghost type slips every one of them, and so does a Run Away or a
+   * Smoke Ball.
+   *
+   * @param {Combatant} combatant
+   */
+  canEscape(combatant) {
+    const own = this.abilityOf(combatant);
+    if (this.typesOf(combatant).includes('ghost') || own?.runAway || heldPassive(combatant.pokemon, 'escape')) return true;
+    if (combatant.volatile.trapped || combatant.volatile.bound || combatant.volatile.ingrain) return false;
+    const other = this.other(combatant);
+    if (!other || other.pokemon.hp <= 0) return true;
+    const trap = this.abilityOf(other, combatant);
+    if (trap?.trapsAll && !own?.trapsAll) return false;
+    if (trap?.trapsGrounded && this.grounded(combatant)) return false;
+    if (trap?.trapsSteel && this.typesOf(combatant).includes('steel')) return false;
     return true;
   }
 
@@ -995,7 +1018,11 @@ export class Battle {
    * @param {Combatant} combatant
    */
   movesOf(combatant) {
-    return combatant.transform?.moves ?? combatant.pokemon.moves;
+    const moves = combatant.transform?.moves ?? combatant.pokemon.moves;
+    // A Mimic stands in for the move it copied until the battle ends.
+    const mimicked = combatant.marks.mimicked;
+    if (!mimicked) return moves;
+    return moves.map((slot, index) => (index === mimicked.index ? mimicked.slot : slot));
   }
 
   /**
@@ -2390,6 +2417,15 @@ export class Battle {
       }
     }
 
+    // A Fire move under Powder blows up in its user's face.
+    if (attacker.volatile.powder === this.turn && move.type === 'fire') {
+      log.push({ kind: 'message', side: attacker.side, data: { key: 'move.powder.exploded', move: moveName } });
+      if (!this.abilityOf(attacker)?.indirectImmune) this.loseHp(attacker, Math.floor(attacker.maxHp / 4), log);
+      attacker.marks.lastFailed = true;
+      this.afterMove(attacker, defender, moveName, log.length, log);
+      return;
+    }
+
     // A Cramorant comes up from a Surf or a Dive with something in its
     // mouth: an Arrokuda while it is above half, a Pikachu below.
     if (this.abilityOf(attacker)?.gulpMissile && (moveName === 'surf' || moveName === 'dive') && !attacker.marks.gulp) {
@@ -2785,6 +2821,8 @@ export class Battle {
     // the berry gives it.
     const fieldType = variableType(this, attacker, move);
     if (fieldType) move = { ...move, type: fieldType };
+    // An Ion Deluge charges every Normal move for the rest of the turn.
+    if (this.field.ionDeluge === this.turn && move.type === 'normal') move = { ...move, type: 'electric' };
     // A Present decides what it is when it is opened.
     if (move.slug === 'present') {
       const roll = this.rng.next();
@@ -2865,6 +2903,8 @@ export class Battle {
    */
   blockedByGuard(attacker, defender, move, moveName, log) {
     if (defender.volatile.protectTurn !== this.turn) return false;
+    // A Mat Block stops attacks and nothing else.
+    if (defender.volatile.protectMove === 'mat-block' && move.damageClass === 'status') return false;
     // A guard is something to hide behind, not something to stand behind while
     // the other side helps itself — a move aimed at its user goes through.
     if (move.damageClass === 'status' && !(move.statChanges ?? []).some((change) => change.change < 0)) {
@@ -3963,6 +4003,8 @@ export class Battle {
    * @param {any} move
    */
   rollCritical(attacker, defender, move) {
+    // A Lucky Chant hides its side's weak spots.
+    if (this.field.sides[defender.side].luckyChant > 0) return false;
     const armour = this.abilityOf(defender, attacker)?.crit?.(this.abilityContext(defender, attacker, []));
     if (armour?.immune) return false;
 
@@ -4699,6 +4741,20 @@ function makeCombatant(pokemon, side) {
 }
 
 /**
+ * The stat a combatant's number for `stat` is really read from: its Defense
+ * for its Attack and the other way round, after a Power Trick or a Power
+ * Shift — twice undone.
+ *
+ * @param {{marks?: Record<string, any>}} combatant
+ * @param {string} stat
+ */
+function swappedStat(combatant, stat) {
+  const swapped = Boolean(combatant.marks?.powerTrick) !== Boolean(combatant.marks?.powerShift);
+  if (!swapped) return stat;
+  return stat === 'atk' ? 'def' : stat === 'def' ? 'atk' : stat;
+}
+
+/**
  * A stat after its stage multiplier, and paralysis' Speed penalty.
  * @param {Combatant} combatant
  * @param {string} stat
@@ -4708,8 +4764,11 @@ export function effectiveStat(combatant, stat, options = {}) {
   // The forme the combatant wears carries its own base stats — a Zen Mode's
   // Attack comes out of the forme, not out of the species.
   // A Transform fights on the stats it copied, all but its own Hit Points.
-  const copied = stat !== 'hp' ? combatant.transform?.stats?.[stat] : undefined;
-  const base = copied ?? statsOf(combatant.pokemon, combatant.marks?.forme)[stat] ?? 1;
+  // A Power Trick or a Power Shift reads each of Attack and Defense off the
+  // other.
+  const read = swappedStat(combatant, stat);
+  const copied = read !== 'hp' ? combatant.transform?.stats?.[read] : undefined;
+  const base = copied ?? statsOf(combatant.pokemon, combatant.marks?.forme)[read] ?? 1;
   let stage = options.ignoreStages ? 0 : combatant.stages[stat] ?? 0;
   if (options.ignorePositive && stage > 0) stage = 0;
   if (options.ignoreNegative && stage < 0) stage = 0;

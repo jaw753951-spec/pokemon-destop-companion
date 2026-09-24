@@ -25,7 +25,7 @@
  */
 import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { TERRAIN, WEATHER } from './field.mjs';
-import { friendshipOf, levelOf, maxHp } from './pokemon.mjs';
+import { friendshipOf, levelOf, maxHp, setMove } from './pokemon.mjs';
 
 /** @param {any} move @param {string} flag */
 const hasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
@@ -109,8 +109,11 @@ export const chargeOwnsStats = (slug) => Boolean(CHARGE_TURNS[slug]?.stat);
 export const PARTNER_ONLY = new Set([
   'helping-hand', 'follow-me', 'rage-powder', 'ally-switch', 'after-you', 'quash', 'instruct', 'aromatic-mist',
   'coaching', 'dragon-cheer', 'spotlight', 'hold-hands', 'baton-pass', 'shed-tail', 'healing-wish',
-  'lunar-dance', 'revival-blessing', 'assist', 'magnetic-flux', 'gear-up', 'life-dew',
+  'lunar-dance', 'revival-blessing', 'assist', 'magnetic-flux', 'gear-up',
 ]);
+
+/** What a Mimic or a Sketch cannot copy. */
+const UNCOPYABLE_MOVES = new Set(['mimic', 'sketch', 'transform', 'struggle', 'metronome', 'chatter', 'sleep-talk']);
 
 /**
  * The moves that end a wild battle or pull a trainer's Pokémon out, which the
@@ -548,6 +551,32 @@ export const STATUS_MOVES = {
   },
 
   // ---- Sticking to the target.
+  // The other side's last move, in place of the Mimic, for the battle.
+  mimic: ({ battle, user, target }) => {
+    const copied = target.lastMove;
+    if (!copied || UNCOPYABLE_MOVES.has(copied) || !moveOf(copied)) return false;
+    const moves = battle.movesOf(user);
+    if (moves.some((slot) => slot.move === copied)) return false;
+    const index = moves.findIndex((slot) => slot.move === 'mimic');
+    if (index < 0) return false;
+    user.marks.mimicked = { index, slot: { move: copied, pp: 5, ppUp: 0 } };
+    battle.say(user, 'move.mimic', { move: copied });
+    return true;
+  },
+  // The same, for good: a Smeargle keeps what it sketched.
+  sketch: ({ battle, user, target }) => {
+    const copied = target.lastMove;
+    if (!copied || UNCOPYABLE_MOVES.has(copied) || !moveOf(copied) || user.transform) return false;
+    const moves = user.pokemon.moves;
+    if (moves.some((slot) => slot.move === copied)) return false;
+    const index = moves.findIndex((slot) => slot.move === 'sketch');
+    if (index < 0) return false;
+    setMove(user.pokemon, index, copied);
+    battle.say(user, 'move.sketch', { move: copied });
+    return true;
+  },
+  // A dew that heals the user and its partners; here, the user.
+  'life-dew': ({ battle, user, log }) => battle.gainHp(user, Math.floor(user.maxHp / 4), log) > 0,
   substitute: ({ battle, user, log }) => {
     if (user.volatile.substitute > 0) {
       battle.say(user, 'move.substitute.already');
@@ -750,6 +779,55 @@ export const STATUS_MOVES = {
   'water-sport': ({ battle, user }) => fieldTimer(battle, user, 'waterSport', 5, 'move.waterSport'),
   'mud-sport': ({ battle, user }) => fieldTimer(battle, user, 'mudSport', 5, 'move.mudSport'),
   mist: ({ battle, user }) => sideTimer(battle, user, 'mist', 5, 'move.mist'),
+  'lucky-chant': ({ battle, user }) => sideTimer(battle, user, 'luckyChant', 5, 'move.luckyChant'),
+  // A mat kicked up in front of the side, on the first turn out only, that
+  // stops attacks for the turn.
+  'mat-block': ({ battle, user }) => {
+    if (!battle.firstTurnOut(user)) return false;
+    user.volatile.protectTurn = battle.turn;
+    user.volatile.protectMove = 'mat-block';
+    battle.say(user, 'move.matBlock');
+    return true;
+  },
+  'ion-deluge': ({ battle, user }) => {
+    battle.field.ionDeluge = battle.turn;
+    battle.say(user, 'move.ionDeluge');
+    return true;
+  },
+  powder: ({ battle, target }) => {
+    target.volatile.powder = battle.turn;
+    battle.say(target, 'move.powder');
+    return true;
+  },
+  // Every held item on the field, eaten away — here, the one across.
+  'corrosive-gas': ({ battle, user, target }) => {
+    const slug = removableItem(battle, target);
+    if (!slug) return false;
+    target.pokemon.heldItem = null;
+    battle.say(user, 'move.corrosiveGas', { item: slug });
+    battle.settleHeldFormes([]);
+    return true;
+  },
+  // The user's item, handed across to a target with empty hands.
+  bestow: ({ battle, user, target }) => {
+    const slug = user.pokemon.heldItem;
+    if (!slug || target.pokemon.heldItem || battle.bindsItem(user, slug)) return false;
+    user.pokemon.heldItem = null;
+    target.pokemon.heldItem = slug;
+    battle.say(target, 'move.bestow', { item: slug });
+    battle.settleHeldFormes([]);
+    return true;
+  },
+  'power-shift': ({ battle, user }) => {
+    user.marks.powerShift = !user.marks.powerShift;
+    battle.say(user, 'move.powerTrick');
+    return true;
+  },
+  // Double prize money, and a battle that pays none; the mood is real.
+  'happy-hour': ({ battle, user }) => {
+    battle.say(user, 'move.happyHour');
+    return true;
+  },
   safeguard: ({ battle, user }) => sideTimer(battle, user, 'safeguard', 5, 'move.safeguard'),
   'wide-guard': ({ battle, user }) => guard(battle, user, 'wideGuard', 'move.wideGuard'),
   'quick-guard': ({ battle, user }) => guard(battle, user, 'quickGuard', 'move.quickGuard'),

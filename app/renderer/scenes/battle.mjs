@@ -19,6 +19,7 @@ import {
   evolveInto,
   friendshipForLevels,
   gainFriendship,
+  learnOnEvolution,
   levelOf,
   maxHp,
   pendingEvolution,
@@ -1139,6 +1140,14 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         session.markCaught(evolution.to);
         app.toast(t('battle.evolving', { name: from, target: nameOf(session.active) }));
         app.audio.playCry(session.active.speciesId);
+        // And what evolving teaches.
+        const taught = learnOnEvolution(session.active);
+        for (const move of taught.learned) {
+          app.toast(t('battle.learned', { name: nameOf(session.active), move: localized(moveOf(move)?.name, move) }), 3200);
+        }
+        for (const move of taught.waiting) {
+          app.toast(t('battle.cannotLearnMore', { name: nameOf(session.active), move: localized(moveOf(move)?.name, move) }), 3200);
+        }
         // And a Nincada leaves a Shedinja behind.
         const shell = shedAfterEvolving(session, fromSpecies, session.active);
         if (shell) app.toast(t('battle.shed', { name: nameOf(shell) }), 3200);

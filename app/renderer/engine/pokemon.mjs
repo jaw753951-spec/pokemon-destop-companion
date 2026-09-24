@@ -121,6 +121,17 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     ball: options.ball ?? null,
   });
 
+  // A female Meowstic, Indeedee, Basculegion or Oinkologne is a species of
+  // its own in the dex, with its own stats, abilities and moves.
+  const gendered = genderedSpecies(speciesId, pokemon.gender);
+  if (gendered !== speciesId) {
+    const slot = abilitySlot(pokemon);
+    pokemon.speciesId = gendered;
+    const variant = speciesOf(gendered);
+    pokemon.ability = (variant.abilities[slot] ?? variant.abilities[0])?.name ?? pokemon.ability;
+    pokemon.experience = experienceForLevel(variant.growthRate, Math.max(1, level));
+  }
+
   // An Ogerpon is met in one of its four masks: the Teal it wears bare, or
   // holding one of the other three — and it keeps the mask it came in.
   const masks = HELD_FORMES.get(species.slug);
@@ -132,6 +143,23 @@ export function createPokemon(rng, speciesId, level, options = {}) {
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
   pokemon.hp = maxHp(pokemon);
   return pokemon;
+}
+
+/**
+ * The dex entry a Pokémon of this gender belongs under: the female variant a
+ * species keeps separately for its females, and the species itself for its
+ * males.
+ *
+ * @param {number} speciesId
+ * @param {'male'|'female'|null|undefined} gender
+ * @returns {number}
+ */
+export function genderedSpecies(speciesId, gender) {
+  const species = speciesOf(speciesId);
+  if (!species) return speciesId;
+  if (gender === 'female' && species.femaleVariant && speciesOf(species.femaleVariant)) return species.femaleVariant;
+  if (gender === 'male' && species.gender === 'female' && species.dex) return species.dex;
+  return speciesId;
 }
 
 /**
@@ -449,9 +477,42 @@ export function movesLearnedBetween(pokemon, fromLevel, toLevel) {
 export function availableMoves(pokemon, unlockedMachines = []) {
   const species = speciesOf(pokemon.speciesId);
   const level = levelOf(pokemon);
-  const fromLevels = species.learnset.level.filter(([at]) => at <= level).map(([, move]) => move);
-  const fromMachines = unlockedMachines.filter((move) => species.learnset.machine.includes(move));
-  return [...new Set([...fromLevels, ...fromMachines])].filter((move) => moveOf(move));
+  // A forme with moves of its own — a Calyrex riding its steed — adds them to
+  // the species'.
+  const forme = pokemon.forme ? species.forms?.find((form) => form.slug === pokemon.forme)?.learnset : null;
+  const sets = [species.learnset, ...(forme ? [forme] : [])];
+  const fromLevels = sets.flatMap((set) => (set.level ?? []).filter(([at]) => at <= level).map(([, move]) => move));
+  const fromMachines = unlockedMachines.filter((move) => sets.some((set) => set.machine?.includes(move)));
+  // A tutor teaches whenever asked; there is no level to wait for.
+  const fromTutors = sets.flatMap((set) => set.tutor ?? []);
+  return [...new Set([...fromLevels, ...fromMachines, ...fromTutors])].filter((move) => moveOf(move));
+}
+
+/**
+ * The moves a species learns the moment something evolves into it — a
+ * Charizard's Air Slash — taught straight into a free slot, as a level-up
+ * move is. Those that do not fit are left in the move list to swap in.
+ *
+ * @param {Pokemon} pokemon just evolved
+ * @returns {{learned: string[], waiting: string[]}}
+ */
+export function learnOnEvolution(pokemon) {
+  const species = speciesOf(pokemon.speciesId);
+  const known = new Set(pokemon.moves.map((slot) => slot.move));
+  const fresh = (species?.learnset.level ?? [])
+    .filter(([at, move]) => at === 0 && !known.has(move) && moveOf(move))
+    .map(([, move]) => move);
+  /** @type {{learned: string[], waiting: string[]}} */
+  const out = { learned: [], waiting: [] };
+  for (const move of new Set(fresh)) {
+    if (pokemon.moves.length < 4) {
+      setMove(pokemon, pokemon.moves.length, move);
+      out.learned.push(move);
+    } else {
+      out.waiting.push(move);
+    }
+  }
+  return out;
 }
 
 /**
@@ -667,6 +728,8 @@ function matchesTime(required, current) {
 export function evolveInto(pokemon, speciesId) {
   const ratio = pokemon.hp / maxHp(pokemon);
   const slot = abilitySlot(pokemon);
+  // A female Lechonk grows into the female Oinkologne.
+  speciesId = genderedSpecies(speciesId, pokemon.gender);
   pokemon.speciesId = speciesId;
   const species = speciesOf(speciesId);
   if (!species.abilities.some((entry) => entry.name === pokemon.ability)) {

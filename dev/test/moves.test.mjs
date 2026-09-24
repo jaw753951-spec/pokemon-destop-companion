@@ -140,3 +140,70 @@ test('Teleport lets a wild Pokémon leave', options, () => {
   battle.takeTurn();
   assert.equal(battle.outcome, 'fled');
 });
+
+test('a Mimic copies for the battle, and a Sketch for good', options, () => {
+  const player = fixed(SNORLAX, 60, ['mimic', 'tackle']);
+  const battle = fight(player, fixed(MACHAMP, 40, ['karate-chop']));
+  battle.foe.lastMove = 'karate-chop';
+  const orig = battle.chooseMove.bind(battle);
+  battle.chooseMove = (a, d) => (a === battle.player ? 'mimic' : orig(a, d));
+  battle.takeTurn();
+  assert.ok(battle.movesOf(battle.player).some((slot) => slot.move === 'karate-chop'));
+  assert.equal(player.moves[0].move, 'mimic', 'the save keeps the Mimic');
+
+  const smeargle = fixed(235, 60, ['sketch']);
+  const sketching = fight(smeargle, fixed(MACHAMP, 40, ['karate-chop']));
+  sketching.foe.lastMove = 'karate-chop';
+  sketching.takeTurn();
+  assert.equal(smeargle.moves[0].move, 'karate-chop');
+});
+
+/** Make the player use `move` this turn, whatever the automatic battler thinks of it. */
+function force(battle, move) {
+  const own = battle.chooseMove.bind(battle);
+  battle.chooseMove = (attacker, defender) => (attacker === battle.player ? move : own(attacker, defender));
+}
+
+test('a Power Trick swaps Attack and Defense until it is used again', options, () => {
+  const battle = fight(fixed(MACHAMP, 60, ['power-trick']), punchbag());
+  const atk = battle.rawStat(battle.player, 'atk');
+  const def = battle.rawStat(battle.player, 'def');
+  battle.takeTurn();
+  assert.equal(battle.rawStat(battle.player, 'atk'), def);
+  assert.equal(battle.rawStat(battle.player, 'def'), atk);
+});
+
+test('a Lucky Chant keeps critical hits off its side', options, () => {
+  const battle = fight(fixed(SNORLAX, 60, ['lucky-chant']), punchbag());
+  battle.takeTurn();
+  assert.equal(battle.field.sides.player.luckyChant > 0, true);
+  battle.foe.stages.crit = 6;
+  battle.foe.volatile.laserFocus = 1;
+  assert.equal(battle.rollCritical(battle.foe, battle.player, moveOf('tackle')), false);
+});
+
+test('a Corrosive Gas melts the item across, and a Bestow hands one over', options, () => {
+  const foe = punchbag();
+  foe.heldItem = 'leftovers';
+  const gassed = fight(fixed(SNORLAX, 60, ['corrosive-gas']), foe);
+  gassed.takeTurn();
+  assert.equal(foe.heldItem, null);
+
+  const giver = fixed(SNORLAX, 60, ['bestow']);
+  giver.heldItem = 'sitrus-berry';
+  const gifted = fight(giver, punchbag());
+  force(gifted, 'bestow');
+  gifted.takeTurn();
+  assert.equal(giver.heldItem, null);
+  assert.equal(gifted.foe.pokemon.heldItem, 'sitrus-berry');
+});
+
+test('a Fire move under Powder blows up on its user', options, () => {
+  const foe = fixed(MACHAMP, 20, ['fire-punch']);
+  const battle = fight(fixed(SNORLAX, 60, ['powder']), foe);
+  battle.player.stages.acc = 6;
+  // Powder has priority, so it lands before the Fire Punch goes off.
+  const log = battle.takeTurn();
+  assert.ok(log.some((entry) => entry.kind === 'message' && entry.data?.key === 'move.powder.exploded'));
+  assert.equal(maxHp(foe) - foe.hp, Math.floor(maxHp(foe) / 4));
+});

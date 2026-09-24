@@ -604,6 +604,13 @@ export const ABILITIES = {
     },
   },
 
+  // ---- Keeping the other side from leaving (see `canEscape`), and leaving
+  // regardless.
+  'shadow-tag': { trapsAll: true },
+  'arena-trap': { trapsGrounded: true },
+  'magnet-pull': { trapsSteel: true },
+  'run-away': { runAway: true },
+
   // ---- Reading the other side on the way in.
   anticipation: { start: (ctx) => ctx.anticipate() },
   forewarn: { start: (ctx) => ctx.forewarn() },

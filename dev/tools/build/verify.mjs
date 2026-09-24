@@ -354,6 +354,8 @@ function evolutionItem(species, slug) {
       (evolution) =>
         evolution.item === slug ||
         evolution.heldItem === slug ||
+        // A Milcery takes any of the seven Sweets.
+        (evolution.heldItems ?? []).includes(slug) ||
         // A Linking Cord stands in for every trade.
         (evolution.trigger === 'trade' && slug === TRADE_ITEM),
     ),

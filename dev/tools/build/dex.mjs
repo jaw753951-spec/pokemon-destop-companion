@@ -373,6 +373,12 @@ async function buildMoves(pool, log) {
     ),
   );
 
+  // A Z-Move's special half is the same move as its physical half, and
+  // PokeAPI describes it only as "Dummy Data".
+  for (const [slug, move] of Object.entries(out)) {
+    const twin = slug.endsWith('--special') ? out[slug.replace(/--special$/, '--physical')] : null;
+    if (twin && !move.text?.en) move.text = { ...twin.text };
+  }
   log(`moves ${Object.keys(out).length}`);
   return out;
 }
@@ -642,6 +648,13 @@ async function buildItems(pool, log, natures) {
   log(`items ${Object.keys(out).length} across ${[...POCKETS].join('/')}`);
   return out;
 }
+
+/**
+ * Gender rates PokeAPI records wrongly. Oinkologne is filed as always male —
+ * its species entry covers only the male variety since the female one was
+ * split off — where Lechonk's even split carries on in the games.
+ */
+const GENDER_RATES = { oinkologne: 4 };
 
 /** How much X and Y added to every berry's Natural Gift power. */
 const NATURAL_GIFT_RAISE = 20;
@@ -1190,6 +1203,8 @@ function unwritten(item, slug, natures) {
  */
 const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
+  // Out of any wild battle, whatever is holding it there.
+  'smoke-ball': { held: { on: 'escape' } },
   'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },
   'wiki-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spa' } },
   'mago-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spe' } },
@@ -1453,7 +1468,7 @@ async function buildSpecies(pool, log, limit) {
           growthRate: species.growth_rate?.name ?? 'medium',
           captureRate: species.capture_rate ?? 45,
           baseHappiness: species.base_happiness ?? 50,
-          genderRate: species.gender_rate,
+          genderRate: GENDER_RATES[species.name] ?? species.gender_rate,
           heldItems: wildHeldItems(pokemon.held_items),
           eggGroups: species.egg_groups.map((group) => group.name),
           habitat: species.habitat?.name ?? null,

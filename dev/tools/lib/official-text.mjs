@@ -21,6 +21,7 @@
  * nothing.
  */
 import { fetchBuffer, fetchJson } from './http.mjs';
+import { isRetiredPlaceholder } from './poke.mjs';
 
 const SV_TEXT = 'https://raw.githubusercontent.com/Pokemon-Project-com/sv-text/main/common';
 const GO_TEXT = 'https://raw.githubusercontent.com/PokeMiners/pogo_assets/master/Texts/Latest%20APK/JSON';
@@ -65,7 +66,9 @@ const key = (text) =>
 
 /** A line fit to show: filled in, no unresolved variables, no placeholder. */
 const usable = (line) =>
-  Boolean(line && /[가-힣]/.test(line) && !line.includes('[VAR') && !/^\[~ \d+\]$/.test(line.trim()));
+  Boolean(
+    line && /[가-힣]/.test(line) && !line.includes('[VAR') && !/^\[~ \d+\]$/.test(line.trim()) && !isRetiredPlaceholder(line),
+  );
 
 /** An English line fit to line things up by. */
 const usableEnglish = (line) => Boolean(line && /[A-Za-z]/.test(line) && !/^\[~ \d+\]$/.test(line.trim()));

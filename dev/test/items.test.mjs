@@ -155,13 +155,13 @@ test('only what this game will never have is dropped', withData, () => {
   // now can be: a Mint's nature, a Capsule's ability, a PP Up's ceiling, a
   // Bottle Cap's genes, a type-resisting Berry, a Light Ball's one species.
   for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball',
-    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone']) {
+    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'smoke-ball']) {
     assert.ok(items[slug]?.works, `${slug} should be working`);
   }
 
   // And the ones still waiting, which belong to systems this game does not
-  // have: switching the companion out, fleeing, Dynamax, Let's Go's catching.
-  for (const slug of ['shed-shell', 'smoke-ball', 'pass-orb', 'dynamax-candy', 'golden-razz-berry']) {
+  // have: switching the companion out, Dynamax, Let's Go's catching.
+  for (const slug of ['shed-shell', 'pass-orb', 'dynamax-candy', 'golden-razz-berry']) {
     assert.ok(items[slug], `${slug} should have been kept`);
     assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
   }

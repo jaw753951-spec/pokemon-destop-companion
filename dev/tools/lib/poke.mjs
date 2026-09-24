@@ -83,12 +83,31 @@ export function genusBundle(genera) {
  * @returns {string|null}
  */
 export function latestFlavorText(entries, language, textKey = 'flavor_text') {
-  const candidates = (entries ?? []).filter((entry) => entry.language?.name === language);
+  const unwrap = (entry) => entry[textKey].replace(/[\n\f\r­]+/g, ' ').replace(/\s+/g, ' ').trim();
+  // Scarlet and Violet describe every move they dropped with the same line —
+  // "This move can't be used" — which is the newest text for 170-odd moves
+  // and says nothing about any of them. The game before it is asked instead.
+  const candidates = (entries ?? []).filter(
+    (entry) => entry.language?.name === language && !isRetiredPlaceholder(unwrap(entry)),
+  );
   if (candidates.length === 0) return null;
 
   candidates.sort((a, b) => rank(versionGroupOf(a)) - rank(versionGroupOf(b)));
   // Cartridge text is hard-wrapped to the text box; unwrap it for our own layout.
-  return candidates[0][textKey].replace(/[\n\f\r­]+/g, ' ').replace(/\s+/g, ' ').trim();
+  return unwrap(candidates[0]);
+}
+
+/**
+ * Whether a line is the placeholder a game prints for a move it no longer
+ * lets anything use, in any of the languages it ships.
+ *
+ * @param {string} text
+ */
+export function isRetiredPlaceholder(text) {
+  return /^dummy data$|can.t be used\. It.s recommended|사용할 수 없는 기술입니다|使えない技です|使用できない技です|无法使用的招式|無法使用的招式|kann nicht eingesetzt werden|ne peut pas être utilisée|non può essere usata|no se puede usar/i.test(
+    // The dumps keep their line breaks as a literal backslash-n.
+    String(text ?? '').replace(/\\n|\s+/g, ' '),
+  );
 }
 
 function versionGroupOf(entry) {

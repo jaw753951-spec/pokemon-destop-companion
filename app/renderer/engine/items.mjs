@@ -7,7 +7,17 @@
  */
 import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { abilitySlot, createPokemon, evolveInto, levelOf, maxHp, maxPp, pendingEvolution, setMove } from './pokemon.mjs';
+import {
+  abilitySlot,
+  createPokemon,
+  evolveInto,
+  learnOnEvolution,
+  levelOf,
+  maxHp,
+  maxPp,
+  pendingEvolution,
+  setMove,
+} from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
 import { FORME_MOVES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
@@ -132,14 +142,13 @@ export function useItem(session, slug, choice = {}) {
     const from = nameOf(pokemon);
     evolveInto(pokemon, evolution.to);
     session.markCaught(evolution.to);
-    return {
-      used: true,
-      ok: true,
-      message: t('battle.evolving', {
-        name: from,
-        target: localized(speciesOf(pokemon.speciesId)?.name, ''),
-      }),
-    };
+    const taught = learnOnEvolution(pokemon);
+    const lines = [
+      t('battle.evolving', { name: from, target: localized(speciesOf(pokemon.speciesId)?.name, '') }),
+      ...taught.learned.map((move) => t('battle.learned', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) })),
+      ...taught.waiting.map((move) => t('battle.cannotLearnMore', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) })),
+    ];
+    return { used: true, ok: true, message: lines.join(' ') };
   }
 
   // Anything a Pokémon could carry becomes the held item instead of failing.
