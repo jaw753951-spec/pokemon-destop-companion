@@ -56,7 +56,7 @@ function fakeSession(bag, active) {
     bag,
     active,
     box: [],
-    rng: { chance: () => true, pick: (list) => list[0], int: (min) => min },
+    rng: { chance: () => true, pick: (list) => list[0] },
     countOf: (slug) => bag[slug] ?? 0,
     removeItem: (slug) => {
       bag[slug] -= 1;
@@ -208,9 +208,10 @@ test('a Relic Song turns Meloetta, and the next turns it back', options, () => {
 test("a legendary's own item is found only while it is the one travelling", options, () => {
   assert.ok(SIGNATURE_FIND_CHANCE > 0 && SIGNATURE_FIND_CHANCE < 0.5);
   const kyogre = make('kyogre');
-  assert.equal(signatureFind(fakeSession({}, kyogre))?.item, 'blue-orb');
+  assert.equal(signatureFind(fakeSession({}, kyogre)), 'blue-orb');
   assert.equal(signatureFind(fakeSession({ 'blue-orb': 1 }, kyogre)), null, 'not twice');
   assert.equal(signatureFind(fakeSession({}, make('tauros'))), null, 'nothing for a Tauros');
+  assert.equal(signatureFind(fakeSession({}, make('gimmighoul'))), 'gimmighoul-coin', 'a coin for a Gimmighoul');
 
   // None of them is in the ordinary finds.
   const tiers = new Set(

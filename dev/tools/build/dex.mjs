@@ -83,7 +83,6 @@ function shippedItems(items, { machines, moves, species, log }) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
       if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
-      if (evolution.spends) evolutionItems.add(evolution.spends.item);
     }
   }
 
@@ -2035,7 +2034,6 @@ function evolutionWorks(edge) {
       edge.heldItem ||
       edge.steps ||
       edge.recoil ||
-      edge.spends ||
       edge.partySpecies,
   );
 }
@@ -2086,6 +2084,6 @@ const EVOLUTION_FALLBACKS = {
   'urshifu-rapid-strike': { trigger: 'use-item', item: 'scroll-of-waters' },
   // Four hundred candies in another game: its level and one candy here.
   melmetal: { trigger: 'use-item', item: 'meltan-candy', minLevel: 48 },
-  // Nine hundred and ninety-nine coins in the bag, spent on levelling up.
-  gholdengo: { spends: { item: 'gimmighoul-coin', count: 999 } },
+  // A coin of its own, found now and then while a Gimmighoul travels.
+  gholdengo: { trigger: 'use-item', item: 'gimmighoul-coin' },
 };

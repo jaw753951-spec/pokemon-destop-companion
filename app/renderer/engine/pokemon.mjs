@@ -511,11 +511,9 @@ export const TRADE_ITEM = 'linking-cord';
  *   crits?: number,
  *   box?: Array<Pokemon|null>,
  *   raining?: boolean,
- *   countOf?: (item: string) => number,
  * }} [context] `crits` is how many critical hits it landed in the battle it
- *   has just finished; `box` the Pokémon that count as its party; `countOf`
- *   what the bag holds, for an evolution that spends something
- * @returns {{to: number, trigger: string, spends?: {item: string, count: number}}|null}
+ *   has just finished; `box` the Pokémon that count as its party
+ * @returns {{to: number, trigger: string}|null}
  */
 export function pendingEvolution(pokemon, context = {}) {
   const species = speciesOf(pokemon.speciesId);
@@ -531,7 +529,7 @@ export function pendingEvolution(pokemon, context = {}) {
   const box = (context.box ?? []).filter(Boolean);
 
   const trades = [];
-  /** @type {Array<{to: number, weight: number, spends?: {item: string, count: number}}>} */
+  /** @type {Array<{to: number, weight: number}>} */
   const levelled = [];
   for (const evolution of species.evolutions ?? []) {
     if (!speciesOf(evolution.to)) continue;
@@ -549,7 +547,6 @@ export function pendingEvolution(pokemon, context = {}) {
         evolution.heldItem ||
         evolution.steps ||
         evolution.recoil ||
-        evolution.spends ||
         evolution.partySpecies;
       if (!reachable) continue;
       if (evolution.minLevel && level < evolution.minLevel) continue;
@@ -566,7 +563,6 @@ export function pendingEvolution(pokemon, context = {}) {
       if (evolution.partyType && !box.some((other) => speciesOf(other.speciesId)?.types.includes(evolution.partyType))) {
         continue;
       }
-      if (evolution.spends && (context.countOf?.(evolution.spends.item) ?? 0) < evolution.spends.count) continue;
       if (evolution.relativeStats !== null && evolution.relativeStats !== undefined) {
         const stats = statsOf(pokemon);
         if (Math.sign(stats.atk - stats.def) !== evolution.relativeStats) continue;
@@ -576,7 +572,7 @@ export function pendingEvolution(pokemon, context = {}) {
       const weight =
         2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
         [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
-      levelled.push({ to: evolution.to, weight, ...(evolution.spends ? { spends: evolution.spends } : {}) });
+      levelled.push({ to: evolution.to, weight });
       continue;
     }
 
@@ -607,7 +603,7 @@ export function pendingEvolution(pokemon, context = {}) {
     // settled by something fixed about the Pokémon, the way the games use
     // its personality value: the same one every time for the same Wurmple.
     const chosen = best[personalityOf(pokemon) % best.length];
-    return { to: chosen.to, trigger: 'level-up', ...(chosen.spends ? { spends: chosen.spends } : {}) };
+    return { to: chosen.to, trigger: 'level-up' };
   }
 
   // The trade that goes with the item the Pokémon is holding, if one does.

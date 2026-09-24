@@ -114,7 +114,6 @@ test('an item the engine reads states what it does', withData, () => {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
       if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
-      if (evolution.spends) evolutionItems.add(evolution.spends.item);
     }
   }
 

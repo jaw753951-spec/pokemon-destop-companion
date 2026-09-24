@@ -168,7 +168,6 @@ test('every evolution the dex carries has a way here', options, () => {
               evolution.heldItem ||
               evolution.steps ||
               evolution.recoil ||
-              evolution.spends ||
               evolution.partySpecies,
           ));
       if (!ok) unreachable.push(`${species.slug}->${speciesOf(evolution.to)?.slug} (${evolution.trigger})`);
@@ -214,13 +213,13 @@ test('steps, recoil, company in the box and rain are counted as the games count 
   const sliggoo = make('sliggoo', 55);
   assert.equal(pendingEvolution(sliggoo, { raining: false }), null);
   assert.equal(pendingEvolution(sliggoo, { raining: true })?.to, id('goodra'));
-
-  const gimmighoul = make('gimmighoul', 30);
-  assert.equal(pendingEvolution(gimmighoul, { countOf: () => 998 }), null);
-  assert.deepEqual(pendingEvolution(gimmighoul, { countOf: () => 999 })?.spends, { item: 'gimmighoul-coin', count: 999 });
 });
 
-test('Cosmoem by the hour, Urshifu by the scroll, Melmetal by its candy', options, () => {
+test('Cosmoem by the hour, Urshifu by the scroll, Melmetal by its candy, Gimmighoul by its coin', options, () => {
+  const gimmighoul = make('gimmighoul', 30);
+  assert.equal(pendingEvolution(gimmighoul), null, 'not by levelling');
+  assert.equal(pendingEvolution(gimmighoul, { item: 'gimmighoul-coin' })?.to, id('gholdengo'));
+
   const cosmoem = make('cosmoem', 55);
   assert.equal(pendingEvolution(cosmoem, { timeOfDay: 'day' })?.to, id('solgaleo'));
   assert.equal(pendingEvolution(cosmoem, { timeOfDay: 'night' })?.to, id('lunala'));

@@ -329,8 +329,8 @@
     },
     "gimmighoul-coin": {
       "text": {
-        "ko": "모으령이 모으는 코인. 모으령이 999개를 가진 채 레벨업하면 타부자고로 진화하고, 코인은 그때 모두 쓴다.",
-        "en": "The coins Gimmighoul collect. A Gimmighoul that levels up with 999 of them in the bag evolves into Gholdengo, spending them all."
+        "ko": "모으령이 소중히 모으는 코인. 모으령에게 사용하면 타부자고로 진화한다.",
+        "en": "A coin Gimmighoul treasure. Use it on a Gimmighoul and it evolves into Gholdengo."
       }
     },
     "scroll-of-waters": {
