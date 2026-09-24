@@ -53,7 +53,8 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
   await Promise.all(
     Object.keys(items).map((name) =>
       pool(async () => {
-        const icon = DRAWN_ICONS[name]?.() ?? (await firstAvailable(iconCandidates(name, items[name], machines, moves)));
+        const found = DRAWN_ICONS[name]?.() ?? (await firstAvailable(iconCandidates(name, items[name], machines, moves)));
+        const icon = found && ICON_TINTS[name] ? tinted(found, ICON_TINTS[name]) : found;
         if (icon) {
           await writeOut(join(assetDir, 'items', `${name}.png`), icon);
           items[name].sprite = true;
@@ -125,10 +126,6 @@ const ICON_STAND_INS = {
   // they are a better kind of.
   'silver-razz-berry': 'razz-berry',
   'golden-razz-berry': 'razz-berry',
-  'silver-nanab-berry': 'nanab-berry',
-  'golden-nanab-berry': 'nanab-berry',
-  'silver-pinap-berry': 'pinap-berry',
-  'golden-pinap-berry': 'pinap-berry',
   'adamant-crystal': 'adamant-orb',
   'lustrous-globe': 'lustrous-orb',
   // The evolution items of the newest games, drawn by nobody yet: each shown
@@ -187,6 +184,44 @@ function drawTeraOrb() {
 
 /** Icons this step draws itself. @type {Record<string, () => Buffer>} */
 const DRAWN_ICONS = { 'tera-orb': drawTeraOrb };
+
+/**
+ * The icons that borrow another's picture and need telling apart from it: a
+ * silver and a golden Razz Berry are the plain one in metal.
+ */
+const ICON_TINTS = {
+  'silver-razz-berry': 'silver',
+  'golden-razz-berry': 'gold',
+};
+
+/**
+ * Recolour an icon by its brightness: grey for silver, a gold ramp for gold,
+ * outlines kept dark.
+ *
+ * @param {Buffer} buffer
+ * @param {'silver'|'gold'} metal
+ * @returns {Buffer}
+ */
+function tinted(buffer, metal) {
+  const png = decodePng(buffer);
+  const data = Buffer.from(png.data);
+  for (let i = 0; i < data.length; i += 4) {
+    if (data[i + 3] === 0) continue;
+    const light = 0.3 * data[i] + 0.59 * data[i + 1] + 0.11 * data[i + 2];
+    const clamp = (value) => Math.max(0, Math.min(255, Math.round(value)));
+    if (metal === 'silver') {
+      const grey = clamp(light * 1.15 + 35);
+      data[i] = grey;
+      data[i + 1] = grey;
+      data[i + 2] = clamp(grey + 12);
+    } else {
+      data[i] = clamp(light * 1.1 + 70);
+      data[i + 1] = clamp(light * 0.95 + 40);
+      data[i + 2] = clamp(light * 0.35);
+    }
+  }
+  return encodePng(png.width, png.height, data);
+}
 
 /**
  * The first icon that exists, trimmed to its opaque area.

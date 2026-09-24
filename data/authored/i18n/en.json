@@ -301,7 +301,6 @@
   "capture.success": "Gotcha! {name} was caught!",
   "capture.failed": "Oh no! The Pokémon broke free!",
   "capture.fed": "You gave {item} to {name}!",
-  "capture.pinap": "{name} was holding {item}!",
   "capture.fled": "{name} fled!",
   "capture.nickname": "Would you like to give a nickname to {name}?",
   "capture.nicknamePlaceholder": "Nickname",

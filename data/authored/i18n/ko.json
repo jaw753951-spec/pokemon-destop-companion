@@ -301,7 +301,6 @@
   "capture.success": "신난다! {name}을(를) 잡았다!",
   "capture.failed": "앗! 포켓몬이 볼에서 나와버렸다!",
   "capture.fed": "{name}에게 {item}을(를) 주었다!",
-  "capture.pinap": "{name}은(는) {item}을(를) 지니고 있었다!",
   "capture.fled": "{name}은(는) 도망쳤다!",
   "capture.nickname": "{name}에게 닉네임을 붙여 주시겠습니까?",
   "capture.nicknamePlaceholder": "닉네임",

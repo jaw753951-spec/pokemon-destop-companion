@@ -234,7 +234,7 @@ export function captureScene({ session, target, onFinish }) {
   /** The throws left, counted in balls — three of them say it without a word. */
   function renderCounter() {
     setChildren(counter, [
-      ...Array.from({ length: Math.max(CAPTURE_ATTEMPTS, attempts) }, (_, index) =>
+      ...Array.from({ length: CAPTURE_ATTEMPTS }, (_, index) =>
         el('img', {
           src: url('assets', 'items/poke-ball.png'),
           alt: '',
@@ -293,12 +293,6 @@ export function captureScene({ session, target, onFinish }) {
   function feed(app, slug) {
     if (busy || settled || fed || !session.removeItem(slug)) return;
     fed = slug;
-    const effect = itemOf(slug)?.capture ?? {};
-    // A Nanab calms it into staying for more throws.
-    if (effect.throws) {
-      attempts += effect.throws;
-      renderCounter();
-    }
     app.audio.blip('confirm');
     message.textContent = t('capture.fed', { name: label(), item: localized(itemOf(slug)?.name, slug) });
     renderBalls(app);
@@ -349,7 +343,6 @@ export function captureScene({ session, target, onFinish }) {
 
     const result = attemptCapture(session.rng, target, ball, context);
     // The berry is spent on this throw, whatever it comes to.
-    const given = fed;
     fed = null;
     // The ball goes up, the Pokémon goes in, and it rocks once per shake the
     // roll passed. Nothing is said until that has played out.
@@ -375,16 +368,6 @@ export function captureScene({ session, target, onFinish }) {
       // game earns the throw — so it arrives patched up rather than at no hit
       // points, which would have made it faint the moment it was swapped in.
       fullyHeal(target);
-      // A Pinap Berry turns up an item on what was caught.
-      const pinap = given ? itemOf(given)?.capture?.bonusItem ?? 0 : 0;
-      if (pinap && session.rng.chance(pinap)) {
-        const pool = gameData().itemTiers?.['poke-ball'] ?? [];
-        const found = pool.length ? session.rng.pick(pool) : null;
-        if (found) {
-          session.addItem(found);
-          app.toast(t('capture.pinap', { name: label(), item: localized(itemOf(found)?.name, found) }), 3200);
-        }
-      }
       const stored = session.storeInBox(target);
 
       app.toast(stored

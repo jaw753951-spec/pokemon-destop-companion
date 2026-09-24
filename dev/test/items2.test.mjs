@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { speciesIdBySlug } from '../../app/renderer/core/data.mjs';
+import { gameData, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { ballBonus, catchValue } from '../../app/renderer/engine/capture.mjs';
 import { EventScheduler } from '../../app/renderer/engine/events.mjs';
@@ -203,8 +203,9 @@ test('a Razz Berry makes the catch easier, and a catching berry is not held', op
   const onix = make('onix', 40);
   assert.ok(catchValue(onix, 'poke-ball', { berry: 'golden-razz-berry' }) > catchValue(onix, 'poke-ball', { berry: 'silver-razz-berry' }));
   assert.ok(catchValue(onix, 'poke-ball', { berry: 'silver-razz-berry' }) > catchValue(onix, 'poke-ball'));
-  // A Nanab or a Pinap does nothing to the odds.
-  assert.equal(catchValue(onix, 'poke-ball', { berry: 'golden-nanab-berry' }), catchValue(onix, 'poke-ball'));
+  // The ones that meant nothing without Let's Go's systems are not in the game.
+  assert.equal(gameData().items['golden-nanab-berry'], undefined);
+  assert.equal(gameData().items['silver-pinap-berry'], undefined);
   assert.equal(canHold('golden-razz-berry'), false);
   assert.equal(canHold('sitrus-berry'), true);
 });

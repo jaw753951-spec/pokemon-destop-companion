@@ -239,6 +239,12 @@ const FORM_ITEMS = {
  * @type {Record<string, string>}
  */
 const RETIRED_ITEMS = {
+  // Let's Go's Nanab and Pinap Berries calm a Pokémon that moves about the
+  // screen and bring extra candy; this game has neither.
+  'silver-nanab-berry': 'catching',
+  'golden-nanab-berry': 'catching',
+  'silver-pinap-berry': 'catching',
+  'golden-pinap-berry': 'catching',
   'exp-share': 'nothing to share with',
   'exp-share-gen6': 'nothing to share with',
   'amulet-coin': 'selling',
@@ -1209,15 +1215,10 @@ const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
   // Out of any wild battle, whatever is holding it there.
   'smoke-ball': { held: { on: 'escape' } },
-  // Let's Go's catching berries, given from the capture screen: a Razz makes
-  // the catch easier, a Nanab calms the Pokémon into staying for more
-  // throws, a Pinap finds an item on what was caught.
+  // Let's Go's catching berries, given from the capture screen: they make
+  // the catch easier.
   'silver-razz-berry': { capture: { catchRate: 1.5 } },
   'golden-razz-berry': { capture: { catchRate: 2.5 } },
-  'silver-nanab-berry': { capture: { throws: 1 } },
-  'golden-nanab-berry': { capture: { throws: 2 } },
-  'silver-pinap-berry': { capture: { bonusItem: 0.5 } },
-  'golden-pinap-berry': { capture: { bonusItem: 1 } },
   // A fifth more for every repeat since Black and White, not a tenth.
   metronome: { held: { on: 'damage', consecutive: 0.2, max: 2 } },
   'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },

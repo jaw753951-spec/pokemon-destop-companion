@@ -156,7 +156,7 @@ test('only what this game will never have is dropped', withData, () => {
   // Bottle Cap's genes, a type-resisting Berry, a Light Ball's one species.
   for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball',
     'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'smoke-ball',
-    'golden-razz-berry', 'silver-nanab-berry', 'golden-pinap-berry']) {
+    'golden-razz-berry', 'silver-razz-berry']) {
     assert.ok(items[slug]?.works, `${slug} should be working`);
   }
 
