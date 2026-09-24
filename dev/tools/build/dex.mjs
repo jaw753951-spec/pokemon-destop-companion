@@ -1205,6 +1205,8 @@ const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
   // Out of any wild battle, whatever is holding it there.
   'smoke-ball': { held: { on: 'escape' } },
+  // A fifth more for every repeat since Black and White, not a tenth.
+  metronome: { held: { on: 'damage', consecutive: 0.2, max: 2 } },
   'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },
   'wiki-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spa' } },
   'mago-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spe' } },

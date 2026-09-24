@@ -779,6 +779,26 @@ export const STATUS_MOVES = {
   'water-sport': ({ battle, user }) => fieldTimer(battle, user, 'waterSport', 5, 'move.waterSport'),
   'mud-sport': ({ battle, user }) => fieldTimer(battle, user, 'mudSport', 5, 'move.mudSport'),
   mist: ({ battle, user }) => sideTimer(battle, user, 'mist', 5, 'move.mist'),
+  // Every Grass type on the field, and nothing else: a Flower Shield's
+  // Defense, a Rototiller's Attack and Sp. Atk for the ones on the ground.
+  'flower-shield': ({ battle, user, target, log }) => {
+    let did = false;
+    for (const combatant of [user, target]) {
+      if (combatant.pokemon.hp <= 0 || !battle.typesOf(combatant).includes('grass')) continue;
+      if (battle.applyStage(combatant, 'def', 1, log, { source: combatant === user ? 'self' : undefined })) did = true;
+    }
+    return did;
+  },
+  rototiller: ({ battle, user, target, log }) => {
+    let did = false;
+    for (const combatant of [user, target]) {
+      if (combatant.pokemon.hp <= 0 || !battle.typesOf(combatant).includes('grass') || !battle.grounded(combatant)) continue;
+      const source = combatant === user ? 'self' : undefined;
+      if (battle.applyStage(combatant, 'atk', 1, log, { source })) did = true;
+      if (battle.applyStage(combatant, 'spa', 1, log, { source })) did = true;
+    }
+    return did;
+  },
   'lucky-chant': ({ battle, user }) => sideTimer(battle, user, 'luckyChant', 5, 'move.luckyChant'),
   // A mat kicked up in front of the side, on the first turn out only, that
   // stops attacks for the turn.
