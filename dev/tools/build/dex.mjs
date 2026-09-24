@@ -83,6 +83,7 @@ function shippedItems(items, { machines, moves, species, log }) {
     for (const evolution of entry.evolutions ?? []) {
       if (evolution.item) evolutionItems.add(evolution.item);
       if (evolution.heldItem) evolutionItems.add(evolution.heldItem);
+      if (evolution.spends) evolutionItems.add(evolution.spends.item);
     }
   }
 
@@ -1287,6 +1288,7 @@ async function buildSpecies(pool, log, limit) {
           baseExp: pokemon.base_experience ?? 100,
           growthRate: species.growth_rate?.name ?? 'medium',
           captureRate: species.capture_rate ?? 45,
+          baseHappiness: species.base_happiness ?? 50,
           genderRate: species.gender_rate,
           heldItems: wildHeldItems(pokemon.held_items),
           eggGroups: species.egg_groups.map((group) => group.name),
@@ -1345,10 +1347,11 @@ const REGIONAL_NAMES = {
   'tauros-paldea-blaze-breed': { ko: '팔데아 켄타로스(블레이즈종)', en: 'Paldean Tauros (Blaze Breed)' },
   'tauros-paldea-aqua-breed': { ko: '팔데아 켄타로스(워터종)', en: 'Paldean Tauros (Aqua Breed)' },
   'basculin-white-striped': { ko: '배쓰나이(흰줄무늬의 모습)', en: 'Basculin (White-Striped Form)' },
+  'urshifu-rapid-strike': { ko: '우라오스(연격의 태세)', en: 'Urshifu (Rapid Strike Style)' },
 };
 
 /** Varieties kept as Pokémon of their own though their name names no region. */
-const REGIONAL_EXTRAS = new Set(['basculin-white-striped']);
+const REGIONAL_EXTRAS = new Set(['basculin-white-striped', 'urshifu-rapid-strike']);
 
 /**
  * Whether a variety is a regional Pokémon: its own types, stats, moves and
@@ -1897,7 +1900,20 @@ async function attachEvolutions(species, chains, pool) {
     const byTarget = new Map();
     for (const edge of entry.evolutions ?? []) byTarget.set(edge.to, [...(byTarget.get(edge.to) ?? []), edge]);
     entry.evolutions = [...byTarget.values()].flatMap((edges) => {
-      const working = edges.filter(evolutionWorks);
+      let working = edges.filter(evolutionWorks);
+      // Where a move has to be used so many times, merely knowing it (another
+      // game's rule for the same evolution) does not count as well.
+      const counted = working.find((edge) => edge.trigger === 'use-move');
+      if (counted) working = working.filter((edge) => !(edge.trigger === 'level-up' && edge.knownMove === counted.usedMove));
+      // One of each, whichever game it came from.
+      const seen = new Set();
+      working = working.filter((edge) => {
+        const { fallback, ...rule } = edge;
+        const key = JSON.stringify(rule);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
       return working.length ? working : edges.slice(0, 1);
     });
   }
@@ -1977,7 +1993,17 @@ function reachableEvolution(detail, toSlug, to) {
     // A move used so many times (Rage Fist, for Annihilape).
     usedMove: detail.used_move?.name ?? null,
     moveCount: detail.min_move_count ?? null,
+    // Someone in the party (the box, here): a Remoraid for a Mantyke, a
+    // Dark type for a Pancham.
+    partySpecies: detail.party_species ? idFromUrl(detail.party_species.url) : null,
+    partyType: detail.party_type?.name ?? null,
+    // Rain on the map, for a Sliggoo.
+    rain: Boolean(detail.needs_overworld_rain),
   };
+  // Affection is counted as friendship here, at the level friendship
+  // evolutions ask for.
+  if (detail.min_affection && !detail.min_happiness) edge.happiness = FRIENDSHIP_EVOLVES;
+  Object.assign(edge, EVOLUTION_TWEAKS[toSlug] ?? {});
   if (evolutionWorks(edge)) return edge;
   const fallback = EVOLUTION_FALLBACKS[toSlug];
   if (!fallback) return edge;
@@ -1994,14 +2020,40 @@ function reachableEvolution(detail, toSlug, to) {
  * @param {any} edge
  */
 function evolutionWorks(edge) {
+  if (edge.region) return false;
   if (edge.trigger === 'use-item' || edge.trigger === 'trade' || edge.trigger === 'shed') return true;
   // Counted by the engine: uses of a move, and critical hits in one battle.
   if (edge.trigger === 'use-move' && edge.usedMove && edge.moveCount) return true;
   if (edge.trigger === 'three-critical-hits') return true;
   if (edge.trigger !== 'level-up') return false;
   if (edge.location) return false;
-  return Boolean(edge.minLevel || edge.happiness || edge.knownMove || edge.knownMoveType || edge.heldItem);
+  return Boolean(
+    edge.minLevel ||
+      edge.happiness ||
+      edge.knownMove ||
+      edge.knownMoveType ||
+      edge.heldItem ||
+      edge.steps ||
+      edge.recoil ||
+      edge.spends ||
+      edge.partySpecies,
+  );
 }
+
+/** The friendship an evolution by affection asks for, as friendship ones do. */
+const FRIENDSHIP_EVOLVES = 160;
+
+/**
+ * Changes to a rule the games have that this game makes differently even
+ * though it can meet it: a Cosmoem becomes Solgaleo by day and Lunala by
+ * night rather than by which cartridge it is in.
+ *
+ * @type {Record<string, Record<string, any>>}
+ */
+const EVOLUTION_TWEAKS = {
+  solgaleo: { timeOfDay: 'day' },
+  lunala: { timeOfDay: 'night' },
+};
 
 /**
  * What stands in for a rule this game has no way to meet — a number of steps,
@@ -2012,23 +2064,28 @@ function evolutionWorks(edge) {
  * @type {Record<string, Record<string, any>>}
  */
 const EVOLUTION_FALLBACKS = {
-  // Twenty uses in a style this game has no styles for: knowing the move.
-  overqwil: { knownMove: 'barb-barrage' },
-  wyrdeer: { knownMove: 'psyshield-bash' },
-  // Something that happens in a battle this game plays out on its own.
-  runerigus: { minLevel: 34 },
-  basculegion: { minLevel: 36 },
+  // Twenty uses in a style this game has no styles for: twenty uses.
+  overqwil: { trigger: 'use-move', usedMove: 'barb-barrage', moveCount: 20 },
+  wyrdeer: { trigger: 'use-move', usedMove: 'psyshield-bash', moveCount: 20 },
+  // Recoil taken without fainting, counted on the Pokémon.
+  basculegion: { recoil: 294 },
+  // A thousand steps walked alongside, which a companion does all day.
+  pawmot: { steps: 1000 },
+  brambleghast: { steps: 1000 },
+  rabsca: { steps: 1000 },
+  // Levelling up in a battle, which is the only place this game levels up.
   maushold: { minLevel: 25 },
-  // Held and levelled rather than spun, climbed or earned.
+  // A rock arch this game has no map of: the level Yamask evolves at.
+  runerigus: { minLevel: 34 },
+  // Spun, with its Sweet held: levelled, with its Sweet held.
   alcremie: { minLevel: 25 },
+  // Three Bisharp with their own crests beaten: levelled with the crest.
   kingambit: { heldItem: 'leaders-crest' },
+  // The two towers, as their scrolls.
   urshifu: { trigger: 'use-item', item: 'scroll-of-darkness' },
-  // Counted rather than levelled in the games.
-  melmetal: { minLevel: 48 },
-  gholdengo: { minLevel: 40 },
-  pawmot: { minLevel: 32 },
-  brambleghast: { minLevel: 30 },
-  rabsca: { minLevel: 30 },
-  // Needing a Remoraid alongside, or a Pokémon upside down.
-  mantine: { minLevel: 25 },
+  'urshifu-rapid-strike': { trigger: 'use-item', item: 'scroll-of-waters' },
+  // Four hundred candies in another game: its level and one candy here.
+  melmetal: { trigger: 'use-item', item: 'meltan-candy', minLevel: 48 },
+  // Nine hundred and ninety-nine coins in the bag, spent on levelling up.
+  gholdengo: { spends: { item: 'gimmighoul-coin', count: 999 } },
 };

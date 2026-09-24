@@ -16,6 +16,8 @@ import {
 } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { walkSteps } from '../engine/pokemon.mjs';
+
 import { name as localized, t } from '../core/i18n.mjs';
 import { healAfterBattle, restockBerry } from '../engine/items.mjs';
 import { Session } from '../engine/session.mjs';
@@ -50,6 +52,9 @@ import { inventoryScene } from '../ui/inventory.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
 import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
+
+/** Field pixels to a step: one tile of the map. */
+const STEP_PX = 16;
 
 /**
  * Start or resume a run, replacing whatever is on screen.
@@ -524,12 +529,15 @@ export function fieldScene(session) {
       boost = nextBoost(boost, boosting, deltaMs);
       const walking = events?.walking ?? true;
       if (walking) {
+        const from = offset;
         offset += (WALK_SPEED * boostPace(boost, HOLD_BOOST_WALK) * deltaMs) / 1000;
         // Never past whatever is being walked up to: a long frame would carry
         // the companion a few pixels beyond the spot, which at a door leaves
         // it standing at the side of the doorway instead of in it.
         const stop = events?.stopAt;
         if (stop !== null && stop !== undefined && offset > stop) offset = stop;
+        // A tile of road is a step, the way the games count them.
+        if (session.active && offset > from) walkSteps(session.active, (offset - from) / STEP_PX);
       }
 
       const { autosave, event } = session.tick(deltaMs, {

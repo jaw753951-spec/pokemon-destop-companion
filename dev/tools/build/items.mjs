@@ -135,6 +135,9 @@ const ICON_STAND_INS = {
   'scroll-of-darkness': 'dread-plate',
   'auspicious-armor': 'protector',
   'malicious-armor': 'reaper-cloth',
+  'meltan-candy': 'rare-candy',
+  'gimmighoul-coin': 'amulet-coin',
+  'scroll-of-waters': 'splash-plate',
 };
 
 /**

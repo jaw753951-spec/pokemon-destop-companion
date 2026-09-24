@@ -1878,3 +1878,8 @@ canvas {
 .item-picker-actions .spacer {
   flex: 1;
 }
+
+.friendship {
+  color: #e05a7a;
+  letter-spacing: 1px;
+}

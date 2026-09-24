@@ -56,6 +56,7 @@ const COLLAB_FORM_NAMES = {
   'tauros-paldea-aqua-breed': 'Paldea_Aqua',
   'basculin-white-striped': 'White',
   'darmanitan-galar-standard': 'Galar',
+  'urshifu-rapid-strike': 'Rapid_Strike',
 };
 
 /**

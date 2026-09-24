@@ -732,7 +732,7 @@ let signature = /** @type {Map<string, string[]>|null} */ (null);
  * The legendary's own item an item find turns out to be, if it does.
  *
  * @param {import('./session.mjs').Session} session
- * @returns {string|null}
+ * @returns {{item: string, count: number}|null}
  */
 export function signatureFind(session) {
   signature ??= signatureItems();
@@ -749,9 +749,23 @@ export function signatureFind(session) {
     ...[...signature].filter(([, owners]) => owners.includes(slug)).map(([item]) => item),
     ...evolvesBy,
   ].filter((item, index, all) => all.indexOf(item) === index && itemOf(item) && !held.has(item) && session.countOf(item) === 0);
+
+  // A Gimmighoul's coins are counted, not had: they turn up in handfuls, and
+  // more often, until there are enough.
+  const spends = (species?.evolutions ?? []).find((evolution) => evolution.spends)?.spends;
+  if (spends && session.countOf(spends.item) < spends.count && session.rng.chance(COIN_FIND_CHANCE)) {
+    return { item: spends.item, count: session.rng.int(COINS_PER_FIND.min, COINS_PER_FIND.max) };
+  }
+
   if (!wanted.length || !session.rng.chance(SIGNATURE_FIND_CHANCE)) return null;
-  return session.rng.pick(wanted);
+  return { item: session.rng.pick(wanted), count: 1 };
 }
+
+/** How often an item find is a handful of a Gimmighoul's coins, while one travels. */
+export const COIN_FIND_CHANCE = 0.3;
+
+/** And how many are in the handful. */
+const COINS_PER_FIND = { min: 20, max: 60 };
 
 /**
  * A Nincada that became a Ninjask leaves its shell behind: a Shedinja, if

@@ -16,7 +16,7 @@ import { abilityName, abilityWorks } from '../engine/abilities.mjs';
 import { standingTypes } from '../engine/forms.mjs';
 import { unequipItem } from '../engine/items.mjs';
 import { itemOf } from '../core/data.mjs';
-import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
+import { availableMoves, experienceProgress, friendshipOf, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
@@ -73,6 +73,7 @@ export function pokemonTab(app, session, refresh, state = {}) {
           el('span', { text: progress.needed ? `${progress.into}/${progress.needed}` : '—' }),
         ]),
         abilityLine(app, pokemon),
+        friendshipLine(pokemon),
         heldLine(app, session, refresh),
 
         el('div.section-title', { text: t('pokemon.moves') }),
@@ -297,6 +298,20 @@ function moveClasses(move) {
   const flags = (move.flags ?? []).filter((flag) => MOVE_FLAG_SET.has(flag));
   if (flags.length === 0) return null;
   return el('span.move-flags', {}, flags.map((flag) => el('span.move-flag', { text: t(`moveFlag.${flag}`) })));
+}
+
+/**
+ * How fond it is, in the five hearts the games draw it in: a friendship
+ * evolution happens at three filled and a bit.
+ *
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ */
+function friendshipLine(pokemon) {
+  const hearts = Math.min(5, Math.floor(friendshipOf(pokemon) / 51));
+  return el('div.pokemon-line', {}, [
+    el('span.label', { text: t('pokemon.friendship') }),
+    el('span.friendship', { text: '♥'.repeat(hearts) + '♡'.repeat(5 - hearts), title: String(friendshipOf(pokemon)) }),
+  ]);
 }
 
 /**

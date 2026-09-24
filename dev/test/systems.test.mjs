@@ -516,8 +516,10 @@ test('a PP Up raises the ceiling rather than filling the bar', options, () => {
 });
 
 test('an Everstone stops the levelling kind of evolution and nothing else', options, () => {
+  // Pichu evolves on friendship, which this one has plenty of.
   const pichu = createPokemon(new Rng(3), 172, 30);
-  assert.ok(pendingEvolution(pichu), 'a level-30 Pichu should be ready');
+  pichu.friendship = 230;
+  assert.ok(pendingEvolution(pichu), 'a fond Pichu should be ready');
 
   pichu.heldItem = 'everstone';
   assert.equal(pendingEvolution(pichu), null);

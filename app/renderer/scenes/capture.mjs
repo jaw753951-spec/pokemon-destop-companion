@@ -295,6 +295,8 @@ export function captureScene({ session, target, onFinish }) {
       });
       target.nickname = nickname;
       target.ball = ball;
+      // A Friend Ball makes a friend of it straight away.
+      if (ball === 'friend-ball') target.friendship = Math.max(target.friendship ?? 0, 150);
       // It was knocked down before the ball was thrown — that is how this
       // game earns the throw — so it arrives patched up rather than at no hit
       // points, which would have made it faint the moment it was swapped in.

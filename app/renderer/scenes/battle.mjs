@@ -15,12 +15,23 @@ import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
 import { healingItemFor, healingItems, shedAfterEvolving, throwItem } from '../engine/items.mjs';
-import { evolveInto, levelOf, maxHp, pendingEvolution, setMove } from '../engine/pokemon.mjs';
+import {
+  evolveInto,
+  friendshipForLevels,
+  gainFriendship,
+  levelOf,
+  maxHp,
+  pendingEvolution,
+  setMove,
+} from '../engine/pokemon.mjs';
 import { settleForme } from '../engine/forms.mjs';
 import { abilityName, afterBattle } from '../engine/abilities.mjs';
 
 /** How often a Pickup finds something after a win, as Emerald's one in ten does. */
 const PICKUP_CHANCE = 0.1;
+
+/** How many coins a Gimmighoul picks up for a win. */
+const COINS_PER_WIN = { min: 3, max: 12 };
 import { Battler, battlerArt, battlerScale, FOE_DEPTH, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -163,6 +174,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   let screenRoot = /** @type {HTMLElement|null} */ (null);
   /** @type {import('../engine/pokemon.mjs').Pokemon[]} */
   const defeated = [];
+  /** The level the companion came in at, for the friendship levelling earns. */
+  const startLevel = levelOf(session.active);
 
   /** @type {HTMLImageElement|null} */
   let backdropImage = null;
@@ -1073,14 +1086,32 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
     }
 
+    // Friendship: levelling up earns it, fainting costs a little.
+    const levels = levelOf(session.active) - startLevel;
+    if (levels > 0) friendshipForLevels(session.active, levels);
+    if (battle.outcome === 'lost') gainFriendship(session.active, -1);
+
+    // A Gimmighoul picks up coins as it goes.
+    const coins = (speciesOf(session.active.speciesId)?.evolutions ?? []).find((evolution) => evolution.spends)?.spends;
+    if (battle.outcome === 'won' && coins) {
+      const count = session.rng.int(COINS_PER_WIN.min, COINS_PER_WIN.max);
+      session.addItem(coins.item, count);
+      app.toast(t('battle.coins', { item: localized(gameData().items[coins.item]?.name, coins.item), count }), 2400);
+    }
+
     if (battle.outcome === 'won') {
       const evolution = pendingEvolution(session.active, {
         timeOfDay: timeOfDay(),
         crits: battle.player.marks.crits ?? 0,
+        box: session.box,
+        raining: weatherForArea(session.area) === 'rain',
+        countOf: (item) => session.countOf(item),
       });
       if (evolution) {
         const from = nameOf(session.active);
         const fromSpecies = session.active.speciesId;
+        // What an evolution spends — a Gimmighoul's 999 coins — goes with it.
+        if (evolution.spends) session.removeItem(evolution.spends.item, evolution.spends.count);
         evolveInto(session.active, evolution.to);
         session.markCaught(evolution.to);
         app.toast(t('battle.evolving', { name: from, target: nameOf(session.active) }));

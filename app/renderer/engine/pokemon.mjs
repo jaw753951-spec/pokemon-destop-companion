@@ -35,6 +35,11 @@ import {
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
+ * @property {number} [friendship] how fond of its trainer it is, 0 to 255;
+ *   a save from before it was kept reads as the species' base
+ * @property {number} [steps] steps walked alongside, for a Pawmo's thousand
+ * @property {number} [recoilTaken] recoil damage taken without fainting, for
+ *   a white-striped Basculin
  * @property {Record<string, number>} [moveUses] how many times it has used a
  *   move some evolution counts — Rage Fist, for a Primeape
  * @property {string} [standing] the shape a key item left it in — a Sky Forme
@@ -111,6 +116,7 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     gender: options.gender !== undefined ? options.gender : rollGender(rng, species),
     shiny: options.shiny ?? rng.chance(SHINY_ODDS),
     caughtAt: Date.now(),
+    friendship: options.ball === 'friend-ball' ? 150 : species.baseHappiness ?? 70,
     ball: options.ball ?? null,
   });
 
@@ -499,9 +505,17 @@ export const TRADE_ITEM = 'linking-cord';
  * had one.
  *
  * @param {Pokemon} pokemon
- * @param {{item?: string|null, timeOfDay?: string, crits?: number}} [context] `crits` is how
- *   many critical hits it landed in the battle it has just finished
- * @returns {{to: number, trigger: string}|null}
+ * @param {{
+ *   item?: string|null,
+ *   timeOfDay?: string,
+ *   crits?: number,
+ *   box?: Array<Pokemon|null>,
+ *   raining?: boolean,
+ *   countOf?: (item: string) => number,
+ * }} [context] `crits` is how many critical hits it landed in the battle it
+ *   has just finished; `box` the Pokémon that count as its party; `countOf`
+ *   what the bag holds, for an evolution that spends something
+ * @returns {{to: number, trigger: string, spends?: {item: string, count: number}}|null}
  */
 export function pendingEvolution(pokemon, context = {}) {
   const species = speciesOf(pokemon.speciesId);
@@ -512,26 +526,47 @@ export function pendingEvolution(pokemon, context = {}) {
   const everstone = gameData().items[pokemon.heldItem ?? '']?.held?.on === 'noEvolve';
   const knows = (move) => pokemon.moves.some((slot) => slot.move === move);
   const knowsType = (type) => pokemon.moves.some((slot) => moveOf(slot.move)?.type === type);
+  // The box is the party a companion travels without: a Remoraid in it, a
+  // Dark type in it, counts as one alongside.
+  const box = (context.box ?? []).filter(Boolean);
 
   const trades = [];
-  /** @type {Array<{to: number, weight: number}>} */
+  /** @type {Array<{to: number, weight: number, spends?: {item: string, count: number}}>} */
   const levelled = [];
   for (const evolution of species.evolutions ?? []) {
     if (!speciesOf(evolution.to)) continue;
+    // Another region's rule — an Exeggcute in Alola — has no place here.
+    if (evolution.region) continue;
 
     if (evolution.trigger === 'level-up') {
       if (everstone || context.item) continue;
       if (evolution.location) continue;
       const reachable =
-        evolution.minLevel || evolution.happiness || evolution.knownMove || evolution.knownMoveType || evolution.heldItem;
+        evolution.minLevel ||
+        evolution.happiness ||
+        evolution.knownMove ||
+        evolution.knownMoveType ||
+        evolution.heldItem ||
+        evolution.steps ||
+        evolution.recoil ||
+        evolution.spends ||
+        evolution.partySpecies;
       if (!reachable) continue;
       if (evolution.minLevel && level < evolution.minLevel) continue;
-      if (evolution.happiness && level < 20) continue;
+      if (evolution.happiness && friendshipOf(pokemon) < evolution.happiness) continue;
       if (evolution.knownMove && !knows(evolution.knownMove)) continue;
       if (evolution.knownMoveType && !knowsType(evolution.knownMoveType)) continue;
       if (evolution.timeOfDay && context.timeOfDay && !matchesTime(evolution.timeOfDay, context.timeOfDay)) continue;
       if (evolution.heldItem && pokemon.heldItem !== evolution.heldItem) continue;
       if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
+      if (evolution.steps && (pokemon.steps ?? 0) < evolution.steps) continue;
+      if (evolution.recoil && (pokemon.recoilTaken ?? 0) < evolution.recoil) continue;
+      if (evolution.rain && !context.raining) continue;
+      if (evolution.partySpecies && !box.some((other) => other.speciesId === evolution.partySpecies)) continue;
+      if (evolution.partyType && !box.some((other) => speciesOf(other.speciesId)?.types.includes(evolution.partyType))) {
+        continue;
+      }
+      if (evolution.spends && (context.countOf?.(evolution.spends.item) ?? 0) < evolution.spends.count) continue;
       if (evolution.relativeStats !== null && evolution.relativeStats !== undefined) {
         const stats = statsOf(pokemon);
         if (Math.sign(stats.atk - stats.def) !== evolution.relativeStats) continue;
@@ -541,7 +576,7 @@ export function pendingEvolution(pokemon, context = {}) {
       const weight =
         2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
         [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
-      levelled.push({ to: evolution.to, weight });
+      levelled.push({ to: evolution.to, weight, ...(evolution.spends ? { spends: evolution.spends } : {}) });
       continue;
     }
 
@@ -558,6 +593,7 @@ export function pendingEvolution(pokemon, context = {}) {
 
     if (evolution.trigger === 'use-item' && context.item && evolution.item === context.item) {
       if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
+      if (evolution.minLevel && level < evolution.minLevel) continue;
       return { to: evolution.to, trigger: 'use-item' };
     }
 
@@ -565,14 +601,31 @@ export function pendingEvolution(pokemon, context = {}) {
   }
 
   if (levelled.length) {
-    const best = levelled.reduce((most, entry) => (entry.weight > most.weight ? entry : most));
-    return { to: best.to, trigger: 'level-up' };
+    const top = Math.max(...levelled.map((entry) => entry.weight));
+    const best = levelled.filter((entry) => entry.weight === top);
+    // Two rules alike to the letter — a Wurmple's Silcoon and Cascoon — are
+    // settled by something fixed about the Pokémon, the way the games use
+    // its personality value: the same one every time for the same Wurmple.
+    const chosen = best[personalityOf(pokemon) % best.length];
+    return { to: chosen.to, trigger: 'level-up', ...(chosen.spends ? { spends: chosen.spends } : {}) };
   }
 
   // The trade that goes with the item the Pokémon is holding, if one does.
   const trade = trades.find((evolution) => evolution.heldItem && evolution.heldItem === pokemon.heldItem) ?? trades[0];
   return trade ? { to: trade.to, trigger: 'trade' } : null;
 }
+
+/**
+ * A number fixed for a Pokémon for good, standing in for the personality
+ * value the games keep: made from its genes and the moment it was caught.
+ *
+ * @param {Pokemon} pokemon
+ */
+function personalityOf(pokemon) {
+  const genes = Object.values(pokemon.ivs ?? {}).reduce((sum, value) => sum * 31 + Number(value), 7);
+  return Math.abs(Math.floor(genes + (pokemon.caughtAt ?? 0) / 1000));
+}
+
 
 /**
  * PokeAPI's gender numbers: 1 female, 2 male.
@@ -613,4 +666,64 @@ export function evolveInto(pokemon, speciesId) {
   }
   pokemon.hp = Math.max(1, Math.round(maxHp(pokemon) * ratio));
   return pokemon;
+}
+
+/** The most friendship there is. */
+export const MAX_FRIENDSHIP = 255;
+
+/** How many steps walked alongside buy one point of friendship, as the games count them. */
+export const STEPS_PER_FRIENDSHIP = 128;
+
+/**
+ * How fond of its trainer a Pokémon is: its own count, or its species' base
+ * friendship for one from a save that never kept one.
+ *
+ * @param {Pokemon} pokemon
+ */
+export function friendshipOf(pokemon) {
+  return pokemon.friendship ?? speciesOf(pokemon.speciesId)?.baseHappiness ?? 70;
+}
+
+/**
+ * Friendship gained, as the games give it: more with a Soothe Bell held and
+ * in a Luxury Ball, and never past the top.
+ *
+ * @param {Pokemon} pokemon
+ * @param {number} amount negative for a loss
+ */
+export function gainFriendship(pokemon, amount) {
+  let change = amount;
+  if (amount > 0) {
+    if (pokemon.heldItem === 'soothe-bell') change = Math.ceil(change * 1.5);
+    if (pokemon.ball === 'luxury-ball') change += 1;
+  }
+  pokemon.friendship = Math.max(0, Math.min(MAX_FRIENDSHIP, friendshipOf(pokemon) + change));
+}
+
+/**
+ * What levelling up is worth in friendship, level by level: more the less of
+ * it there is, as the games pay it.
+ *
+ * @param {Pokemon} pokemon
+ * @param {number} levels how many it just gained
+ */
+export function friendshipForLevels(pokemon, levels) {
+  for (let level = 0; level < levels; level++) {
+    const now = friendshipOf(pokemon);
+    gainFriendship(pokemon, now < 100 ? 5 : now < 200 ? 3 : 2);
+  }
+}
+
+/**
+ * Count steps walked alongside: a Pawmo's thousand, and a point of friendship
+ * every hundred and twenty-eight.
+ *
+ * @param {Pokemon} pokemon
+ * @param {number} steps may be fractional
+ */
+export function walkSteps(pokemon, steps) {
+  const before = pokemon.steps ?? 0;
+  pokemon.steps = before + steps;
+  const earned = Math.floor(pokemon.steps / STEPS_PER_FRIENDSHIP) - Math.floor(before / STEPS_PER_FRIENDSHIP);
+  if (earned > 0) gainFriendship(pokemon, earned);
 }

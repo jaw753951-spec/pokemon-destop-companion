@@ -336,7 +336,9 @@ function startBall(session, spawnAt) {
     ?? BALL_TIERS[0];
   const pool = gameData().itemTiers[tier.ball] ?? [];
   // Now and then, the item the travelling legendary is waiting on.
-  const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
+  const special = signatureFind(session);
+  const item = special?.item ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
+  const count = special?.count ?? 1;
 
   const state = {
     kind: 'ball',
@@ -349,7 +351,7 @@ function startBall(session, spawnAt) {
     carried: null,
     onArrive: () => 'gather',
     onGathered: (app) => {
-      session.addItem(item);
+      session.addItem(item, count);
       state.prop.frame = 'open';
       // When it was opened, so the fade knows how far along it is.
       state.prop.openedAt = state.elapsed ?? 0;
@@ -359,7 +361,8 @@ function startBall(session, spawnAt) {
       });
       const cue = itemOf(item)?.pocket === 'machines' ? 'obtainTm' : 'obtainItem';
       app.audio.playJingle(gameData().bgm.cues[cue] ?? null);
-      app.toast(t('event.itemFound', { name: localized(itemOf(item)?.name, item) }));
+      const label = localized(itemOf(item)?.name, item);
+      app.toast(count > 1 ? t('battle.coins', { item: label, count }) : t('event.itemFound', { name: label }));
     },
   };
 

@@ -326,6 +326,24 @@
         "ko": "절각참에게 지니게 하고 레벨업하면 대도각참으로 진화한다. 우두머리임을 나타내는 징표.",
         "en": "Level up a Bisharp holding it and it evolves into Kingambit. The mark of a leader."
       }
+    },
+    "gimmighoul-coin": {
+      "text": {
+        "ko": "모으령이 모으는 코인. 모으령이 999개를 가진 채 레벨업하면 타부자고로 진화하고, 코인은 그때 모두 쓴다.",
+        "en": "The coins Gimmighoul collect. A Gimmighoul that levels up with 999 of them in the bag evolves into Gholdengo, spending them all."
+      }
+    },
+    "scroll-of-waters": {
+      "text": {
+        "ko": "치고마에게 사용하면 물의 탑의 가르침을 받아 우라오스(연격의 태세)로 진화한다.",
+        "en": "Use it on Kubfu and it takes in the teachings of the Tower of Waters, evolving into Rapid Strike Urshifu."
+      }
+    },
+    "meltan-candy": {
+      "text": {
+        "ko": "레벨 48 이상인 멜탄에게 사용하면 멜메탈로 진화한다. 사용하면 없어진다.",
+        "en": "Use it on a Meltan of level 48 or higher to evolve it into Melmetal. It is used up."
+      }
     }
   }
 }

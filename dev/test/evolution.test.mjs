@@ -12,9 +12,12 @@ import { gameData, speciesIdBySlug, speciesOf } from '../../app/renderer/core/da
 import { shedAfterEvolving, useItem } from '../../app/renderer/engine/items.mjs';
 import {
   createPokemon,
+  friendshipForLevels,
+  gainFriendship,
   pendingEvolution,
   setMove,
   TRADE_ITEM,
+  walkSteps,
 } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
@@ -89,8 +92,9 @@ test("a later game's rule stands in for one this game cannot meet", options, () 
   setMove(tangela, 1, 'ancient-power');
   assert.equal(pendingEvolution(tangela)?.to, id('tangrowth'));
 
-  // A move of a type, for a Sylveon.
+  // A move of a type, and enough friendship, for a Sylveon.
   const eevee = make('eevee', 25);
+  eevee.friendship = 200;
   eevee.moves = [];
   setMove(eevee, 0, 'tackle');
   setMove(eevee, 1, 'baby-doll-eyes');
@@ -153,11 +157,91 @@ test('every evolution the dex carries has a way here', options, () => {
         evolution.trigger === 'use-item' ||
         evolution.trigger === 'trade' ||
         evolution.trigger === 'shed' ||
+        Boolean(evolution.region) ||
         (evolution.trigger === 'level-up' &&
           !evolution.location &&
-          Boolean(evolution.minLevel || evolution.happiness || evolution.knownMove || evolution.knownMoveType || evolution.heldItem));
+          Boolean(
+            evolution.minLevel ||
+              evolution.happiness ||
+              evolution.knownMove ||
+              evolution.knownMoveType ||
+              evolution.heldItem ||
+              evolution.steps ||
+              evolution.recoil ||
+              evolution.spends ||
+              evolution.partySpecies,
+          ));
       if (!ok) unreachable.push(`${species.slug}->${speciesOf(evolution.to)?.slug} (${evolution.trigger})`);
     }
   }
   assert.deepEqual(unreachable, []);
+});
+
+test('friendship is earned, and friendship evolutions wait for it', options, () => {
+  const pichu = make('pichu', 30);
+  pichu.friendship = 100;
+  assert.equal(pendingEvolution(pichu), null, 'not fond enough yet');
+  friendshipForLevels(pichu, 10);
+  walkSteps(pichu, 128 * 20);
+  assert.ok(pichu.friendship >= 150);
+  pichu.heldItem = 'soothe-bell';
+  gainFriendship(pichu, 100);
+  assert.equal(pendingEvolution(pichu)?.to, id('pikachu'));
+  assert.ok(pichu.friendship <= 255);
+});
+
+test('steps, recoil, company in the box and rain are counted as the games count them', options, () => {
+  const pawmo = make('pawmo', 30);
+  walkSteps(pawmo, 999);
+  assert.equal(pendingEvolution(pawmo), null);
+  walkSteps(pawmo, 1);
+  assert.equal(pendingEvolution(pawmo)?.to, id('pawmot'));
+
+  const basculin = make('basculin-white-striped', 30);
+  basculin.recoilTaken = 293;
+  assert.equal(pendingEvolution(basculin), null);
+  basculin.recoilTaken = 294;
+  assert.equal(pendingEvolution(basculin)?.to, id('basculegion'));
+
+  const mantyke = make('mantyke', 30);
+  assert.equal(pendingEvolution(mantyke, { box: [] }), null);
+  assert.equal(pendingEvolution(mantyke, { box: [make('remoraid', 20)] })?.to, id('mantine'));
+
+  const pancham = make('pancham', 40);
+  assert.equal(pendingEvolution(pancham, { box: [make('pikachu', 20)] }), null);
+  assert.equal(pendingEvolution(pancham, { box: [make('umbreon', 20)] })?.to, id('pangoro'));
+
+  const sliggoo = make('sliggoo', 55);
+  assert.equal(pendingEvolution(sliggoo, { raining: false }), null);
+  assert.equal(pendingEvolution(sliggoo, { raining: true })?.to, id('goodra'));
+
+  const gimmighoul = make('gimmighoul', 30);
+  assert.equal(pendingEvolution(gimmighoul, { countOf: () => 998 }), null);
+  assert.deepEqual(pendingEvolution(gimmighoul, { countOf: () => 999 })?.spends, { item: 'gimmighoul-coin', count: 999 });
+});
+
+test('Cosmoem by the hour, Urshifu by the scroll, Melmetal by its candy', options, () => {
+  const cosmoem = make('cosmoem', 55);
+  assert.equal(pendingEvolution(cosmoem, { timeOfDay: 'day' })?.to, id('solgaleo'));
+  assert.equal(pendingEvolution(cosmoem, { timeOfDay: 'night' })?.to, id('lunala'));
+
+  const kubfu = make('kubfu', 30);
+  assert.equal(pendingEvolution(kubfu, { item: 'scroll-of-darkness' })?.to, id('urshifu'));
+  assert.equal(pendingEvolution(kubfu, { item: 'scroll-of-waters' })?.to, id('urshifu-rapid-strike'));
+  assert.deepEqual(speciesOf(id('urshifu-rapid-strike')).types, ['fighting', 'water']);
+
+  assert.equal(pendingEvolution(make('meltan', 40), { item: 'meltan-candy' }), null, 'too young');
+  assert.equal(pendingEvolution(make('meltan', 48), { item: 'meltan-candy' })?.to, id('melmetal'));
+});
+
+test('a Wurmple is always the same one of its two, and not always the first', options, () => {
+  const seen = new Set();
+  for (let seed = 1; seed < 30; seed++) {
+    const wurmple = createPokemon(new Rng(seed), id('wurmple'), 10);
+    wurmple.caughtAt = seed * 7919000;
+    const first = pendingEvolution(wurmple)?.to;
+    assert.equal(pendingEvolution(wurmple)?.to, first, 'the same answer twice');
+    seen.add(first);
+  }
+  assert.deepEqual([...seen].sort(), [id('silcoon'), id('cascoon')].sort());
 });

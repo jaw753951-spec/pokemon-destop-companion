@@ -2108,6 +2108,10 @@ export class Battle {
     } else if (drain < 0 && total > 0) {
       const recoil = Math.max(1, Math.floor((total * -drain) / 100));
       attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
+      // A white-striped Basculin counts the recoil it has lived through.
+      if (speciesOf(attacker.pokemon.speciesId)?.evolutions?.some((evolution) => evolution.recoil)) {
+        attacker.pokemon.recoilTaken = attacker.pokemon.hp > 0 ? (attacker.pokemon.recoilTaken ?? 0) + recoil : 0;
+      }
       log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
@@ -2979,6 +2983,8 @@ export class Battle {
     // last one standing on no hit points is not a win. Checked after the foe
     // rather than instead of it, so the knock-out it earned still counts.
     if (this.player.pokemon.hp <= 0) {
+      // Fainting starts a Basculin's count of recoil over.
+      if (this.player.pokemon.recoilTaken) this.player.pokemon.recoilTaken = 0;
       log.push({
         kind: 'faint',
         side: 'player',
