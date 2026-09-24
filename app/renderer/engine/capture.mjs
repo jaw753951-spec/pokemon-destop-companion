@@ -7,7 +7,7 @@
  * times. The capture screen shows the resulting odds before the player throws,
  * so `captureChance` exists alongside the roll itself.
  */
-import { speciesOf } from '../core/data.mjs';
+import { itemOf, speciesOf } from '../core/data.mjs';
 import { levelOf, maxHp } from './pokemon.mjs';
 
 /**
@@ -46,6 +46,7 @@ const ULTRA_BEASTS = new Set([
  *   caught?: Set<number>,
  *   areaTags?: string[],
  *   time?: string,
+ *   berry?: string|null,
  * }} CaptureContext
  */
 
@@ -143,8 +144,10 @@ export function catchValue(target, ball, context = {}) {
   const max = maxHp(target);
   const current = Math.max(1, Math.min(max, Math.round(target.hp)));
   const status = target.status ? STATUS_BONUS[target.status] ?? 1 : 1;
+  // A Razz Berry given before the throw.
+  const berry = context.berry ? itemOf(context.berry)?.capture?.catchRate ?? 1 : 1;
 
-  return ((3 * max - 2 * current) * rate * bonus * status) / (3 * max);
+  return ((3 * max - 2 * current) * rate * bonus * status * berry) / (3 * max);
 }
 
 /**

@@ -12,7 +12,7 @@ import { speciesIdBySlug } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { ballBonus, catchValue } from '../../app/renderer/engine/capture.mjs';
 import { EventScheduler } from '../../app/renderer/engine/events.mjs';
-import { eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
+import { canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, gainFromDefeat, maxHp, maxPp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { VOLATILE } from '../../app/renderer/engine/volatile.mjs';
@@ -197,4 +197,14 @@ test('a Life Orb still costs a Rock Head, and not a Magic Guard', options, () =>
   };
   assert.ok(run('rock-head') > 0);
   assert.equal(run('magic-guard'), 0);
+});
+
+test('a Razz Berry makes the catch easier, and a catching berry is not held', options, () => {
+  const onix = make('onix', 40);
+  assert.ok(catchValue(onix, 'poke-ball', { berry: 'golden-razz-berry' }) > catchValue(onix, 'poke-ball', { berry: 'silver-razz-berry' }));
+  assert.ok(catchValue(onix, 'poke-ball', { berry: 'silver-razz-berry' }) > catchValue(onix, 'poke-ball'));
+  // A Nanab or a Pinap does nothing to the odds.
+  assert.equal(catchValue(onix, 'poke-ball', { berry: 'golden-nanab-berry' }), catchValue(onix, 'poke-ball'));
+  assert.equal(canHold('golden-razz-berry'), false);
+  assert.equal(canHold('sitrus-berry'), true);
 });

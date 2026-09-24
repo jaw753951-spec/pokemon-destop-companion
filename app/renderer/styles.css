@@ -835,15 +835,26 @@ canvas {
   top: 22px;
 }
 
-.capture-balls {
+/* The balls, and the catching berries above them when there are any. */
+.capture-tray {
   position: absolute;
   left: 8px;
   right: 8px;
   bottom: 48px;
   display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.capture-balls {
+  display: flex;
   justify-content: center;
   gap: 6px;
   flex-wrap: wrap;
+}
+
+.capture-berries:empty {
+  display: none;
 }
 
 .capture-ball {

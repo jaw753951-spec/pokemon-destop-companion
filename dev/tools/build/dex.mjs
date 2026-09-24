@@ -121,6 +121,7 @@ function shippedItems(items, { machines, moves, species, log }) {
       works:
         Boolean(item.use) ||
         Boolean(item.held) ||
+        Boolean(item.capture) ||
         item.pocket === 'pokeballs' ||
         item.pocket === 'machines' ||
         evolutionItems.has(slug),
@@ -1202,12 +1203,21 @@ function unwritten(item, slug, natures) {
  * - The Lax Incense and the Quick Claw use their Gen 4+ numbers.
  * - The rest are the items whose effect is written nowhere upstream.
  *
- * @type {Record<string, {held?: any, use?: any, attributes?: string[]}>}
+ * @type {Record<string, {held?: any, use?: any, attributes?: string[], capture?: any}>}
  */
 const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
   // Out of any wild battle, whatever is holding it there.
   'smoke-ball': { held: { on: 'escape' } },
+  // Let's Go's catching berries, given from the capture screen: a Razz makes
+  // the catch easier, a Nanab calms the Pokémon into staying for more
+  // throws, a Pinap finds an item on what was caught.
+  'silver-razz-berry': { capture: { catchRate: 1.5 } },
+  'golden-razz-berry': { capture: { catchRate: 2.5 } },
+  'silver-nanab-berry': { capture: { throws: 1 } },
+  'golden-nanab-berry': { capture: { throws: 2 } },
+  'silver-pinap-berry': { capture: { bonusItem: 0.5 } },
+  'golden-pinap-berry': { capture: { bonusItem: 1 } },
   // A fifth more for every repeat since Black and White, not a tenth.
   metronome: { held: { on: 'damage', consecutive: 0.2, max: 2 } },
   'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },
@@ -1258,6 +1268,7 @@ function corrected(item, slug) {
   const fix = CORRECTED[slug];
   if (fix?.held) item.held = fix.held;
   if (fix?.use) item.use = fix.use;
+  if (fix?.capture) item.capture = fix.capture;
   if (fix?.attributes) item.attributes = [...new Set([...(item.attributes ?? []), ...fix.attributes])];
 
   const gem = /^([a-z]+)-gem$/.exec(slug);

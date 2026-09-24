@@ -1046,6 +1046,12 @@ function sideTimer(battle, user, key, turns, line) {
   return true;
 }
 
+/** @param {any} battle @param {any} target @param {string} hazard @param {any[]} log */
+function layHazard(battle, target, hazard, log) {
+  if (!battle.field.addHazard(target.side, hazard)) return;
+  log.push({ kind: 'hazard', side: target.side, data: { hazard } });
+}
+
 /** @param {any} battle @param {any} user @param {string} key @param {string} line */
 function guard(battle, user, key, line) {
   battle.field.sides[user.side][key] = battle.turn;
@@ -1060,6 +1066,23 @@ function guard(battle, user, key, line) {
  * @type {Record<string, (ctx: {battle: any, user: any, target: any, move: any, log: any[], damage: number}) => void>}
  */
 export const AFTER_HIT = {
+  // Its ability is gone, if it has already had its turn.
+  'core-enforcer': ({ battle, target }) => {
+    if (!target.turn.moved || target.volatile.gastroAcid || battle.lockedAbility(target)) return;
+    target.volatile.gastroAcid = true;
+    battle.say(target, 'move.gastroAcid');
+  },
+  'thousand-waves': ({ battle, target }) => trapped(battle, target),
+  // The shards stay behind as a hazard at the target's feet.
+  'stone-axe': ({ battle, target, log }) => layHazard(battle, target, 'stealthRock', log),
+  'ceaseless-edge': ({ battle, target, log }) => layHazard(battle, target, 'spikes', log),
+  // Three PP off the last move the target used.
+  'eerie-spell': ({ battle, target }) => {
+    const slot = battle.movesOf(target).find((entry) => entry.move === target.lastMove);
+    if (!slot || slot.pp <= 0) return;
+    slot.pp = Math.max(0, slot.pp - 3);
+    battle.say(target, 'move.ppReduced', { move: slot.move });
+  },
   // What was flung does to the target what it would have done to its holder.
   fling: ({ battle, user, target, log }) => {
     const slug = user.turn.flung;

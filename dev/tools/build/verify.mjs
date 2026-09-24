@@ -71,7 +71,7 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(items['exp-share'] === undefined, 'the Exp. Share has nothing to share with');
   // Anything the engine does read must say what it does.
   const silent = Object.entries(items).filter(
-    ([slug, item]) => item.works && !item.use && !item.held && item.pocket !== 'pokeballs' && item.pocket !== 'machines'
+    ([slug, item]) => item.works && !item.use && !item.held && !item.capture && item.pocket !== 'pokeballs' && item.pocket !== 'machines'
       && !evolutionItem(species, slug),
   );
   note(silent.length === 0, `items marked as working with no effect: ${summarize(silent.map(([slug]) => slug))}`);

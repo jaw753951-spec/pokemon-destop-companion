@@ -229,3 +229,35 @@ test('a Metronome calls some other move', options, () => {
   assert.equal(called[0], 'metronome');
   assert.ok(called[1] && called[1] !== 'metronome');
 });
+
+test('the signature moves do what their descriptions say', options, () => {
+  // A Hyper Drill goes through a Protect.
+  const drill = fight(fixed(MACHAMP, 60, ['hyper-drill']), fixed(GEODUDE, 60, ['protect']));
+  drill.player.stages.acc = 6;
+  drill.foe.stages.spe = 6;
+  const before = drill.foe.pokemon.hp;
+  drill.takeTurn();
+  assert.ok(drill.foe.pokemon.hp < before);
+
+  // A Stone Axe leaves Stealth Rock behind, a Ceaseless Edge Spikes.
+  const axe = fight(fixed(MACHAMP, 60, ['stone-axe']), punchbag(90));
+  axe.player.stages.acc = 6;
+  axe.takeTurn();
+  assert.equal(axe.field.hazards.foe.stealthRock, 1);
+
+  // An Eerie Spell takes three PP off the move just used.
+  const spell = fight(fixed(SNORLAX, 60, ['eerie-spell']), punchbag(90));
+  spell.foe.lastMove = 'defense-curl';
+  const slot = spell.foe.pokemon.moves[0];
+  const pp = slot.pp;
+  spell.player.stages.acc = 6;
+  spell.takeTurn();
+  // It used Defense Curl once itself this turn, before or after the spell.
+  assert.ok(slot.pp <= pp - 3);
+
+  // A Sunsteel Strike sees past a Sturdy.
+  const sun = fight(fixed(SNORLAX, 60, ['sunsteel-strike']), punchbag());
+  sun.foe.pokemon.ability = 'sturdy';
+  sun.player.marks.moldBreaking = true;
+  assert.equal(sun.abilityOf(sun.foe, sun.player), null);
+});

@@ -121,6 +121,14 @@ const POKESPRITE = 'https://raw.githubusercontent.com/msikma/pokesprite/master';
  * @type {Record<string, string>}
  */
 const ICON_STAND_INS = {
+  // Let's Go's silver and golden catching berries, drawn as the plain berry
+  // they are a better kind of.
+  'silver-razz-berry': 'razz-berry',
+  'golden-razz-berry': 'razz-berry',
+  'silver-nanab-berry': 'nanab-berry',
+  'golden-nanab-berry': 'nanab-berry',
+  'silver-pinap-berry': 'pinap-berry',
+  'golden-pinap-berry': 'pinap-berry',
   'adamant-crystal': 'adamant-orb',
   'lustrous-globe': 'lustrous-orb',
   // The evolution items of the newest games, drawn by nobody yet: each shown

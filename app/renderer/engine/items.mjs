@@ -175,7 +175,8 @@ export function useItem(session, slug, choice = {}) {
  */
 export function canHold(slug) {
   const item = itemOf(slug);
-  if (!item) return false;
+  // A catching berry is given to what is being caught, not carried.
+  if (!item || item.capture) return false;
   return (
     item.pocket === 'berries' ||
     Boolean(item.held) ||

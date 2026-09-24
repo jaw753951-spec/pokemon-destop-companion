@@ -263,7 +263,7 @@ const saveAndShowTitle = async () => {
 const seedBag = () => {
   const session = app().session;
   for (const [item, count] of [['potion', 5], ['super-potion', 2], ['revive', 1], ['poke-ball', 10],
-    ['great-ball', 3], ['oran-berry', 4], ['sitrus-berry', 2], ['tm01', 1], ['fire-stone', 1]]) {
+    ['great-ball', 3], ['oran-berry', 4], ['sitrus-berry', 2], ['tm01', 1], ['fire-stone', 1], ['golden-razz-berry', 2], ['silver-nanab-berry', 1]]) {
     session.addItem(item, count);
   }
   return true;

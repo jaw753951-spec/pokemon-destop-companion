@@ -173,6 +173,11 @@ function pickRules(sd) {
   copy('stealsBoosts');
   copy('isFutureMove');
   copy('noSketch');
+  // An attack Showdown does not mark as stoppable by a Protect goes through
+  // one: a Hyper Drill, a Mighty Cleave.
+  copy('unprotectable', sd.category !== 'Status' && !sd.flags?.protect);
+  // Mold Breaker built into the move: a Sunsteel Strike, a Photon Geyser.
+  copy('ignoreAbility');
   // What a Snatch can take off the Pokémon about to use it.
   copy('snatchable', Boolean(sd.flags?.snatch));
   copy('selfVolatile', sd.self?.volatileStatus);

@@ -445,7 +445,8 @@ export class Battle {
    * @param {Combatant} [against] who is acting on it
    */
   abilityOf(combatant, against) {
-    if (against && this.ownAbility(against)?.ignoresAbilities) return null;
+    // A Mold Breaker, or a move with one built in, sees past the ability.
+    if (against && (this.ownAbility(against)?.ignoresAbilities || against.marks?.moldBreaking)) return null;
     // A Neutralizing Gas on the field quiets every ability but its own.
     const other = combatant === this.player ? this.foe : this.player;
     const own = this.ownAbility(combatant);
@@ -2257,6 +2258,7 @@ export class Battle {
    */
   resolveMove(attacker, defender, log) {
     attacker.turn.moved = true;
+    attacker.marks.moldBreaking = false;
     // A Destiny Bond lasts until its user moves again.
     attacker.volatile.destinyBond = 0;
 
@@ -2408,6 +2410,8 @@ export class Battle {
       log.push({ kind: 'move', side: attacker.side, data: { move: called } });
     }
     this.lastMoveUsed = moveName;
+    // A Sunsteel Strike or a Photon Geyser ignores the ability in its way.
+    attacker.marks.moldBreaking = Boolean(move.rules?.ignoreAbility);
 
     // An Aegislash draws its blade to strike and raises its shield to guard,
     // before the move goes off.
@@ -2580,6 +2584,12 @@ export class Battle {
       log.push({ kind: 'status', side: attacker.side, data: { status: null, thawed: true } });
     }
 
+    // A Fickle Beam's other heads join in three times in ten.
+    if (moveName === 'fickle-beam' && this.rng.chance(0.3)) {
+      move = { ...move, power: (move.power ?? 0) * 2 };
+      this.say(attacker, 'move.fickleBeam');
+    }
+
     // A Transform becomes the target outright.
     if (moveOf('transform')?.id === move.id) {
       if (!this.transformInto(attacker, defender, log)) log.push({ kind: 'failed', side: attacker.side });
@@ -2632,6 +2642,7 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   afterMove(attacker, defender, moveName, from, log) {
+    attacker.marks.moldBreaking = false;
     const lines = log.slice(from);
     attacker.marks.lastFailed = lines.some(
       (entry) =>
@@ -2863,6 +2874,10 @@ export class Battle {
     }
     // A Stellar Terapagos's Tera Starstorm is Stellar — neutral on everything
     // — and hits from whichever of its two attacking stats is higher.
+    // A Photon Geyser strikes from whichever attacking stat is higher.
+    if (moveOf('photon-geyser')?.id === move.id) {
+      move = { ...move, damageClass: this.stat(attacker, 'atk') > this.stat(attacker, 'spa') ? 'physical' : 'special' };
+    }
     if (attacker.marks.forme === STELLAR_FORME && moveOf('tera-starstorm')?.id === move.id) {
       const physical = this.stat(attacker, 'atk') > this.stat(attacker, 'spa');
       move = { ...move, type: 'stellar', damageClass: physical ? 'physical' : 'special' };
@@ -2960,7 +2975,7 @@ export class Battle {
     if (move.damageClass === 'status' && !(move.statChanges ?? []).some((change) => change.change < 0)) {
       if ((move.meta?.ailment ?? 'none') === 'none') return false;
     }
-    if (PROTECT_BYPASS.has(moveName)) return false;
+    if (PROTECT_BYPASS.has(moveName) || move.rules?.unprotectable) return false;
 
     // An Unseen Fist reaches through one as long as it is touching.
     const ability = this.abilityOf(attacker);
