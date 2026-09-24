@@ -312,6 +312,8 @@ export class Battle {
     this.foe = this.foeQueue.shift() ?? null;
 
     this.turn = 0;
+    /** Whether a Dancer is dancing along, so it does not answer itself. */
+    this.dancing = false;
     /**
      * `fled` is a wild Pokémon gone before it was beaten; `escaped` the
      * companion gone before it was.
@@ -2396,10 +2398,13 @@ export class Battle {
     }
     if (called) {
       if (moveName === 'nature-power') this.say(attacker, 'move.naturePower', { move: called });
+      const caller = moveName;
       moveName = called;
       base = moveOf(called);
       if (!base) return;
       move = this.effectiveMove(attacker, defender, base, called);
+      // A Me First hits half again as hard as the move it took.
+      if (caller === 'me-first' && move.power) move = { ...move, power: Math.floor(move.power * 1.5) };
       log.push({ kind: 'move', side: attacker.side, data: { move: called } });
     }
     this.lastMoveUsed = moveName;
@@ -2415,6 +2420,17 @@ export class Battle {
           log.splice(before, 0, { kind: 'ability', side: attacker.side, data: { ability: this.abilitySlugOf(attacker) } });
         }
       }
+    }
+
+    // A Snatch lying in wait takes a move that would have helped its user,
+    // and uses it for itself.
+    const snatcher = this.other(attacker);
+    if (move.rules?.snatchable && snatcher && snatcher.pokemon.hp > 0 && snatcher.volatile.snatch === this.turn) {
+      snatcher.volatile.snatch = -1;
+      this.say(snatcher, 'move.snatch.stole');
+      this.applyStatusMove(snatcher, attacker, move, log);
+      this.afterMove(attacker, defender, moveName, log.length, log);
+      return;
     }
 
     // A Fire move under Powder blows up in its user's face.
@@ -2657,6 +2673,17 @@ export class Battle {
         }
       }
     }
+    // A Dancer dances along to any dance the other side finishes.
+    const dancer = this.other(attacker);
+    if (
+      hasFlag(move, 'dance') && !attacker.marks.lastFailed && !this.dancing && dancer && dancer.pokemon.hp > 0 &&
+      this.running && this.abilityOf(dancer)?.dancer
+    ) {
+      this.dancing = true;
+      log.push({ kind: 'ability', side: dancer.side, data: { ability: this.abilitySlugOf(dancer) } });
+      this.danceAlong(dancer, attacker, moveName, log);
+      this.dancing = false;
+    }
     if (move?.rules?.selfVolatile === 'uproar' && !attacker.volatile.uproar && !attacker.marks.lastFailed) {
       attacker.volatile.uproar = 3;
       attacker.volatile.locked = { move: moveName, started: true, paid: true };
@@ -2667,6 +2694,29 @@ export class Battle {
           this.say(combatant, 'move.uproar.woke');
         }
       }
+    }
+  }
+
+  /**
+   * A Dancer's copy of a dance: the move itself, at once, with no PP spent
+   * and no lock into it.
+   *
+   * @param {Combatant} dancer
+   * @param {Combatant} target
+   * @param {string} moveName
+   * @param {LogEntry[]} log
+   */
+  danceAlong(dancer, target, moveName, log) {
+    const base = moveOf(moveName);
+    if (!base) return;
+    const move = this.effectiveMove(dancer, target, base, moveName);
+    log.push({ kind: 'move', side: dancer.side, data: { move: moveName } });
+    if (move.damageClass === 'status') {
+      this.applyStatusMove(dancer, target, move, log);
+    } else if (this.rollAccuracy(dancer, target, move)) {
+      this.applyDamagingMove(dancer, target, move, log);
+    } else {
+      log.push({ kind: 'miss', side: dancer.side });
     }
   }
 

@@ -467,6 +467,8 @@
   "move.naturePower": "Nature Power turned into {move}!",
   "move.obtained": "{name} obtained {item}.",
   "move.fling": "{name} flung its {item}!",
+  "move.snatch": "{name} is waiting for a target to make a move!",
+  "move.snatch.stole": "{name} snatched {target}'s move!",
   "move.luckyChant": "Lucky Chant shielded {team} from critical hits!",
   "move.luckyChant.end": "{team}'s Lucky Chant wore off!",
   "move.matBlock": "{name} intends to flip up a mat and block incoming attacks!",

@@ -8,7 +8,7 @@
 import { url } from '../core/bridge.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
-import { name as localized, t } from '../core/i18n.mjs';
+import { language, name as localized, t } from '../core/i18n.mjs';
 import { typeChip } from './typechip.mjs';
 
 /**
@@ -118,8 +118,29 @@ function showDetail(session, detail, id) {
             el('span', { text: `${t('dex.height')} ${(species.height / 10).toFixed(1)}m` }),
             el('span', { text: `${t('dex.weight')} ${(species.weight / 10).toFixed(1)}kg` }),
           ]),
-          el('p.dex-text', { text: localized(species?.text, '') }),
+          ...dexTexts(species),
         ])
       : el('span.meta', { text: t('dex.notCaught') }),
   ]);
+}
+
+/**
+ * A species' Pokédex text, and the others the games give it — Violet's next
+ * to Scarlet's, a form's next to the species' — each under the name of where
+ * it comes from. Only the ones written in the language on screen are shown.
+ *
+ * @param {any} species
+ * @returns {HTMLElement[]}
+ */
+function dexTexts(species) {
+  const code = language();
+  const extra = (species?.entries ?? []).filter((entry) => entry.text?.[code]);
+  if (!extra.length) return [el('p.dex-text', { text: localized(species?.text, '') })];
+  return [
+    { label: species.textLabel, text: species.text },
+    ...extra,
+  ].flatMap((entry) => [
+    entry.label ? el('span.dex-text-label', { text: localized(entry.label, '') }) : null,
+    el('p.dex-text', { text: localized(entry.text, '') }),
+  ]).filter((node) => node !== null);
 }

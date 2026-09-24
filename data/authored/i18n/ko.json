@@ -467,6 +467,8 @@
   "move.naturePower": "자연의힘은 {move}이(가) 되었다!",
   "move.obtained": "{name}은(는) {item}을(를) 손에 넣었다!",
   "move.fling": "{name}은(는) {item}을(를) 내던졌다!",
+  "move.snatch": "{name}은(는) 상대의 움직임을 살피고 있다!",
+  "move.snatch.stole": "{name}은(는) {target}의 기술을 가로챘다!",
   "move.luckyChant": "주술의 힘으로 {team}의 급소가 숨겨졌다!",
   "move.luckyChant.end": "{team}의 주술이 풀렸다!",
   "move.matBlock": "{name}은(는) 마룻바닥세워막기를 노리고 있다!",

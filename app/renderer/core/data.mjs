@@ -106,11 +106,19 @@ export function mendItems(items, authored) {
  * regional variety shares its species' entry — takes it.
  *
  * @param {Record<string, any>} species
- * @param {Record<string, {name?: Record<string, string>, text?: Record<string, string>}>} authored
+ * @param {Record<string, {name?: Record<string, string>, text?: Record<string, string>, textLabel?: Record<string, string>, entries?: Array<{label: Record<string, string>, text: Record<string, string>}>}>} authored
  */
 export function mendSpecies(species, authored) {
   const bySlug = Object.fromEntries(Object.values(species ?? {}).map((entry) => [entry.slug, entry]));
   mendItems(bySlug, authored);
+  // A species the games describe more than once — Scarlet and Violet apart,
+  // or form by form — keeps the rest under the one shown first.
+  for (const [slug, patch] of Object.entries(authored ?? {})) {
+    const entry = bySlug[slug];
+    if (!entry) continue;
+    if (patch.textLabel) entry.textLabel = patch.textLabel;
+    if (patch.entries) entry.entries = patch.entries;
+  }
 }
 
 /**

@@ -207,3 +207,25 @@ test('a Fire move under Powder blows up on its user', options, () => {
   assert.ok(log.some((entry) => entry.kind === 'message' && entry.data?.key === 'move.powder.exploded'));
   assert.equal(maxHp(foe) - foe.hp, Math.floor(maxHp(foe) / 4));
 });
+
+test('a Snatch takes the other side’s Swords Dance for itself', options, () => {
+  const battle = fight(fixed(MACHAMP, 60, ['snatch']), fixed(MACHAMP, 60, ['swords-dance']));
+  battle.takeTurn();
+  assert.equal(battle.player.stages.atk, 2);
+  assert.equal(battle.foe.stages.atk, 0);
+});
+
+test('a Me First takes the attack about to come, half again as hard', options, () => {
+  const battle = fight(fixed(235, 60, ['me-first']), fixed(SNORLAX, 30, ['body-slam']));
+  const log = battle.takeTurn();
+  const moves = log.filter((entry) => entry.kind === 'move').map((entry) => `${entry.side}:${entry.data.move}`);
+  assert.deepEqual(moves.slice(0, 3), ['player:me-first', 'player:body-slam', 'foe:body-slam']);
+});
+
+test('a Metronome calls some other move', options, () => {
+  const battle = fight(fixed(SNORLAX, 60, ['metronome']), punchbag());
+  const log = battle.takeTurn();
+  const called = log.filter((entry) => entry.kind === 'move' && entry.side === 'player').map((entry) => entry.data.move);
+  assert.equal(called[0], 'metronome');
+  assert.ok(called[1] && called[1] !== 'metronome');
+});

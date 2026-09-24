@@ -584,6 +584,9 @@ const FORM_ONLY_ABILITIES = new Set([
   'eelevate',
   'fire-mane',
   'aura-guard',
+  // Ogerpon's Embody Aspect acts only when it Terastallizes, which this game
+  // does not have; the masks' own abilities stay.
+  'embody-aspect',
 ]);
 async function buildItems(pool, log, natures) {
   const categoryIndex = await fetchJson(`${POKEAPI}/item-category/index.json`);

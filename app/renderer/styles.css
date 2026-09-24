@@ -1712,6 +1712,12 @@ canvas {
   line-height: 1.4;
 }
 
+.dex-text-label {
+  font-size: 8px;
+  color: var(--ink-soft);
+  margin-top: 2px;
+}
+
 .screen-header .meta {
   color: rgba(248, 248, 240, 0.7);
   font-size: 9px;

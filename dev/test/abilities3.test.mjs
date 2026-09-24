@@ -149,3 +149,11 @@ test('a wild Pokémon held by a Shadow Tag or a Mean Look cannot Teleport away',
   ghost.takeTurn();
   assert.equal(ghost.outcome, 'fled');
 });
+
+test('a Dancer dances along to the other side’s dance', options, () => {
+  const battle = fight(make('oricorio', 50, ['splash'], 'dancer'), make('volcarona', 50, ['quiver-dance']));
+  battle.takeTurn();
+  assert.equal(battle.foe.stages.spa, 1);
+  assert.equal(battle.player.stages.spa, 1);
+  assert.equal(battle.player.stages.spe, 1);
+});

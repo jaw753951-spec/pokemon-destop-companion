@@ -799,6 +799,12 @@ export const STATUS_MOVES = {
     }
     return did;
   },
+  // Lie in wait for the other side's next move that helps its user.
+  snatch: ({ battle, user }) => {
+    user.volatile.snatch = battle.turn;
+    battle.say(user, 'move.snatch');
+    return true;
+  },
   'lucky-chant': ({ battle, user }) => sideTimer(battle, user, 'luckyChant', 5, 'move.luckyChant'),
   // A mat kicked up in front of the side, on the first turn out only, that
   // stops attacks for the turn.
@@ -996,7 +1002,7 @@ const UNCOPYABLE = new Set([
   'trace', 'forecast', 'flower-gift', 'multitype', 'illusion', 'wonder-guard', 'zen-mode', 'imposter',
   'stance-change', 'power-of-alchemy', 'receiver', 'schooling', 'comatose', 'shields-down', 'disguise',
   'rks-system', 'battle-bond', 'power-construct', 'ice-face', 'gulp-missile', 'hunger-switch', 'neutralizing-gas',
-  'zero-to-hero', 'commander', 'tera-shift', 'protosynthesis', 'quark-drive', 'embody-aspect', 'poison-puppeteer',
+  'zero-to-hero', 'commander', 'tera-shift', 'protosynthesis', 'quark-drive', 'poison-puppeteer',
 ]);
 
 /** @param {any} battle @param {any} user @param {any} target @param {any[]} log */
@@ -1211,6 +1217,15 @@ export function calledMove(battle, user, target, slug) {
       return battle.lastMoveUsed && !NO_CALL.has(battle.lastMoveUsed) ? battle.lastMoveUsed : null;
     case 'nature-power':
       return { electric: 'thunderbolt', grassy: 'energy-ball', misty: 'moonblast', psychic: 'psychic' }[battle.field.terrain ?? ''] ?? 'tri-attack';
+    // The move the target is about to use, taken first and harder — if it
+    // is an attack and has not gone off yet.
+    case 'me-first': {
+      const planned = battle.pendingMoves?.get(target) ?? null;
+      const move = planned ? moveOf(planned) : null;
+      if (target.turn.moved || !move || move.damageClass === 'status' || NO_CALL.has(planned)) return null;
+      user.marks.meFirst = battle.turn;
+      return planned;
+    }
     case 'sleep-talk': {
       const own = battle.movesOf(user).map((entry) => entry.move).filter((move) => !NO_CALL.has(move) && !CHARGE_TURNS[move]);
       return own.length ? battle.rng.pick(own) : null;
@@ -1227,7 +1242,7 @@ const NO_CALL = new Set([
   'max-guard', 'transform', 'mimic', 'sketch', 'focus-punch', 'counter', 'mirror-coat', 'metal-burst',
   'comeuppance', 'bide', 'helping-hand', 'follow-me', 'rage-powder', 'trick', 'switcheroo', 'thief', 'covet',
   'destiny-bond', 'snatch', 'chatter', 'belch', 'celebrate', 'hold-hands', 'shell-trap', 'beak-blast',
-  'dynamax-cannon', 'behemoth-blade', 'behemoth-bash', 'shed-tail', 'revival-blessing',
+  'dynamax-cannon', 'behemoth-blade', 'behemoth-bash', 'shed-tail', 'revival-blessing', 'me-first',
 ]);
 
 /**

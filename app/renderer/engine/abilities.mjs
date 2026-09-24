@@ -613,6 +613,8 @@ export const ABILITIES = {
 
   // ---- Reading the other side on the way in.
   anticipation: { start: (ctx) => ctx.anticipate() },
+  // It dances along to any dance the other side finishes (see `afterMove`).
+  dancer: { dancer: true },
   forewarn: { start: (ctx) => ctx.forewarn() },
 
   // Twice as hard on something that only just came out.
@@ -646,7 +648,6 @@ export const ABILITIES = {
   commander: { inert: true },
   costar: { inert: true },
   hospitality: { inert: true },
-  'embody-aspect': { inert: true },
 };
 
 /**
@@ -658,7 +659,7 @@ const UNTRACEABLE = new Set([
   'shields-down', 'disguise', 'rks-system', 'battle-bond', 'power-construct', 'ice-face', 'gulp-missile', 'zen-mode',
   'receiver', 'power-of-alchemy', 'neutralizing-gas', 'hunger-switch', 'as-one-glastrier', 'as-one-spectrier',
   'zero-to-hero', 'commander', 'protosynthesis', 'quark-drive', 'tera-shift', 'poison-puppeteer',
-  'embody-aspect', 'embody-aspect-teal', 'embody-aspect-hearthflame', 'embody-aspect-wellspring', 'embody-aspect-cornerstone',
+  'embody-aspect-teal', 'embody-aspect-hearthflame', 'embody-aspect-wellspring', 'embody-aspect-cornerstone',
 ]);
 
 /** The states a move can take away, which an Aroma Veil refuses on its own. */

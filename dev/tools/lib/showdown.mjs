@@ -173,6 +173,8 @@ function pickRules(sd) {
   copy('stealsBoosts');
   copy('isFutureMove');
   copy('noSketch');
+  // What a Snatch can take off the Pokémon about to use it.
+  copy('snatchable', Boolean(sd.flags?.snatch));
   copy('selfVolatile', sd.self?.volatileStatus);
   copy('secondaryVolatile', sd.secondary?.volatileStatus && sd.secondary.volatileStatus !== 'flinch' && sd.secondary.volatileStatus !== 'confusion' ? sd.secondary.volatileStatus : undefined);
   copy('sideVolatile', sd.self?.sideCondition);
