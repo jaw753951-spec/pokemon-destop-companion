@@ -63,14 +63,21 @@ const ALLY_TARGETS = new Set(['adjacentAlly']);
  * @param {any} sd the Showdown record
  */
 export function showdownEffect(sd) {
-  /** @type {Array<{stat: string, change: number, self: boolean}>} */
+  /**
+   * `self` says who a stage lands on; `secondary` whether it is a side
+   * effect — something a Sheer Force trades away and a Serene Grace makes
+   * likelier — rather than the price of the move itself, as a Close Combat's
+   * drops are.
+   *
+   * @type {Array<{stat: string, change: number, self: boolean, secondary: boolean}>}
+   */
   const stats = [];
   let statChance = 0;
-  const addBoosts = (boosts, self, chance) => {
+  const addBoosts = (boosts, self, chance, secondary = false) => {
     for (const [key, change] of Object.entries(boosts ?? {})) {
       const stat = BOOST_KEYS[key];
       if (!stat || !change) continue;
-      stats.push({ stat, change: Number(change), self });
+      stats.push({ stat, change: Number(change), self, secondary });
       statChance = Math.max(statChance, chance);
     }
   };
@@ -96,8 +103,8 @@ export function showdownEffect(sd) {
       secondary.ailmentChance = chance;
     }
     if (effect.volatileStatus === 'flinch') secondary.flinchChance = chance;
-    addBoosts(effect.boosts, false, chance);
-    addBoosts(effect.self?.boosts, true, chance);
+    addBoosts(effect.boosts, false, chance, true);
+    addBoosts(effect.self?.boosts, true, chance, true);
   }
   // A status move's own condition.
   if (sd.status && STATUS_AILMENTS[sd.status]) {

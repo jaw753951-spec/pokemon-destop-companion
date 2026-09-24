@@ -578,6 +578,15 @@ export function restockBerry(session, pokemon) {
 }
 
 /**
+ * The Pokémon whose held items do nothing for the moment: the ones standing
+ * in a Magic Room, and one whose Klutz a battle handed it. The battle adds and
+ * removes them; nothing here is saved.
+ *
+ * @type {WeakSet<object>}
+ */
+export const itemsSuppressed = new WeakSet();
+
+/**
  * What the held item does simply by being held, if anything.
  *
  * The consumable rules — a berry waiting for half a bar or for a paralysis —
@@ -591,8 +600,9 @@ export function restockBerry(session, pokemon) {
  * @returns {any|null}
  */
 export function heldPassive(pokemon, kind) {
-  // A Klutz carries its item and gets nothing from it.
-  if (pokemon?.ability === 'klutz') return null;
+  // A Klutz carries its item and gets nothing from it, and nothing gets
+  // anything from one under a Magic Room.
+  if (pokemon?.ability === 'klutz' || (pokemon && itemsSuppressed.has(pokemon))) return null;
   const held = pokemon?.heldItem ? itemOf(pokemon.heldItem)?.held : null;
   return held && held.on === kind ? held : null;
 }
@@ -647,6 +657,7 @@ export function itemSuits(held, pokemon) {
  * @returns {{slug: string, held: any}|null}
  */
 export function heldTrigger(pokemon, options = {}) {
+  if (itemsSuppressed.has(pokemon)) return null;
   const slug = pokemon.heldItem;
   const held = slug ? itemOf(slug)?.held : null;
   if (!slug || !held || pokemon.hp <= 0) return null;

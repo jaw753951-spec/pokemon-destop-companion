@@ -8,9 +8,25 @@
  * of log entries per turn which the battle scene plays back as animation.
  */
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS } from '../../shared/constants.mjs';
-import { itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
-import { ABILITIES, abilityEffect, abilityName, auraMultiplier } from './abilities.mjs';
-import { formeFor, SIGNATURE_MOVES, signatureType, standingForme } from './forms.mjs';
+import { gameData, itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
+import { ABILITIES, abilityEffect, abilityName, afterBattle, auraMultiplier } from './abilities.mjs';
+import { formeFor, heldForme, SIGNATURE_MOVES, signatureType, standingForme, START_FORMES } from './forms.mjs';
+import {
+  AFTER_HIT,
+  CHARGE_TURNS,
+  chargeOwnsStats,
+  calledMove,
+  failsBeforeUse,
+  fixedDamage,
+  neverAutomatic,
+  PARTNER_ONLY,
+  reachesHidden,
+  RETALIATES,
+  SEMI_INVULNERABLE,
+  STATUS_MOVES,
+  variablePower,
+  variableType,
+} from './moveeffects.mjs';
 import {
   Field,
   FIELD_MOVES,
@@ -27,7 +43,7 @@ import {
   weatherHealing,
   weatherStat,
 } from './field.mjs';
-import { applyHeldEffect, heldPassive, heldTrigger, heldShield, itemSuits } from './items.mjs';
+import { applyHeldEffect, heldPassive, heldTrigger, heldShield, itemsSuppressed, itemSuits } from './items.mjs';
 import {
   addVolatile,
   clearVolatile,
@@ -65,6 +81,8 @@ import { stageMultiplier } from './stats.mjs';
  * @property {number} repeats how many turns running that has been the move
  * @property {boolean} movedLast whether it acted second on the previous turn
  * @property {number} maxHp
+ * @property {{hitBy: any[], damage: number, lastHit: any, moved: boolean, lowered: boolean}} turn what it did
+ *   and had done to it this turn
  * @property {{speciesId: number, forme: string|null, stats: Record<string, number>, moves: Array<{move: string, pp: number}>}} [transform]
  *   what a Transform or an Imposter made it, for the rest of the battle
  */
@@ -128,6 +146,61 @@ export const STRUGGLE = {
 
 /** What Struggle costs the Pokémon that had to use it. */
 const STRUGGLE_RECOIL = 1 / 4;
+
+/** Move slugs by number, for the copies of a move that have lost their slug. */
+/** @type {Map<number, string>|null} */
+let moveSlugs = null;
+
+/**
+ * Whether a move is aimed at the other side rather than at its user or the
+ * field, which is what a substitute, a Magic Coat and a semi-invulnerable
+ * turn all ask.
+ *
+ * @param {any} move
+ */
+const aimsAtTarget = (move) =>
+  ['selected-pokemon', 'all-opponents', 'random-opponent', 'all-other-pokemon', 'selected-pokemon-me-first', 'all-pokemon'].includes(move?.target);
+
+/** What a Crowned Zacian's and a Crowned Zamazenta's Iron Head become. */
+/** @type {Record<string, Record<string, string>>} */
+const CROWNED_MOVES = {
+  'zacian-crowned': { 'iron-head': 'behemoth-blade' },
+  'zamazenta-crowned': { 'iron-head': 'behemoth-bash' },
+};
+
+/** The moves whose strikes grow stronger one after another. */
+const ESCALATING = new Set(['triple-kick', 'triple-axel']);
+
+/** The moves that go back to their trainer whether they hit the Pokémon or its substitute. */
+const PIVOTS = new Set(['u-turn', 'volt-switch', 'flip-turn']);
+
+/** The moves Gravity keeps a Pokémon from using. */
+const GRAVITY_BANNED = new Set(['fly', 'bounce', 'sky-drop', 'high-jump-kick', 'jump-kick', 'magnet-rise', 'telekinesis', 'flying-press', 'splash', 'floaty-fall']);
+
+/** The moves that cannot be used twice running. */
+const NO_REPEAT = new Set(['blood-moon', 'gigaton-hammer']);
+
+/** Status moves a substitute does not stop, as the games list them. */
+const SUBSTITUTE_BYPASS = new Set(['perish-song', 'roar', 'whirlwind', 'transform', 'psych-up', 'role-play', 'spite', 'haze', 'court-change', 'doodle']);
+
+/** The field clocks whose running out is one of the move lines. */
+const FIELD_MESSAGES = new Set(['gravity', 'wonderRoom', 'magicRoom', 'waterSport', 'mudSport', 'mist', 'safeguard']);
+
+/** What a combatant did and had done to it this turn, which a few moves ask about. */
+const freshTurn = () => ({ hitBy: /** @type {any[]} */ ([]), damage: 0, lastHit: /** @type {any} */ (null), moved: false, lowered: false });
+
+/** How many turn ends a Perish Song's count lasts. */
+const PERISH_TURNS = 3;
+
+/**
+ * The abilities that are their Pokémon's shape or its whole identity, which
+ * no Skill Swap, Worry Seed or Gastro Acid can take away.
+ */
+const FIXED_ABILITIES = new Set([
+  'multitype', 'stance-change', 'schooling', 'comatose', 'shields-down', 'disguise', 'rks-system', 'battle-bond',
+  'power-construct', 'ice-face', 'gulp-missile', 'zero-to-hero', 'commander', 'tera-shift', 'as-one-glastrier',
+  'as-one-spectrier', 'zen-mode',
+]);
 
 /** Moves are capped at this many turns so a stalemate cannot run forever. */
 const TURN_LIMIT = 200;
@@ -211,9 +284,10 @@ export class Battle {
    *   }|null,
    *   trainerBattle?: boolean,
    *   weather?: string|null,
+   *   environment?: string|null,
    * }} options
    */
-  constructor({ rng, player, foes, policy, items = null, trainerBattle = false, weather = null }) {
+  constructor({ rng, player, foes, policy, items = null, trainerBattle = false, weather = null, environment = null }) {
     this.rng = rng;
     this.policy = policy;
     /**
@@ -231,7 +305,11 @@ export class Battle {
     this.foe = this.foeQueue.shift() ?? null;
 
     this.turn = 0;
-    /** @type {'ongoing'|'won'|'lost'} */
+    /**
+     * `fled` is a wild Pokémon gone before it was beaten; `escaped` the
+     * companion gone before it was.
+     * @type {'ongoing'|'won'|'lost'|'fled'|'escaped'}
+     */
     this.outcome = 'ongoing';
     /** The move each side committed to this turn, decided when order is set. */
     /** @type {Map<Combatant, string|null>|null} */
@@ -252,9 +330,18 @@ export class Battle {
     this.areaWeather = weather && Object.values(WEATHER).includes(weather) ? weather : null;
     if (this.areaWeather) this.field.setWeather(this.areaWeather, Infinity);
 
+    /** The type a Camouflage takes here, when the ground under it has none. */
+    this.environment = environment;
+    /** The last move anybody used, for a Copycat. */
+    /** @type {string|null} */
+    this.lastMoveUsed = null;
+
     /** Log entries produced before the first turn, by whatever walked in. */
     /** @type {LogEntry[]} */
     this.opening = [];
+    /** The log the helpers write into: the opening now, each turn's later. */
+    /** @type {LogEntry[]} */
+    this.activeLog = this.opening;
     this.enter(this.player, this.opening);
     if (this.foe) this.enter(this.foe, this.opening);
   }
@@ -372,6 +459,511 @@ export class Battle {
   ownAbility(combatant) {
     const slug = this.abilitySlugOf(combatant);
     return slug ? ABILITIES[slug] ?? null : null;
+  }
+
+  /** @param {Combatant} combatant */
+  other(combatant) {
+    return combatant === this.player ? this.foe : this.player;
+  }
+
+  /**
+   * A move's slug, from the move record or a copy of it with its type or
+   * power changed on the way out.
+   *
+   * @param {any} move
+   * @returns {string}
+   */
+  slugOf(move) {
+    if (move?.slug) return move.slug;
+    if (move?.id === STRUGGLE.id && move?.type === STRUGGLE.type) return 'struggle';
+    if (!moveSlugs) moveSlugs = new Map(Object.entries(gameData().moves).map(([slug, entry]) => [entry.id, slug]));
+    return moveSlugs.get(move?.id) ?? '';
+  }
+
+  /**
+   * Write one of the move lines about a combatant, into the log being built.
+   *
+   * @param {Combatant|null|undefined} combatant who the line is about
+   * @param {string} key a `move.*` string
+   * @param {Record<string, any>} [data] what the line names: a `move`, an
+   *   `item`, an `ability`, a `type`, a `count`
+   */
+  say(combatant, key, data = {}) {
+    if (!combatant) return;
+    this.activeLog.push({ kind: 'message', side: combatant.side, data: { key, ...data } });
+  }
+
+  /**
+   * Take hit points off a combatant for something other than a hit.
+   *
+   * @param {Combatant} combatant
+   * @param {number} amount
+   * @param {LogEntry[]} log
+   * @param {Record<string, any>} [data]
+   * @returns {number} what was taken
+   */
+  loseHp(combatant, amount, log, data = {}) {
+    const taken = Math.min(combatant.pokemon.hp, Math.max(0, Math.floor(amount)));
+    if (taken <= 0) return 0;
+    combatant.pokemon.hp -= taken;
+    log.push({ kind: 'damage', side: combatant.side, data: { amount: taken, ...data } });
+    return taken;
+  }
+
+  /**
+   * Give hit points back, unless a Heal Block is in the way.
+   *
+   * @param {Combatant} combatant
+   * @param {number} amount
+   * @param {LogEntry[]} log
+   * @param {{quiet?: boolean}} [options]
+   * @returns {number} what was restored
+   */
+  gainHp(combatant, amount, log, options = {}) {
+    const max = combatant.maxHp;
+    if (combatant.pokemon.hp <= 0 || combatant.pokemon.hp >= max) return 0;
+    if (combatant.volatile.healBlock > 0) {
+      this.say(combatant, 'move.healBlock.blocked');
+      return 0;
+    }
+    const restored = Math.min(max - combatant.pokemon.hp, Math.max(1, Math.floor(amount)));
+    combatant.pokemon.hp += restored;
+    log.push({ kind: 'heal', side: combatant.side, data: { amount: restored, ...(options.quiet ? { quiet: true } : {}) } });
+    return restored;
+  }
+
+  /**
+   * Lift a combatant's condition, the way a Refresh or a Purify does.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   * @returns {boolean}
+   */
+  cureStatus(combatant, log) {
+    if (!combatant.pokemon.status) return false;
+    combatant.pokemon.status = null;
+    combatant.pokemon.statusTurns = 0;
+    combatant.pokemon.toxic = false;
+    combatant.marks.toxicTurns = 0;
+    log.push({ kind: 'status', side: combatant.side, data: { status: null } });
+    return true;
+  }
+
+  /**
+   * Whether a combatant could be put to sleep right now: nothing in its
+   * ability, the terrain or an uproar keeping it awake.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   * @param {{quiet?: boolean}} [options]
+   */
+  canFallAsleep(combatant, log, options = {}) {
+    if (this.uproar()) return false;
+    if (terrainBlocksStatus(this.field.terrain, STATUS.SLEEP) && this.grounded(combatant)) return false;
+    const other = this.other(combatant);
+    const ability = this.abilityOf(combatant, other ?? undefined);
+    if (ability?.blockStatus?.(this.abilityContext(combatant, other ?? combatant, options.quiet ? [] : log), STATUS.SLEEP)) {
+      if (!options.quiet) log.push({ kind: 'ability', side: combatant.side, data: { ability: abilityName(combatant.pokemon) } });
+      return false;
+    }
+    return true;
+  }
+
+  /** Whether anybody on the field is in the middle of an Uproar. */
+  uproar() {
+    return [this.player, this.foe].some((combatant) => combatant && combatant.volatile.uproar > 0);
+  }
+
+  /**
+   * Put a lasting state on a combatant and say so, or refuse if it is
+   * already there.
+   *
+   * @param {Combatant} combatant
+   * @param {string} key
+   * @param {any} value
+   * @param {string} line
+   */
+  setVolatile(combatant, key, value, line) {
+    if (combatant.volatile[key]) return false;
+    combatant.volatile[key] = value;
+    this.say(combatant, line);
+    return true;
+  }
+
+  /**
+   * Spend a Stockpile, and the Defense and Sp. Def it bought with it.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  dropStockpile(combatant, log) {
+    const bought = combatant.volatile.stockpiled ?? { def: 0, spd: 0 };
+    for (const [stat, stages] of Object.entries(bought)) {
+      if (stages > 0) this.applyStage(combatant, stat, -stages, log, { source: 'self', quiet: true });
+    }
+    combatant.volatile.stockpile = 0;
+    combatant.volatile.stockpiled = { def: 0, spd: 0 };
+    this.say(combatant, 'move.stockpile.end');
+  }
+
+  /**
+   * A combatant's stat before stages and everything else — what a Power
+   * Split shares and a Speed Swap trades.
+   *
+   * @param {Combatant} combatant
+   * @param {string} stat
+   */
+  rawStat(combatant, stat) {
+    return combatant.transform?.stats?.[stat] ?? statsOf(combatant.pokemon, combatant.marks.forme ?? null)[stat];
+  }
+
+  /**
+   * Start a Perish Song's count on a combatant.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  startPerish(combatant, log) {
+    if (!addVolatile(combatant, VOLATILE.PERISH, PERISH_TURNS)) return false;
+    log.push({ kind: 'volatile', side: combatant.side, data: { state: VOLATILE.PERISH } });
+    return true;
+  }
+
+  /**
+   * Whether nothing can change or take away a combatant's ability: the ones
+   * that are their Pokémon's shape, and an Ability Shield.
+   *
+   * @param {Combatant} combatant
+   */
+  lockedAbility(combatant) {
+    return FIXED_ABILITIES.has(this.abilitySlugOf(combatant) ?? '') || Boolean(heldShield(combatant.pokemon, 'ability'));
+  }
+
+  /** The eighteen types a move can be, for a Conversion 2 to choose among. */
+  chartTypes() {
+    return Object.fromEntries(Object.entries(gameData().types).filter(([, type]) => !type.special));
+  }
+
+  /** The type a Camouflage takes: the terrain's, or the place's. */
+  camouflageType() {
+    return { electric: 'electric', grassy: 'grass', misty: 'fairy', psychic: 'psychic' }[this.field.terrain ?? '']
+      ?? this.environment ?? 'normal';
+  }
+
+  /**
+   * Whether an item is part of its holder's shape — a mask, a plate, an orb —
+   * and so cannot be knocked off, stolen or swapped.
+   *
+   * @param {Combatant} combatant
+   * @param {string|null} slug
+   */
+  bindsItem(combatant, slug) {
+    if (!slug) return false;
+    const holder = { ...combatant.pokemon, heldItem: slug };
+    if (heldForme(holder)) return true;
+    const species = speciesOf(combatant.pokemon.speciesId)?.slug ?? '';
+    return Boolean(START_FORMES.get(species)?.has(slug));
+  }
+
+  /** @param {LogEntry[]} log */
+  settleHeldFormes(log) {
+    this.evaluateFormes(log);
+  }
+
+  /**
+   * Clear the hazards off one side, and its screens when asked.
+   *
+   * @param {'player'|'foe'} side
+   * @param {LogEntry[]} log
+   * @param {{screens?: boolean, spun?: boolean}} [options]
+   * @returns {boolean}
+   */
+  clearSide(side, log, options = {}) {
+    let cleared = false;
+    const hazards = this.field.hazards[side];
+    for (const [hazard, layers] of Object.entries(hazards)) {
+      if (!layers) continue;
+      hazards[hazard] = 0;
+      cleared = true;
+      const holder = side === 'player' ? this.player : this.foe;
+      log.push({ kind: 'message', side, data: { key: `move.hazardGone.${hazard}${side === 'foe' ? 'Foe' : ''}`, holder: Boolean(holder) } });
+    }
+    if (options.screens) cleared = this.breakScreens(side, log) || cleared;
+    return cleared;
+  }
+
+  /**
+   * Break the screens on one side, which is what a Brick Break does on the
+   * way through.
+   *
+   * @param {'player'|'foe'} side
+   * @param {LogEntry[]} log
+   */
+  breakScreens(side, log) {
+    const screens = this.field.screens[side];
+    if (screens.physical <= 0 && screens.special <= 0) return false;
+    screens.physical = 0;
+    screens.special = 0;
+    log.push({ kind: 'message', side, data: { key: 'move.screensBroken' } });
+    return true;
+  }
+
+  /** @param {LogEntry[]} log */
+  endTerrain(log) {
+    if (!this.field.terrain) return false;
+    log.push({ kind: 'terrainEnded', data: { value: this.field.terrain } });
+    this.field.terrain = null;
+    this.field.terrainTurns = 0;
+    return true;
+  }
+
+  /**
+   * Take the target's item for the user, as a Thief does.
+   *
+   * @param {Combatant} user
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   */
+  stealItem(user, target, log) {
+    const slug = target.pokemon.heldItem;
+    if (user.pokemon.heldItem || !slug || user.pokemon.hp <= 0) return false;
+    if (this.abilityOf(target, user)?.keepsItem || this.bindsItem(target, slug) || this.bindsItem(user, slug)) return false;
+    target.pokemon.heldItem = null;
+    user.pokemon.heldItem = slug;
+    log.push({ kind: 'stole', side: user.side, data: { item: slug } });
+    this.evaluateFormes(log);
+    return true;
+  }
+
+  /**
+   * Eat the target's berry, as a Pluck does: the effect is the user's.
+   *
+   * @param {Combatant} user
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   */
+  stealBerry(user, target, log) {
+    const slug = target.pokemon.heldItem;
+    if (!slug || itemOf(slug)?.pocket !== 'berries' || user.pokemon.hp <= 0) return false;
+    if (this.abilityOf(target, user)?.keepsItem) return false;
+    target.pokemon.heldItem = null;
+    this.say(user, 'move.pluck', { item: slug });
+    this.eatBerryNow(user, log, slug);
+    return true;
+  }
+
+  /**
+   * Eat a berry at once, whatever its own moment is — a Teatime, a Pluck,
+   * a Bug Bite.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   * @param {string} [given] a berry that is not the one it holds
+   * @returns {boolean}
+   */
+  eatBerryNow(combatant, log, given) {
+    const slug = given ?? combatant.pokemon.heldItem;
+    const held = slug ? itemOf(slug)?.held : null;
+    if (!slug || !held || itemOf(slug)?.pocket !== 'berries' || combatant.pokemon.hp <= 0) return false;
+    if (held.on === 'hp' && held.stat) {
+      const stat = held.stat === 'random' ? this.rng.pick(STAT_KEYS) : held.stat;
+      this.applyStage(combatant, stat, held.stages ?? 1, log, { source: 'self' });
+    } else if (held.on === 'hp' && held.crit) {
+      combatant.marks.critStages = (combatant.marks.critStages ?? 0) + held.crit;
+    } else if (held.on === 'hp' && held.heal) {
+      const amount = held.heal.amount ?? Math.floor(combatant.maxHp * held.heal.fraction);
+      this.gainHp(combatant, amount, log);
+    } else if (held.on === 'status') {
+      if (combatant.pokemon.status && (held.status === 'any' || held.status === combatant.pokemon.status)) {
+        this.cureStatus(combatant, log);
+      }
+      if (held.status === 'cnf' || held.status === 'any') this.cureVolatile(combatant, log);
+    } else if (held.on === 'pp') {
+      applyHeldEffect(combatant.pokemon, held);
+    }
+    if (!given) {
+      combatant.pokemon.heldItem = null;
+      combatant.marks.ateBerry = slug;
+      combatant.marks.consumed = slug;
+      log.push({ kind: 'berry', side: combatant.side, data: { item: slug } });
+    }
+    return true;
+  }
+
+  /**
+   * A Burn Up or a Double Shock spending the type it drew on.
+   *
+   * @param {Combatant} combatant
+   * @param {string} type
+   * @param {LogEntry[]} log
+   */
+  loseType(combatant, type, log) {
+    const left = this.typesOf(combatant).filter((entry) => entry !== type);
+    combatant.marks.types = left.length ? left : ['typeless'];
+    this.say(combatant, 'move.loseType', { type });
+  }
+
+  /**
+   * Whether a move's side effect on its target can happen at all: not traded
+   * away by a Sheer Force, not refused by a Shield Dust or a Covert Cloak, not
+   * soaked up by a substitute.
+   *
+   * @param {Combatant} user
+   * @param {Combatant} target
+   * @param {any} move
+   */
+  secondaryAllowed(user, target, move) {
+    if (target.pokemon.hp <= 0) return false;
+    if (this.abilityOf(user)?.noSecondary) return false;
+    if (heldShield(target.pokemon, 'secondary') || this.abilityOf(target, user)?.noSecondaryTaken) return false;
+    return !target.marks.hitSubstitute;
+  }
+
+  /** @param {Combatant} user */
+  secondaryOdds(user) {
+    return this.abilityOf(user)?.secondary ?? 1;
+  }
+
+  /**
+   * Wrap a target in a binding move: four or five turns of an eighth of its
+   * health, a sixth with a Binding Band, seven turns with a Grip Claw.
+   *
+   * @param {Combatant} user
+   * @param {Combatant} target
+   * @param {any} move
+   */
+  bindTarget(user, target, move) {
+    if (target.pokemon.hp <= 0 || target.volatile.bound) return;
+    const band = heldPassive(user.pokemon, 'bind');
+    const claw = heldPassive(user.pokemon, 'bindTurns');
+    target.volatile.bound = {
+      move: this.slugOf(move),
+      turns: claw ? claw.turns : this.rng.int(4, 5),
+      fraction: band?.fraction ?? 1 / 8,
+      by: user,
+    };
+    this.say(target, 'move.bind.start', { move: this.slugOf(move) });
+  }
+
+  /**
+   * Drive the target out, the way a Roar or a Dragon Tail does: a trainer's
+   * Pokémon is swapped for another at random, a wild one is sent away and
+   * the battle is over. The companion, with nobody to swap in, stays.
+   *
+   * @param {Combatant} user
+   * @param {Combatant} target
+   * @param {LogEntry[]} log
+   * @returns {boolean}
+   */
+  forceOut(user, target, log) {
+    if (target.pokemon.hp <= 0 || user.pokemon.hp <= 0 || target.side !== 'foe') return false;
+    if (target.volatile.ingrain || this.abilityOf(target, user)?.suctionCups) return false;
+    if (this.trainerBattle) return this.switchFoe(log, { random: true, dragged: true });
+    this.say(target, 'move.blownAway');
+    this.finish('fled', log);
+    return true;
+  }
+
+  /**
+   * A trainer's Pokémon going back after a U-turn, and the next one coming
+   * out in its place.
+   *
+   * @param {Combatant} user
+   * @param {LogEntry[]} log
+   */
+  pivot(user, log) {
+    if (user.side !== 'foe' || !this.trainerBattle || user.pokemon.hp <= 0 || !this.running) return false;
+    return this.switchFoe(log);
+  }
+
+  /**
+   * Leave a wild battle, as a Teleport does.
+   *
+   * @param {Combatant} user
+   * @param {LogEntry[]} log
+   */
+  flee(user, log) {
+    if (this.trainerBattle) return false;
+    this.say(user, 'move.fled');
+    this.finish(user.side === 'player' ? 'escaped' : 'fled', log);
+    return true;
+  }
+
+  /**
+   * End the battle with nobody beaten: the wild Pokémon gone (`fled`), or
+   * the companion gone (`escaped`).
+   *
+   * @param {'fled'|'escaped'} outcome
+   * @param {LogEntry[]} log
+   */
+  finish(outcome, log) {
+    if (!this.running) return;
+    this.outcome = outcome;
+    log.push({ kind: 'end', data: { outcome } });
+  }
+
+  /**
+   * Swap the trainer's Pokémon out for another: the next one in line, or one
+   * at random when it was dragged out.
+   *
+   * @param {LogEntry[]} log
+   * @param {{random?: boolean, dragged?: boolean}} [options]
+   * @returns {boolean}
+   */
+  switchFoe(log, options = {}) {
+    const waiting = this.foeQueue.filter((combatant) => combatant.pokemon.hp > 0);
+    if (!waiting.length || !this.foe) return false;
+    const next = options.random ? this.rng.pick(waiting) : waiting[0];
+    const leaving = this.foe;
+    this.foeQueue.splice(this.foeQueue.indexOf(next), 1);
+    this.leaveField(leaving);
+    this.foeQueue.push(leaving);
+    this.foe = next;
+    log.push({ kind: 'sendOut', side: 'foe', data: { speciesId: next.pokemon.speciesId, pokemon: next.pokemon } });
+    if (options.dragged) this.say(next, 'move.draggedOut');
+    this.walkOntoHazards(next, log);
+    this.enter(next, log);
+    return true;
+  }
+
+  /**
+   * What leaving the field undoes: every stage and every state a battle put
+   * on it, its forme, and — a Natural Cure's, a Regenerator's — what
+   * switching out is worth.
+   *
+   * @param {Combatant} combatant
+   */
+  leaveField(combatant) {
+    afterBattle(combatant.pokemon, combatant.maxHp);
+    combatant.stages = { atk: 0, def: 0, spa: 0, spd: 0, spe: 0, acc: 0, eva: 0 };
+    combatant.volatile = freshVolatile();
+    combatant.marks = {};
+    combatant.transform = undefined;
+    combatant.charging = null;
+    combatant.mustRecharge = false;
+    combatant.lockedMove = null;
+    combatant.lastMove = null;
+    combatant.repeats = 0;
+    combatant.pokemon.toxic = combatant.pokemon.status === STATUS.POISON && combatant.pokemon.toxic;
+    const forme = standingForme(combatant.pokemon);
+    if (forme) combatant.pokemon.forme = forme;
+    else delete combatant.pokemon.forme;
+  }
+
+  /** Every move the dex has, for a Metronome to pick from. */
+  moveTable() {
+    return gameData().moves;
+  }
+
+  /**
+   * Whether a Metronome can land on a move: a real move of the main games,
+   * not a Z-Move, a Max Move or a signature a single Pokémon's shape owns.
+   *
+   * @param {string} slug
+   */
+  callable(slug) {
+    const move = moveOf(slug);
+    return Boolean(move && move.id < 10000 && !slug.includes('--') && !/^max-|^g-max-/.test(slug) && move.pp > 1);
   }
 
   /**
@@ -681,6 +1273,11 @@ export class Battle {
       log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
       return false;
     }
+    // A Mist over its side keeps the other side's drops off.
+    if (fromOther && this.field.sides[target.side].mist > 0 && !(other && this.abilityOf(other)?.infiltrates)) {
+      if (!quiet) this.say(target, 'move.mist.protected');
+      return false;
+    }
     // Or says no and hands it back, which is what a Mirror Armor does.
     if (fromOther && ability?.reflectsDrops && other) {
       log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
@@ -698,14 +1295,35 @@ export class Battle {
       return false;
     }
     target.stages[stat] = after;
-    // A White Herb remembers that something was lowered so it can undo it.
-    if (shift < 0) target.marks.lowered = true;
+    // A White Herb remembers that something was lowered so it can undo it,
+    // and a Lash Out that it happened this turn.
+    if (shift < 0) {
+      target.marks.lowered = true;
+      if (target.turn) target.turn.lowered = true;
+    }
     log.push({ kind: 'stat', side: target.side, data: { stat, change: shift, stage: after, ...detail } });
 
-    // An Opportunist helps itself to whatever the other side just worked for.
-    if (shift > 0 && data.source !== 'copied' && other && this.abilityOf(other)?.copiesRaises) {
-      log.push({ kind: 'ability', side: other.side, data: { ability: abilityName(other.pokemon) } });
-      this.applyStage(other, stat, shift, log, { source: 'copied' });
+    // An Opportunist helps itself to whatever the other side just worked for,
+    // and a Mirror Herb does it once.
+    if (shift > 0 && data.source !== 'copied' && other && other.pokemon.hp > 0) {
+      if (this.abilityOf(other)?.copiesRaises) {
+        log.push({ kind: 'ability', side: other.side, data: { ability: abilityName(other.pokemon) } });
+        this.applyStage(other, stat, shift, log, { source: 'copied' });
+      } else if (heldPassive(other.pokemon, 'mirror')) {
+        log.push({ kind: 'heldFired', side: other.side, data: { item: other.pokemon.heldItem } });
+        this.consumeItem(other);
+        this.applyStage(other, stat, shift, log, { source: 'copied' });
+      }
+    }
+
+    // An Eject Pack takes a trainer's Pokémon out the moment it is lowered.
+    if (shift < 0 && target.side === 'foe' && this.trainerBattle && this.running && heldPassive(target.pokemon, 'ejectPack')) {
+      if (this.foeQueue.some((entry) => entry.pokemon.hp > 0) && target === this.foe) {
+        log.push({ kind: 'heldFired', side: target.side, data: { item: target.pokemon.heldItem } });
+        this.consumeItem(target);
+        this.switchFoe(log);
+        return true;
+      }
     }
 
     // And what answering a drop is worth: a Defiant's two stages of Attack.
@@ -777,8 +1395,11 @@ export class Battle {
    * @param {Combatant} combatant
    */
   grounded(combatant) {
-    // An Iron Ball drags anything down, and it wins over everything else.
+    // An Iron Ball drags anything down, and it wins over everything else —
+    // as do Gravity, a Smack Down and roots put down.
     if (heldPassive(combatant.pokemon, 'stat')?.grounds) return true;
+    if (this.field.gravity > 0 || combatant.volatile.smackedDown || combatant.volatile.ingrain) return true;
+    if (combatant.volatile.magnetRise > 0) return false;
 
     const balloon = heldPassive(combatant.pokemon, 'immune');
     if (balloon?.moveType === 'ground' && !combatant.marks.popped) return false;
@@ -830,8 +1451,12 @@ export class Battle {
   takeTurn() {
     const log = this.makeLog();
     if (!this.running || !this.foe) return log;
+    this.activeLog = log;
 
     this.turn++;
+    for (const combatant of [this.player, this.foe]) if (combatant) combatant.turn = freshTurn();
+    this.field.echoedThisTurn = false;
+    this.syncSuppression();
     if (this.turn > TURN_LIMIT) {
       // A pair that cannot hurt each other would otherwise loop forever; the
       // wild Pokémon leaving is the least disruptive way out.
@@ -848,9 +1473,16 @@ export class Battle {
     }
 
     const first = this.orderOfPlay();
+    // A Focus Punch is tightened before anybody moves, so a hit in between
+    // can break it.
+    for (const combatant of first) {
+      if (this.pendingMoves?.get(combatant) === 'focus-punch') this.say(combatant, 'move.focusPunch.start');
+    }
     for (const [index, attacker] of first.entries()) {
       attacker.movedLast = index > 0;
       if (!this.running || !this.foe) break;
+      // One that was dragged out or went back this turn has no turn left.
+      if (attacker !== this.player && attacker !== this.foe) continue;
       const defender = attacker === this.player ? this.foe : this.player;
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
@@ -874,12 +1506,16 @@ export class Battle {
       for (const combatant of [this.player, this.foe]) {
         if (!combatant || combatant.pokemon.hp <= 0) continue;
         this.endOfTurnHeld(combatant, log);
+        this.endOfTurnVolatile(combatant, log);
         this.endOfTurnStatus(combatant, log);
+        this.endOfTurnBinding(combatant, log);
         this.endOfTurnField(combatant, log);
         this.endOfTurnAbility(combatant, log);
         this.regrowBerry(combatant, log);
         this.tickStates(combatant, log);
       }
+      this.endOfTurnSlots(log);
+      if (!this.field.echoedThisTurn) this.field.echoes = 0;
       this.evaluateFormes(log);
       this.tickField(log);
       this.checkFaint(log);
@@ -887,6 +1523,151 @@ export class Battle {
     }
 
     return log;
+  }
+
+  /**
+   * Keep the set of Pokémon whose items are switched off in step with the
+   * field: everybody under a Magic Room, a combatant whose Klutz a battle
+   * handed it.
+   */
+  syncSuppression() {
+    for (const combatant of [this.player, this.foe]) {
+      if (!combatant) continue;
+      const off = this.field.magicRoom > 0 || this.abilitySlugOf(combatant) === 'klutz' || combatant.volatile.embargo > 0;
+      if (off) itemsSuppressed.add(combatant.pokemon);
+      else itemsSuppressed.delete(combatant.pokemon);
+    }
+  }
+
+  /** Let go of everything the battle switched off, once it is over. */
+  release() {
+    for (const combatant of [this.player, this.foe, ...this.foeQueue]) {
+      if (combatant) itemsSuppressed.delete(combatant.pokemon);
+    }
+  }
+
+  /**
+   * The states that act at the end of every turn they last: roots and rings
+   * that feed, seeds that drain, a curse and a salt that bite, a yawn coming
+   * due, and the clocks on the rest.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  endOfTurnVolatile(combatant, log) {
+    const volatile = combatant.volatile;
+    const other = this.other(combatant);
+    const indirect = Boolean(this.abilityOf(combatant)?.indirectImmune);
+
+    if (volatile.aquaRing && combatant.pokemon.hp > 0 && combatant.pokemon.hp < combatant.maxHp) {
+      this.say(combatant, 'move.aquaRing.heal');
+      this.gainHp(combatant, this.rootHeal(combatant, 1 / 16), log, { quiet: true });
+    }
+    if (volatile.ingrain && combatant.pokemon.hp > 0 && combatant.pokemon.hp < combatant.maxHp) {
+      this.say(combatant, 'move.ingrain.heal');
+      this.gainHp(combatant, this.rootHeal(combatant, 1 / 16), log, { quiet: true });
+    }
+    if (volatile.leechSeed && other && other.pokemon.hp > 0 && combatant.pokemon.hp > 0 && !indirect) {
+      const sapped = this.loseHp(combatant, Math.max(1, Math.floor(combatant.maxHp / 8)), log);
+      this.say(combatant, 'move.leechSeed.sap');
+      if (this.abilityOf(combatant)?.drainHurts) this.loseHp(other, sapped, log);
+      else this.gainHp(other, this.rootHeal(other, sapped / other.maxHp), log, { quiet: true });
+    }
+    if (volatile.cursed && combatant.pokemon.hp > 0 && !indirect) {
+      this.say(combatant, 'move.curse.hurt');
+      this.loseHp(combatant, Math.max(1, Math.floor(combatant.maxHp / 4)), log);
+    }
+    if (volatile.saltCure && combatant.pokemon.hp > 0 && !indirect) {
+      const heavy = this.typesOf(combatant).some((type) => type === 'water' || type === 'steel');
+      this.say(combatant, 'move.saltCure.hurt');
+      this.loseHp(combatant, Math.max(1, Math.floor(combatant.maxHp / (heavy ? 4 : 8))), log);
+    }
+    if (volatile.octolock && combatant.pokemon.hp > 0) {
+      this.applyStage(combatant, 'def', -1, log);
+      this.applyStage(combatant, 'spd', -1, log);
+    }
+    if (volatile.yawn > 0 && --volatile.yawn === 0 && combatant.pokemon.hp > 0 && !combatant.pokemon.status) {
+      this.inflictStatus(combatant, 'sleep', log);
+    }
+    for (const key of ['magnetRise', 'healBlock', 'silenced', 'laserFocus', 'embargo']) {
+      if (volatile[key] > 0 && --volatile[key] === 0) {
+        if (key === 'magnetRise') this.say(combatant, 'move.magnetRise.end');
+        if (key === 'healBlock') this.say(combatant, 'move.healBlock.end');
+      }
+    }
+    if (volatile.uproar > 0 && --volatile.uproar === 0) {
+      this.say(combatant, 'move.uproar.end');
+      volatile.locked = null;
+    }
+  }
+
+  /**
+   * What a binding move takes at the end of the turn, and the turn it lets go.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  endOfTurnBinding(combatant, log) {
+    const bound = combatant.volatile.bound;
+    if (!bound || combatant.pokemon.hp <= 0) return;
+    if (bound.by.pokemon.hp <= 0 || (bound.by !== this.player && bound.by !== this.foe)) {
+      combatant.volatile.bound = null;
+      return;
+    }
+    bound.turns -= 1;
+    if (bound.turns <= 0) {
+      combatant.volatile.bound = null;
+      this.say(combatant, 'move.bind.freed', { move: bound.move });
+      return;
+    }
+    if (this.abilityOf(combatant)?.indirectImmune) return;
+    this.say(combatant, 'move.bind.hurt', { move: bound.move });
+    this.loseHp(combatant, Math.max(1, Math.floor(combatant.maxHp * bound.fraction)), log);
+  }
+
+  /**
+   * The things waiting on a side rather than on a Pokémon: a Wish coming
+   * true, a Future Sight landing.
+   *
+   * @param {LogEntry[]} log
+   */
+  endOfTurnSlots(log) {
+    for (const side of /** @type {const} */ (['player', 'foe'])) {
+      const here = side === 'player' ? this.player : this.foe;
+      const wish = this.field.wish[side];
+      if (wish && --wish.turns <= 0) {
+        this.field.wish[side] = null;
+        if (here && here.pokemon.hp > 0) {
+          this.say(here, 'move.wish.came');
+          this.gainHp(here, wish.amount, log, { quiet: true });
+        }
+      }
+      const future = this.field.futureSight[side];
+      if (future && --future.turns <= 0) {
+        this.field.futureSight[side] = null;
+        if (here && here.pokemon.hp > 0) {
+          this.say(here, 'move.futureSight.hit', { move: future.move });
+          const move = { ...moveOf(future.move), slug: future.move, type: moveOf(future.move)?.type ?? 'psychic' };
+          const result = this.computeDamage(future.from, here, move);
+          if (result.effectiveness > 0) {
+            here.pokemon.hp = Math.max(0, here.pokemon.hp - result.damage);
+            log.push({ kind: 'damage', side: here.side, data: { amount: result.damage } });
+            if (result.effectiveness !== 1) log.push({ kind: 'effectiveness', side: here.side, data: { effectiveness: result.effectiveness } });
+          }
+        }
+      }
+    }
+  }
+
+  /**
+   * What a healing root or ring gives back, a Big Root adding its share.
+   *
+   * @param {Combatant} combatant
+   * @param {number} fraction of maximum HP
+   */
+  rootHeal(combatant, fraction) {
+    const root = heldPassive(combatant.pokemon, 'drainBoost');
+    return Math.max(1, Math.floor(combatant.maxHp * fraction * (root?.multiplier ?? 1)));
   }
 
   /**
@@ -1051,6 +1832,7 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   tickStates(combatant, log) {
+    const perishing = hasVolatile(combatant, VOLATILE.PERISH);
     for (const state of tickVolatile(combatant)) {
       // A perish count running out is the one that is not a relief.
       if (state === VOLATILE.PERISH) {
@@ -1060,6 +1842,9 @@ export class Battle {
       }
       log.push({ kind: 'volatileEnded', side: combatant.side, data: { state } });
     }
+    if (perishing && hasVolatile(combatant, VOLATILE.PERISH)) {
+      this.say(combatant, 'move.perishCount', { count: combatant.volatile[VOLATILE.PERISH] });
+    }
   }
 
   /**
@@ -1068,8 +1853,13 @@ export class Battle {
    */
   tickField(log) {
     for (const gone of this.field.tick()) {
+      if (FIELD_MESSAGES.has(gone.kind)) {
+        log.push({ kind: 'message', side: /** @type {any} */ (gone.side ?? 'player'), data: { key: `move.${gone.kind}.end` } });
+        continue;
+      }
       log.push({ kind: `${gone.kind}Ended`, side: /** @type {any} */ (gone.side), data: { value: gone.value } });
     }
+    this.syncSuppression();
   }
 
   /** Priority first, then Speed, with a coin flip to break an exact tie. */
@@ -1194,7 +1984,10 @@ export class Battle {
     // A Mimicry wears the terrain's type for as long as the terrain lasts.
     const terrainType = MIMICRY_TYPES[this.field.terrain ?? ''];
     if (terrainType && this.abilityOf(combatant)?.mimicry) return [terrainType];
-    return combatant.marks.types ?? forme?.types ?? species.types;
+    const types = combatant.marks.types ?? forme?.types ?? species.types;
+    // A Trick-or-Treat or a Forest's Curse adds a third type on top.
+    const added = combatant.marks.addedType;
+    return added && !types.includes(added) ? [...types, added] : types;
   }
 
   /**
@@ -1246,6 +2039,10 @@ export class Battle {
    * @returns {string} a move slug, or `struggle` when nothing has PP
    */
   chooseMove(attacker, defender) {
+    // A rampage, a roll or an uproar carries on whatever else is going on.
+    const locked = attacker.volatile.locked?.move;
+    if (locked && this.movesOf(attacker).some((slot) => slot.move === locked)) return locked;
+
     let usable = this.movesOf(attacker).filter((slot) => slot.pp > 0 && moveOf(slot.move));
     if (usable.length === 0) return 'struggle';
 
@@ -1312,6 +2109,21 @@ export class Battle {
       const attacks = left.filter((slot) => moveOf(slot.move)?.damageClass !== 'status');
       if (attacks.length > 0) left = attacks;
     }
+    // Throat Chop's silence, a Heal Block, the moves an Imprison sealed, the
+    // ones Gravity keeps on the ground, and a move that cannot go twice in a
+    // row.
+    const imprisoner = this.other(attacker);
+    const sealed = imprisoner?.volatile.imprison ? new Set(this.movesOf(imprisoner).map((slot) => slot.move)) : null;
+    const narrowed = left.filter((slot) => {
+      const move = moveOf(slot.move);
+      if (attacker.volatile.silenced > 0 && hasFlag(move, 'sound')) return false;
+      if (attacker.volatile.healBlock > 0 && hasFlag(move, 'heal')) return false;
+      if (sealed?.has(slot.move)) return false;
+      if (this.field.gravity > 0 && GRAVITY_BANNED.has(slot.move)) return false;
+      if (NO_REPEAT.has(slot.move) && attacker.lastMove === slot.move) return false;
+      return true;
+    });
+    if (narrowed.length > 0) left = narrowed;
     if (hasVolatile(attacker, VOLATILE.TORMENT)) {
       const others = left.filter((slot) => slot.move !== attacker.lastMove);
       if (others.length > 0) left = others;
@@ -1333,6 +2145,10 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   resolveMove(attacker, defender, log) {
+    attacker.turn.moved = true;
+    // A Destiny Bond lasts until its user moves again.
+    attacker.volatile.destinyBond = 0;
+
     // The item is thrown by the trainer, so nothing about the Pokémon's own
     // state — asleep, flinching, paralysed — can stop it.
     if (attacker.side === 'player' && this.pendingItem) {
@@ -1373,14 +2189,21 @@ export class Battle {
       log.push({ kind: 'flinch', side: attacker.side });
       const steadfast = this.abilityOf(attacker);
       steadfast?.onFlinch?.(this.abilityContext(attacker, defender, log));
+      this.breakLock(attacker);
       return;
     }
+
+    const intended = attacker.charging ?? this.pendingMoves?.get(attacker) ?? null;
     // A Pokémon part way through a two-turn move is committed to finishing it,
     // asleep or not — which is why this comes before the condition check.
-    if (!attacker.charging && !this.canAct(attacker, log)) return;
+    if (!attacker.charging && !this.canAct(attacker, log, intended)) {
+      this.breakLock(attacker);
+      attacker.marks.lastFailed = true;
+      return;
+    }
 
-    const moveName = attacker.charging ?? this.pendingMoves?.get(attacker) ?? this.chooseMove(attacker, defender);
-    const base = moveName === 'struggle' ? STRUGGLE : moveOf(moveName);
+    let moveName = attacker.charging ?? this.pendingMoves?.get(attacker) ?? this.chooseMove(attacker, defender);
+    let base = moveName === 'struggle' ? STRUGGLE : moveOf(moveName);
     attacker.turnsTaken++;
 
     if (!base) {
@@ -1388,17 +2211,35 @@ export class Battle {
       return;
     }
 
+    // A Focus Punch that was hit while it tightened loses its nerve.
+    if (moveName === 'focus-punch' && attacker.turn.damage > 0) {
+      this.say(attacker, 'move.focusPunch.lost');
+      attacker.marks.lastFailed = true;
+      return;
+    }
+
+    // A move that keeps going — an Outrage, a Rollout, a Bide — only costs
+    // PP on the turn it starts.
+    const continuing = Boolean(attacker.volatile.locked?.started && attacker.volatile.locked.move === moveName && attacker.volatile.locked.paid);
+    if (attacker.volatile.locked?.move === moveName) attacker.volatile.locked.paid = true;
+
     // The charge turn: everything but the move itself, and then the wait.
     if (hasFlag(base, 'charge') && !attacker.charging && !this.skipsCharge(attacker, moveName, log)) {
       const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
       attacker.charging = moveName;
-      log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
-      return;
+      const charge = CHARGE_TURNS[moveName];
+      if (charge) this.say(attacker, charge.key);
+      else log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
+      if (charge?.stat) this.applyStage(attacker, charge.stat, 1, log, { source: 'self' });
+      if (SEMI_INVULNERABLE[moveName]) attacker.marks.hidden = SEMI_INVULNERABLE[moveName];
+      // A Power Herb that was not needed yet is spent on the far side of it.
+      if (!charge?.stat || !this.skipsChargeAfterBoost(attacker, moveName, log)) return;
     }
+    attacker.marks.hidden = null;
 
     // PP was already spent on the charge turn.
-    if (!attacker.charging) {
+    if (!attacker.charging && !continuing) {
       const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
@@ -1416,9 +2257,9 @@ export class Battle {
     attacker.repeats = attacker.lastMove === moveName ? attacker.repeats + 1 : 0;
     attacker.lastMove = moveName;
     // A guard only gets harder to put up while it keeps going up.
-    if (!PROTECT_MOVES[moveName]) attacker.volatile.protectStreak = 0;
+    if (!PROTECT_MOVES[moveName] && moveName !== 'endure') attacker.volatile.protectStreak = 0;
 
-    const move = this.effectiveMove(attacker, defender, base);
+    let move = this.effectiveMove(attacker, defender, base, moveName);
 
     // A Protean becomes whatever it is about to use.
     if (this.abilityOf(attacker)?.retypes === 'move') {
@@ -1428,12 +2269,31 @@ export class Battle {
     }
 
     // A Pressure on the other side charges a second point for being aimed at.
-    if (this.abilityOf(defender)?.pressures) {
+    if (this.abilityOf(defender)?.pressures && !continuing) {
       const slot = this.movesOf(attacker).find((entry) => entry.move === moveName);
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
 
     log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
+    const moveLogStart = log.length;
+
+    // A move that calls another uses that one in its place: a Metronome, a
+    // Sleep Talk, a Nature Power.
+    const called = calledMove(this, attacker, defender, moveName);
+    if (called === null) {
+      log.push({ kind: 'failed', side: attacker.side });
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
+      return;
+    }
+    if (called) {
+      if (moveName === 'nature-power') this.say(attacker, 'move.naturePower', { move: called });
+      moveName = called;
+      base = moveOf(called);
+      if (!base) return;
+      move = this.effectiveMove(attacker, defender, base, called);
+      log.push({ kind: 'move', side: attacker.side, data: { move: called } });
+    }
+    this.lastMoveUsed = moveName;
 
     // An Aegislash draws its blade to strike and raises its shield to guard,
     // before the move goes off.
@@ -1449,13 +2309,21 @@ export class Battle {
     }
 
     // Used after the first turn out, a Fake Out is only a lunge: the PP is
-    // gone and nothing happens.
-    if (FIRST_TURN_ONLY.has(moveName) && !this.firstTurnOut(attacker)) {
+    // gone and nothing happens. And a move that needs a partner, or a
+    // condition that is not there, fails the same way.
+    if (
+      (FIRST_TURN_ONLY.has(moveName) && !this.firstTurnOut(attacker)) ||
+      PARTNER_ONLY.has(moveName) ||
+      base.allyOnly ||
+      failsBeforeUse(this, attacker, defender, move, moveName)
+    ) {
       log.push({ kind: 'failed', side: attacker.side });
+      this.breakLock(attacker);
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
       return;
     }
 
-    if (SELF_KNOCKOUT.has(moveName)) {
+    if (SELF_KNOCKOUT.has(moveName) || move.rules?.selfdestruct === 'always') {
       // A Damp keeps the thing from going off at all.
       if (moveName !== 'memento' && this.abilityOf(defender, attacker)?.dampens) {
         log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
@@ -1467,29 +2335,93 @@ export class Battle {
       attacker.marks.spent = true;
     }
 
+    // A Future Sight is not a hit now; it is one two turns from now.
+    if (moveName === 'future-sight' || moveName === 'doom-desire') {
+      if (this.field.futureSight[defender.side]) {
+        log.push({ kind: 'failed', side: attacker.side });
+      } else {
+        this.field.futureSight[defender.side] = { turns: 3, from: attacker, move: moveName };
+        this.say(attacker, moveName === 'future-sight' ? 'move.futureSight' : 'move.doomDesire');
+      }
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
+      return;
+    }
+
+    // A Bide takes two turns of hits and gives them back doubled.
+    if (moveName === 'bide') {
+      if (!this.resolveBide(attacker, defender, move, log)) {
+        this.afterMove(attacker, defender, moveName, moveLogStart, log);
+        return;
+      }
+    }
+
     // A move the defender is simply sealed against — a sound at a Soundproof,
     // a bullet at a Bulletproof, a powder at a Grass type or a pair of Safety
     // Goggles, a Thunder Wave at a Ground type — never gets as far as an
     // accuracy roll.
     if (this.movePrevented(attacker, defender, move)) {
       log.push({ kind: 'noEffect', side: defender.side });
+      this.crash(attacker, move, log);
+      this.breakLock(attacker);
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
       return;
     }
 
     // Something between the two of them.
-    if (this.blockedByGuard(attacker, defender, move, moveName, log)) return;
+    if (this.blockedByGuard(attacker, defender, move, moveName, log)) {
+      this.crash(attacker, move, log);
+      this.breakLock(attacker);
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
+      return;
+    }
 
-    // A Magic Bounce sends a status move back where it came from.
-    if (move.damageClass === 'status' && this.abilityOf(defender, attacker)?.bouncesStatus) {
-      log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
-      log.push({ kind: 'bounced', side: defender.side });
-      this.applyStatusMove(defender, attacker, move, log);
+    // A Magic Bounce or a Magic Coat sends a status move back where it came
+    // from.
+    if (move.damageClass === 'status' && aimsAtTarget(move) && !move.bounced) {
+      const bouncer = this.abilityOf(defender, attacker)?.bouncesStatus;
+      if (bouncer || defender.volatile.magicCoat === this.turn) {
+        if (bouncer) log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
+        log.push({ kind: 'bounced', side: defender.side });
+        this.applyStatusMove(defender, attacker, { ...move, bounced: true }, log);
+        this.afterMove(attacker, defender, moveName, moveLogStart, log);
+        return;
+      }
+    }
+
+    // A substitute takes whatever status move was aimed at the Pokémon behind
+    // it — unless it is a sound, which goes through a doll.
+    if (
+      move.damageClass === 'status' &&
+      aimsAtTarget(move) &&
+      defender.volatile.substitute > 0 &&
+      !hasFlag(move, 'sound') &&
+      !this.abilityOf(attacker)?.infiltrates &&
+      !SUBSTITUTE_BYPASS.has(moveName)
+    ) {
+      log.push({ kind: 'failed', side: attacker.side });
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
+      return;
+    }
+
+    // Off the field for the turn: in the sky, underground, underwater or
+    // simply gone. Only the moves that go looking reach it.
+    const hidden = defender.marks.hidden;
+    const neverMisses = this.abilityOf(attacker)?.neverMisses || this.abilityOf(defender, attacker)?.neverMisses;
+    if (hidden && aimsAtTarget(move) && reachesHidden(hidden, moveName) === null && !neverMisses) {
+      log.push({ kind: 'miss', side: attacker.side });
+      this.crash(attacker, move, log);
+      this.breakLock(attacker);
+      this.afterMiss(attacker, log);
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
       return;
     }
 
     if (!this.rollAccuracy(attacker, defender, move)) {
       log.push({ kind: 'miss', side: attacker.side });
+      this.crash(attacker, move, log);
+      this.breakLock(attacker);
       this.afterMiss(attacker, log);
+      this.afterMove(attacker, defender, moveName, moveLogStart, log);
       return;
     }
 
@@ -1499,7 +2431,6 @@ export class Battle {
       log.push({ kind: 'status', side: attacker.side, data: { status: null, thawed: true } });
     }
 
-    const moveLogStart = log.length;
     // A Transform becomes the target outright.
     if (moveOf('transform')?.id === move.id) {
       if (!this.transformInto(attacker, defender, log)) log.push({ kind: 'failed', side: attacker.side });
@@ -1512,7 +2443,7 @@ export class Battle {
     // A quarter of the user's health, whatever the move did — which is the
     // only thing that brings a fight between two empty Pokémon to an end.
     if (moveName === 'struggle' && attacker.pokemon.hp > 0) {
-      const recoil = Math.max(1, Math.floor(maxHp(attacker.pokemon) * STRUGGLE_RECOIL));
+      const recoil = Math.max(1, Math.floor(attacker.maxHp * STRUGGLE_RECOIL));
       attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
       log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
@@ -1536,6 +2467,164 @@ export class Battle {
     // A move that has to be recharged says so now, so the next turn can be
     // spent paying for it.
     if (hasFlag(move, 'recharge') && attacker.pokemon.hp > 0) attacker.mustRecharge = true;
+    this.afterMove(attacker, defender, moveName, moveLogStart, log);
+  }
+
+  /**
+   * What is left once a move has gone, however it went: the half of its
+   * health a Mind Blown costs, the lock an Outrage keeps, whether it failed
+   * (which a Stomping Tantrum remembers), and the count an Echoed Voice
+   * keeps.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {string} moveName
+   * @param {number} from where this move's lines start in the log
+   * @param {LogEntry[]} log
+   */
+  afterMove(attacker, defender, moveName, from, log) {
+    const lines = log.slice(from);
+    attacker.marks.lastFailed = lines.some(
+      (entry) =>
+        entry.kind === 'failed' || entry.kind === 'miss' || entry.kind === 'noEffect' || entry.kind === 'protected' ||
+        (entry.kind === 'effectiveness' && entry.data?.effectiveness === 0),
+    );
+    const move = moveOf(moveName);
+
+    // Half the user's health, hit or miss.
+    if ((move?.rules?.mindBlownRecoil || moveName === 'chloroblast') && attacker.pokemon.hp > 0 && !attacker.marks.spent) {
+      if (!this.abilityOf(attacker)?.indirectImmune) this.loseHp(attacker, Math.ceil(attacker.maxHp / 2), log, { recoil: true });
+    }
+
+    if (moveName === 'echoed-voice' && !attacker.marks.lastFailed) {
+      this.field.echoes = Math.min(4, this.field.echoes + 1);
+      this.field.echoedThisTurn = true;
+    }
+
+    // Rolling on for five turns, and a stampede for two or three.
+    if ((moveName === 'rollout' || moveName === 'ice-ball') && !attacker.marks.lastFailed) {
+      const rolling = attacker.volatile.rollout ?? { count: 0 };
+      rolling.count += 1;
+      if (rolling.count >= 5) {
+        this.breakLock(attacker);
+      } else {
+        this.lockInto(attacker, moveName);
+        attacker.volatile.rollout = rolling;
+      }
+    }
+    if (move?.rules?.selfVolatile === 'lockedmove' && !attacker.marks.lastFailed) {
+      const locked = attacker.volatile.locked;
+      if (!locked || locked.move !== moveName) {
+        attacker.volatile.locked = { move: moveName, turns: this.rng.int(2, 3) - 1, started: true, paid: true };
+      } else if (--locked.turns <= 0) {
+        this.breakLock(attacker);
+        if (attacker.pokemon.hp > 0) {
+          this.say(attacker, 'move.fatigue');
+          this.confuse(attacker, log);
+        }
+      }
+    }
+    if (move?.rules?.selfVolatile === 'uproar' && !attacker.volatile.uproar && !attacker.marks.lastFailed) {
+      attacker.volatile.uproar = 3;
+      attacker.volatile.locked = { move: moveName, started: true, paid: true };
+      this.say(attacker, 'move.uproar.start');
+      for (const combatant of [this.player, this.foe]) {
+        if (combatant?.pokemon.status === STATUS.SLEEP) {
+          combatant.pokemon.status = null;
+          this.say(combatant, 'move.uproar.woke');
+        }
+      }
+    }
+  }
+
+  /**
+   * Keep a combatant on one move for the turns to come: a Rollout's roll,
+   * an Outrage's rampage.
+   *
+   * @param {Combatant} combatant
+   * @param {string} move
+   */
+  lockInto(combatant, move) {
+    combatant.volatile.locked = { ...(combatant.volatile.locked ?? {}), move, started: true, paid: true };
+  }
+
+  /**
+   * Let go of whatever a combatant was locked into — which a miss, a
+   * flinch, or a turn it could not move does to a Rollout or an Outrage.
+   *
+   * @param {Combatant} combatant
+   */
+  breakLock(combatant) {
+    if (!combatant.volatile.locked && !combatant.volatile.rollout) return;
+    if (combatant.volatile.uproar > 0) return;
+    combatant.volatile.locked = null;
+    combatant.volatile.rollout = null;
+  }
+
+  /**
+   * A Bide's turns: storing on the first two, and paying back double the
+   * damage taken on the third.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {any} move
+   * @param {LogEntry[]} log
+   * @returns {boolean} whether this is the turn it hits
+   */
+  resolveBide(attacker, defender, move, log) {
+    const bide = attacker.volatile.bide;
+    if (!bide) {
+      attacker.volatile.bide = { turns: 2, damage: 0 };
+      this.lockInto(attacker, 'bide');
+      this.say(attacker, 'move.bide.store');
+      return false;
+    }
+    if (--bide.turns > 0) {
+      this.say(attacker, 'move.bide.store');
+      return false;
+    }
+    this.say(attacker, 'move.bide.unleash');
+    this.breakLock(attacker);
+    const damage = bide.damage * 2;
+    attacker.volatile.bide = null;
+    if (!damage) {
+      log.push({ kind: 'failed', side: attacker.side });
+      return false;
+    }
+    defender.pokemon.hp = Math.max(0, defender.pokemon.hp - damage);
+    log.push({ kind: 'damage', side: defender.side, data: { amount: damage } });
+    return false;
+  }
+
+  /**
+   * A High Jump Kick that did not land lands its user on the floor.
+   *
+   * @param {Combatant} attacker
+   * @param {any} move
+   * @param {LogEntry[]} log
+   */
+  crash(attacker, move, log) {
+    if (!move?.rules?.hasCrashDamage || attacker.pokemon.hp <= 0 || this.abilityOf(attacker)?.indirectImmune) return;
+    this.say(attacker, 'move.crash');
+    this.loseHp(attacker, Math.floor(attacker.maxHp / 2), log, { recoil: true });
+  }
+
+  /**
+   * Whether a two-turn move whose charge turn raises a stat goes off at once
+   * after the boost, with a Power Herb in hand or rain for an Electro Shot.
+   *
+   * @param {Combatant} attacker
+   * @param {string} moveName
+   * @param {LogEntry[]} log
+   */
+  skipsChargeAfterBoost(attacker, moveName, log) {
+    if (moveName === 'electro-shot' && this.weatherFor(attacker) === WEATHER.RAIN) return true;
+    const herb = heldPassive(attacker.pokemon, 'charge');
+    if (!herb) return false;
+    log.push({ kind: 'berry', side: attacker.side, data: { item: attacker.pokemon.heldItem } });
+    attacker.marks.consumed = attacker.pokemon.heldItem;
+    attacker.pokemon.heldItem = null;
+    return true;
   }
 
   /**
@@ -1550,6 +2639,8 @@ export class Battle {
    */
   skipsCharge(attacker, moveName, log) {
     if (SUN_CHARGED.has(moveName) && this.weatherFor(attacker) === WEATHER.SUN) return true;
+    // A Meteor Beam takes its boost before it decides whether to wait.
+    if (chargeOwnsStats(moveName)) return false;
 
     const herb = heldPassive(attacker.pokemon, 'charge');
     if (!herb) return false;
@@ -1566,7 +2657,12 @@ export class Battle {
    * @param {Combatant} defender
    * @param {any} move
    */
-  effectiveMove(attacker, defender, move) {
+  effectiveMove(attacker, defender, move, slug = this.slugOf(move)) {
+    move = { ...move, slug };
+    // A Crowned Zacian's Iron Head is a Behemoth Blade, a Crowned
+    // Zamazenta's a Behemoth Bash.
+    const crowned = CROWNED_MOVES[attacker.marks.forme ?? '']?.[slug];
+    if (crowned && moveOf(crowned)) move = { ...moveOf(crowned), slug: crowned };
     // A signature move is whatever type the item behind it says: an Ivy
     // Cudgel the mask, a Judgment the plate, a Multi-Attack the memory, a
     // Techno Blast the drive.
@@ -1588,8 +2684,23 @@ export class Battle {
       const physical = this.stat(attacker, 'atk') > this.stat(attacker, 'spa');
       move = { ...move, type: 'stellar', damageClass: physical ? 'physical' : 'special' };
     }
+    // A Weather Ball, a Terrain Pulse, a Natural Gift: the type the field or
+    // the berry gives it.
+    const fieldType = variableType(this, attacker, move);
+    if (fieldType) move = { ...move, type: fieldType };
+    // A Present decides what it is when it is opened.
+    if (move.slug === 'present') {
+      const roll = this.rng.next();
+      attacker.marks.present = roll < 0.4 ? 40 : roll < 0.7 ? 80 : roll < 0.8 ? 120 : 0;
+    }
+    // Everything whose power is worked out on the spot.
+    const power = variablePower(this, attacker, defender, move);
+    if (power !== null) move = { ...move, power };
+
     const ability = this.abilityOf(attacker);
-    const retyped = ability?.moveType?.(this.abilityContext(attacker, defender, []), move);
+    let retyped = ability?.moveType?.(this.abilityContext(attacker, defender, []), move);
+    // An Electrify turns whatever its target uses into electricity.
+    if (attacker.volatile.electrified === this.turn) retyped = 'electric';
     if (!retyped || retyped === move.type) return move;
     return { ...move, type: retyped, retyped: true };
   }
@@ -1611,7 +2722,21 @@ export class Battle {
 
     // Status moves ignore the type chart, all but Thunder Wave: electricity
     // still has to reach its target, and a Ground type is out of its way.
-    if (TYPE_CHECKED_STATUS.has(attacker.lastMove ?? '') && typeEffectiveness(move.type, this.typesOf(defender)) === 0) {
+    if (TYPE_CHECKED_STATUS.has(this.slugOf(move)) && typeEffectiveness(move.type, this.typesOf(defender)) === 0) {
+      return true;
+    }
+
+    // A Ground move does not reach something off the ground — an Air
+    // Balloon, a Magnet Rise — however its types read. A Levitate says so in
+    // its own name, further on.
+    if (
+      move.type === 'ground' &&
+      move.damageClass !== 'status' &&
+      this.slugOf(move) !== 'thousand-arrows' &&
+      !this.grounded(defender) &&
+      !this.typesOf(defender).includes('flying') &&
+      !this.abilityOf(defender, attacker)?.floats
+    ) {
       return true;
     }
 
@@ -1785,20 +2910,23 @@ export class Battle {
    *
    * @param {Combatant} defender
    * @param {number} damage
-   * @returns {{consumed: boolean, ability?: boolean}|null}
+   * @returns {{consumed: boolean, ability?: boolean, move?: boolean}|null}
    */
   survivesHit(defender, damage) {
     if (damage < defender.pokemon.hp) return null;
 
+    // An Endure holds on through anything, for the turn it was used.
+    if (defender.volatile.endure === this.turn) return { consumed: false, move: true };
+
     // A Sturdy is a Focus Sash that never runs out.
-    if (this.abilityOf(defender)?.sturdy && defender.pokemon.hp >= maxHp(defender.pokemon)) {
+    if (this.abilityOf(defender)?.sturdy && defender.pokemon.hp >= defender.maxHp) {
       return { consumed: false, ability: true };
     }
 
     const held = heldPassive(defender.pokemon, 'survive');
     if (!held) return null;
 
-    if (held.fromFull && defender.pokemon.hp < maxHp(defender.pokemon)) return null;
+    if (held.fromFull && defender.pokemon.hp < defender.maxHp) return null;
     if (held.chance !== undefined && !this.rng.chance(held.chance)) return null;
     return { consumed: Boolean(held.consumed) };
   }
@@ -1897,8 +3025,9 @@ export class Battle {
    * @param {Combatant} combatant
    * @param {LogEntry[]} log
    */
-  canAct(combatant, log) {
+  canAct(combatant, log, intended = null) {
     const pokemon = combatant.pokemon;
+    const planned = intended ? moveOf(intended) : null;
 
     if (pokemon.status === STATUS.SLEEP) {
       pokemon.statusTurns -= this.abilityOf(combatant)?.wakesTwiceAsFast ? 2 : 1;
@@ -1908,12 +3037,14 @@ export class Battle {
         return true;
       }
       log.push({ kind: 'statusBlocked', side: combatant.side, data: { status: STATUS.SLEEP } });
-      return false;
+      // A Snore and a Sleep Talk are what a sleeping Pokémon can still do.
+      return Boolean(planned?.rules?.sleepUsable);
     }
 
     if (pokemon.status === STATUS.FREEZE) {
-      // 20% thaw chance per turn, as in the games.
-      if (this.rng.chance(0.2)) {
+      // 20% thaw chance per turn, as in the games — and a move that burns
+      // hot enough thaws its user on the way out.
+      if (this.rng.chance(0.2) || hasFlag(planned, 'defrost')) {
         pokemon.status = null;
         log.push({ kind: 'status', side: combatant.side, data: { status: null, thawed: true } });
         return true;
@@ -1974,19 +3105,37 @@ export class Battle {
    * @param {any} move
    */
   rollAccuracy(attacker, defender, move) {
+    const slug = this.slugOf(move);
+    // A one-hit KO is its own roll: thirty in a hundred, and the level gap
+    // on top of it, and nothing else counts.
+    if (move.rules?.ohko) {
+      const gap = levelOf(attacker.pokemon) - levelOf(defender.pokemon);
+      const base = move.rules.ohko === 'Ice' && !this.typesOf(attacker).includes('ice') ? 20 : 30;
+      if (this.abilityOf(attacker)?.neverMisses || this.abilityOf(defender, attacker)?.neverMisses) return true;
+      return this.rng.next() < (base + gap) / 100;
+    }
     // A null accuracy means the move cannot miss, and so does a No Guard.
     if (move.accuracy === null || move.accuracy === undefined) return true;
     if (this.abilityOf(attacker)?.neverMisses || this.abilityOf(defender, attacker)?.neverMisses) return true;
+    // A Lock-On's aim, and a Glaive Rush's wide-open guard, do not miss.
+    if (attacker.volatile.lockOn && attacker.volatile.lockOn.turn >= this.turn - 1 && attacker.volatile.lockOn.target === defender) {
+      attacker.volatile.lockOn = null;
+      return true;
+    }
+    if (defender.volatile.glaiveRush === this.turn) return true;
 
     // The weather has the last word on a Thunder or a Blizzard.
-    const fromWeather = weatherAccuracy(this.weatherFor(attacker), attacker.lastMove ?? '');
+    const fromWeather = weatherAccuracy(this.weatherFor(attacker), slug);
     if (fromWeather === 'always') return true;
 
     const attackerAbility = this.abilityOf(attacker);
     const defenderAbility = this.abilityOf(defender, attacker);
 
-    // A Keen Eye reads straight through an evasion the defender has raised.
-    const evasion = attackerAbility?.ignoresEvasion ? 0 : defender.stages.eva ?? 0;
+    // A Keen Eye reads straight through an evasion the defender has raised,
+    // and so does a move that ignores it, or a target that has been seen
+    // through.
+    const ignores = attackerAbility?.ignoresEvasion || move.rules?.ignoreEvasion || defender.volatile.identified;
+    const evasion = ignores ? Math.min(0, defender.stages.eva ?? 0) : defender.stages.eva ?? 0;
     const stages = (attacker.stages.acc ?? 0) - evasion;
 
     const lens = heldPassive(attacker.pokemon, 'accuracy');
@@ -2002,7 +3151,8 @@ export class Battle {
       fromMark *
       (attackerAbility?.accuracy?.(this.abilityContext(attacker, defender, []), move) ?? 1) *
       (defenderAbility?.evasion?.(this.abilityContext(defender, attacker, []), move) ?? 1) *
-      (heldPassive(defender.pokemon, 'evasion')?.multiplier ?? 1);
+      (heldPassive(defender.pokemon, 'evasion')?.multiplier ?? 1) *
+      (this.field.gravity > 0 ? 5 / 3 : 1);
     return this.rng.next() < chance;
   }
 
@@ -2013,27 +3163,77 @@ export class Battle {
    * @param {LogEntry[]} log
    */
   applyDamagingMove(attacker, defender, move, log) {
+    const slug = this.slugOf(move);
+    defender.marks.hitSubstitute = false;
+
+    // A Present that turned out to be medicine.
+    if (slug === 'present' && attacker.marks.present === 0) {
+      if (!this.gainHp(defender, Math.floor(defender.maxHp / 4), log)) log.push({ kind: 'failed', side: attacker.side });
+      return;
+    }
+
     // A type the defender drinks rather than takes: the move lands and
     // something good happens to the target instead of damage.
     if (this.absorbMove(attacker, defender, move, log)) return;
 
+    // A one-hit KO does nothing to a Sturdy, or to anything above its user.
+    if (move.rules?.ohko) {
+      const higher = levelOf(defender.pokemon) > levelOf(attacker.pokemon);
+      const iceProof = move.rules.ohko === 'Ice' && this.typesOf(defender).includes('ice');
+      if (this.abilityOf(defender, attacker)?.sturdy && !higher && !iceProof) {
+        log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
+      }
+      if (higher || iceProof || this.abilityOf(defender, attacker)?.sturdy) {
+        log.push({ kind: iceProof ? 'noEffect' : 'failed', side: iceProof ? defender.side : attacker.side });
+        return;
+      }
+    }
+
     const hits = this.hitCount(attacker, move);
     let total = 0;
+    let soaked = 0;
+    let landed = 0;
     let effectiveness = 1;
     let critical = false;
+    const behindDoll = () =>
+      defender.volatile.substitute > 0 && !hasFlag(move, 'sound') && !this.abilityOf(attacker)?.infiltrates;
 
     for (let hit = 0; hit < hits && defender.pokemon.hp > 0; hit++) {
-      const result = this.computeDamage(attacker, defender, move);
+      // Each strike of a Triple Axel or a Population Bomb aims again, and a
+      // Triple Kick hits harder with every one that lands.
+      if (hit > 0 && move.meta?.multiAccuracy && !heldPassive(attacker.pokemon, 'multiHit') && !this.rollAccuracy(attacker, defender, move)) {
+        break;
+      }
+      const strike = ESCALATING.has(slug) ? { ...move, power: (move.power ?? 0) * (hit + 1) } : move;
+      const result = this.computeDamage(attacker, defender, strike);
       effectiveness = result.effectiveness;
       critical = critical || result.critical;
       if (result.effectiveness === 0) break;
+      landed++;
+
+      // A substitute stands in for its Pokémon, and breaks when it has taken
+      // what it was made of.
+      if (behindDoll()) {
+        const taken = Math.min(defender.volatile.substitute, result.damage);
+        defender.volatile.substitute -= taken;
+        soaked += taken;
+        defender.marks.hitSubstitute = true;
+        this.say(defender, 'move.substitute.hit');
+        if (defender.volatile.substitute <= 0) {
+          defender.volatile.substitute = 0;
+          this.say(defender, 'move.substitute.end');
+        }
+        continue;
+      }
 
       // A Disguise or an Ice Face takes the hit and shatters instead of
       // letting any of it through — whatever the hit would have done.
-      if (this.bustForme(attacker, defender)) {
+      if (this.bustForme(attacker, defender, move)) {
         defender.marks.formeBroken = true;
         this.applyForme(defender, { ...this.formeState(defender), broken: true }, log);
         log.push({ kind: 'formBroken', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
+        // A broken Disguise costs an eighth of its health, as it has since Gen 8.
+        if (this.abilitySlugOf(defender) === 'disguise') this.loseHp(defender, Math.floor(defender.maxHp / 8), log);
         break;
       }
 
@@ -2041,27 +3241,40 @@ export class Battle {
       defender.pokemon.hp = Math.max(survives ? 1 : 0, defender.pokemon.hp - result.damage);
       total += result.damage;
       if (survives) {
-        log.push({
-          kind: 'endure',
-          side: defender.side,
-          data: survives.ability
-            ? { ability: abilityName(defender.pokemon) }
-            : { item: defender.pokemon.heldItem },
-        });
-        if (survives.consumed) defender.pokemon.heldItem = null;
+        if (survives.move) {
+          this.say(defender, 'move.endured');
+        } else {
+          log.push({
+            kind: 'endure',
+            side: defender.side,
+            data: survives.ability
+              ? { ability: abilityName(defender.pokemon) }
+              : { item: defender.pokemon.heldItem },
+          });
+        }
+        if (survives.consumed) this.consumeItem(defender);
         break;
       }
     }
 
+    // A Gem is spent on the move it powered up.
+    if (attacker.marks.gemUsed) {
+      log.push({ kind: 'heldFired', side: attacker.side, data: { item: attacker.marks.gemUsed } });
+      if (attacker.pokemon.heldItem === attacker.marks.gemUsed) this.consumeItem(attacker);
+      attacker.marks.gemUsed = null;
+    }
+
     if (effectiveness === 0) {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness: 0 } });
+      this.crash(attacker, move, log);
       return;
     }
 
     // A shattering disguise took every hit of the move: there is nothing to
     // report as damage, and none of what hangs off damage — drain, recoil,
     // secondary effects — applies to a hit nobody took.
-    if (total === 0) return;
+    if (total === 0 && soaked === 0) return;
+    const dealt = total + soaked;
 
     // A berry eaten on the way in is announced before the damage it softened.
     if (defender.marks.ateResist) {
@@ -2072,67 +3285,125 @@ export class Battle {
     // The hit lands first and the reasons follow it, which is the order the
     // games read in: the bar drains, then "급소에 맞았다!", then "효과가
     // 굉장했다!".
-    log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
+    if (total > 0) log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits: landed } });
+    if (move.rules?.ohko && defender.pokemon.hp <= 0) this.say(defender, 'move.ohko');
     if (critical) {
       log.push({ kind: 'critical', side: defender.side });
       // Three in one battle is how a Galarian Farfetch'd evolves.
       attacker.marks.crits = (attacker.marks.crits ?? 0) + 1;
       // An Anger Point turns a weak spot into the highest Attack there is.
       const angered = this.abilityOf(defender, attacker);
-      if (angered?.onCrit && defender.pokemon.hp > 0) {
+      if (angered?.onCrit && defender.pokemon.hp > 0 && total > 0) {
         log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
         angered.onCrit(this.abilityContext(defender, attacker, log));
       }
     }
-    if (effectiveness !== 1) {
+    if (effectiveness !== 1 && !move.rules?.damage && !RETALIATES.has(slug)) {
       log.push({ kind: 'effectiveness', side: defender.side, data: { effectiveness } });
     }
+    if (hits > 1 || (move.meta?.minHits ?? 0) > 1) this.say(defender, 'move.hitCount', { count: landed });
 
     // Drain and recoil are expressed as a percentage of the damage dealt.
     const drain = move.meta?.drain ?? 0;
-    if (drain > 0 && total > 0) {
-      const healed = Math.max(1, Math.floor((total * drain) / 100));
+    if (drain > 0) {
+      const root = heldPassive(attacker.pokemon, 'drainBoost')?.multiplier ?? 1;
+      const healed = Math.max(1, Math.floor(((dealt * drain) / 100) * root));
       // A Liquid Ooze turns the drink into the same amount of damage.
       if (this.abilityOf(defender, attacker)?.drainHurts) {
-        attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - healed);
         log.push({ kind: 'ability', side: defender.side, data: { ability: abilityName(defender.pokemon) } });
-        log.push({ kind: 'damage', side: attacker.side, data: { amount: healed } });
+        this.loseHp(attacker, healed, log);
       } else {
-        attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
-        log.push({ kind: 'heal', side: attacker.side, data: { amount: healed } });
+        this.gainHp(attacker, healed, log);
       }
-    } else if (drain < 0 && total > 0) {
-      const recoil = Math.max(1, Math.floor((total * -drain) / 100));
-      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - recoil);
+    } else if (drain < 0 && !this.recoilFree(attacker)) {
+      const recoil = this.loseHp(attacker, Math.max(1, Math.floor((dealt * -drain) / 100)), log, { recoil: true });
       // A white-striped Basculin counts the recoil it has lived through.
       if (speciesOf(attacker.pokemon.speciesId)?.evolutions?.some((evolution) => evolution.recoil)) {
         attacker.pokemon.recoilTaken = attacker.pokemon.hp > 0 ? (attacker.pokemon.recoilTaken ?? 0) + recoil : 0;
       }
-      log.push({ kind: 'damage', side: attacker.side, data: { amount: recoil, recoil: true } });
     }
 
     // A Shell Bell pays its holder a share of what it just dealt, and a Life
     // Orb charges for the extra damage it added.
     const shell = heldPassive(attacker.pokemon, 'drain');
-    if (shell && total > 0 && attacker.pokemon.hp > 0) {
-      const healed = Math.max(1, Math.floor(total * shell.fraction));
-      const before = attacker.pokemon.hp;
-      attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + healed);
-      if (attacker.pokemon.hp !== before) {
-        log.push({ kind: 'heal', side: attacker.side, data: { amount: attacker.pokemon.hp - before } });
-      }
-    }
+    if (shell && attacker.pokemon.hp > 0) this.gainHp(attacker, Math.max(1, Math.floor(dealt * shell.fraction)), log);
 
     const orb = heldPassive(attacker.pokemon, 'damage');
-    if (orb?.cost && total > 0) {
-      const cost = Math.max(1, Math.floor(maxHp(attacker.pokemon) * orb.cost));
-      attacker.pokemon.hp = Math.max(0, attacker.pokemon.hp - cost);
-      log.push({ kind: 'damage', side: attacker.side, data: { amount: cost, recoil: true } });
+    if (orb?.cost && !this.recoilFree(attacker) && !this.abilityOf(attacker)?.noSecondary) {
+      this.loseHp(attacker, Math.max(1, Math.floor(attacker.maxHp * orb.cost)), log, { recoil: true });
+    }
+
+    // What this hit is remembered for, this turn and for the battle.
+    if (total > 0) {
+      defender.turn.hitBy.push(attacker);
+      defender.turn.damage += total;
+      defender.turn.lastHit = { amount: total, damageClass: move.damageClass };
+      defender.marks.timesHit = (defender.marks.timesHit ?? 0) + 1;
+      if (defender.volatile.bide) defender.volatile.bide.damage += total;
+    }
+    if (move.rules?.selfdestruct === 'ifHit' && landed > 0) attacker.marks.spent = true;
+
+    // Fire thaws what it hits.
+    if (total > 0 && defender.pokemon.status === STATUS.FREEZE && (move.type === 'fire' || move.rules?.thawsTarget)) {
+      defender.pokemon.status = null;
+      log.push({ kind: 'status', side: defender.side, data: { status: null, thawed: true } });
     }
 
     defender.marks.lastDamage = total;
     if (total > 0) this.answerHit(attacker, defender, move, total, effectiveness, log);
     this.applySecondaryEffects(attacker, defender, move, log);
+
+    // Whatever the move does beyond its numbers: an item knocked away, a
+    // hazard spun off, a Pokémon dragged out.
+    const after = AFTER_HIT[slug];
+    if (after && (total > 0 || PIVOTS.has(slug)) && this.running) {
+      after({ battle: this, user: attacker, target: defender, move, log, damage: total });
+    }
+
+    // Going down takes the attacker with it, under a Destiny Bond, and takes
+    // the move's PP, under a Grudge.
+    if (defender.pokemon.hp <= 0 && total > 0) {
+      if (defender.volatile.destinyBond && attacker.pokemon.hp > 0) {
+        this.say(defender, 'move.destinyBond.taken');
+        this.loseHp(attacker, attacker.pokemon.hp, log);
+      }
+      if (defender.volatile.grudge) {
+        const slot = this.movesOf(attacker).find((entry) => entry.move === attacker.lastMove);
+        if (slot) {
+          slot.pp = 0;
+          this.say(attacker, 'move.grudge.lost', { move: slot.move });
+        }
+      }
+    }
+
+    // What the defender's item does about having been hit: a Red Card sends
+    // the attacker away, an Eject Button its own holder.
+    if (total > 0 && defender.pokemon.hp > 0) this.answerWithSwitch(attacker, defender, log);
+  }
+
+  /**
+   * A Red Card or an Eject Button going off after a hit.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {LogEntry[]} log
+   */
+  answerWithSwitch(attacker, defender, log) {
+    if (!this.running) return;
+    const red = heldPassive(defender.pokemon, 'redCard');
+    if (red && attacker.side === 'foe' && attacker.pokemon.hp > 0) {
+      const slug = defender.pokemon.heldItem;
+      log.push({ kind: 'heldFired', side: defender.side, data: { item: slug } });
+      this.consumeItem(defender);
+      this.forceOut(defender, attacker, log);
+      return;
+    }
+    const eject = heldPassive(defender.pokemon, 'eject');
+    if (eject && defender.side === 'foe' && this.trainerBattle && this.foeQueue.some((entry) => entry.pokemon.hp > 0)) {
+      log.push({ kind: 'heldFired', side: defender.side, data: { item: defender.pokemon.heldItem } });
+      this.consumeItem(defender);
+      this.switchFoe(log);
+    }
   }
 
   /**
@@ -2153,7 +3424,14 @@ export class Battle {
 
     if (this.abilityOf(attacker)?.maxHits) return max;
     const dice = heldPassive(attacker.pokemon, 'multiHit');
-    return this.rng.int(dice ? Math.min(max, dice.min) : min, max);
+    if (dice) return this.rng.int(Math.min(max, dice.min), max);
+    // Two to five is not even odds: two and three a third of the time each,
+    // four and five a sixth.
+    if (min === 2 && max === 5) {
+      const roll = this.rng.next();
+      return roll < 0.35 ? 2 : roll < 0.7 ? 3 : roll < 0.85 ? 4 : 5;
+    }
+    return this.rng.int(min, max);
   }
 
   /**
@@ -2164,8 +3442,9 @@ export class Battle {
    * @param {any} move
    */
   chargeMultiplier(attacker, move) {
-    if (!attacker.marks.charged || move.type !== 'electric') return 1;
+    if ((!attacker.marks.charged && !attacker.volatile.charge) || move.type !== 'electric') return 1;
     attacker.marks.charged = false;
+    attacker.volatile.charge = false;
     return 2;
   }
 
@@ -2202,11 +3481,15 @@ export class Battle {
    *
    * @param {Combatant} attacker
    * @param {Combatant} defender
+   * @param {any} [move]
    * @returns {boolean}
    */
-  bustForme(attacker, defender) {
+  bustForme(attacker, defender, move) {
     if (defender.marks.formeBroken) return false;
-    return Boolean(this.abilityOf(defender, attacker)?.busted);
+    const busted = this.abilityOf(defender, attacker)?.busted;
+    // An Ice Face only stops a physical blow; a Disguise stops anything.
+    if (busted === 'physical') return move?.damageClass === 'physical';
+    return Boolean(busted);
   }
 
   /**
@@ -2365,21 +3648,38 @@ export class Battle {
    */
   computeDamage(attacker, defender, move) {
     const level = levelOf(attacker.pokemon);
+    const slug = this.slugOf(move);
     const physical = move.damageClass === 'physical';
-    const attackStat = physical ? 'atk' : 'spa';
-    const defenceStat = physical ? 'def' : 'spd';
+    // A Body Press swings its Defense, a Psyshock aims at the Defense of what
+    // it hits, and a Wonder Room swaps the two walls over.
+    let attackStat = move.rules?.overrideOffensiveStat ?? (physical ? 'atk' : 'spa');
+    let defenceStat = move.rules?.overrideDefensiveStat ?? (physical ? 'def' : 'spd');
+    if (this.field.wonderRoom > 0) defenceStat = defenceStat === 'def' ? 'spd' : 'def';
 
     const attackerAbility = this.abilityOf(attacker);
     const defenderAbility = this.abilityOf(defender, attacker);
     const effectiveness = this.effectivenessOf(attacker, move, defender);
     if (effectiveness === 0) return { damage: 0, effectiveness: 0, critical: false };
 
+    // The moves that hit for a number rather than by the formula: a Seismic
+    // Toss for its user's level, a Super Fang for half of what is left, a
+    // Counter for twice what it took, a one-hit KO for everything.
+    if (move.rules?.ohko) return { damage: defender.pokemon.hp, effectiveness: 1, critical: false };
+    const fixed = fixedDamage(this, attacker, defender, move);
+    if (fixed !== null) {
+      const damage = Math.max(fixed > 0 ? 1 : 0, Math.floor(fixed * companionArmour(defender, 1)));
+      return { damage, effectiveness, critical: false };
+    }
+
     const critical = this.rollCritical(attacker, defender, move);
     // An Unaware on either side reads the other's stages as zero: the
     // attacker's boosts do not help it, the defender's walls do not hold.
+    // A Sacred Sword reads the defender's walls the same way.
     const blindAttacker = Boolean(defenderAbility?.ignoresStages);
-    const blindDefender = Boolean(attackerAbility?.ignoresStages);
-    const attack = this.stat(attacker, attackStat, {
+    const blindDefender = Boolean(attackerAbility?.ignoresStages || move.rules?.ignoreDefensive);
+    // A Foul Play swings the target's own Attack, stages and all.
+    const swinger = move.rules?.overrideOffensivePokemon === 'target' ? defender : attacker;
+    const attack = this.stat(swinger, attackStat, {
       ...(critical ? { ignoreNegative: true } : {}),
       ...(blindAttacker ? { ignoreStages: true } : {}),
     });
@@ -2392,12 +3692,13 @@ export class Battle {
       Math.floor((Math.floor((2 * level) / 5 + 2) * (move.power ?? 0) * attack) / defence) / 50,
     ) + 2;
 
-    const stab = this.typesOf(attacker).includes(move.type) ? 1.5 : 1;
+    // Stellar and typeless moves have no type to match.
+    const stab = move.type !== 'stellar' && this.typesOf(attacker).includes(move.type) ? 1.5 : 1;
 
     // Burn halves physical damage, unless the ability holding it is the sort
-    // that thrives on a condition.
+    // that thrives on a condition, or the move is a Facade.
     const burn =
-      physical && attacker.pokemon.status === STATUS.BURN && !attackerAbility?.ignoresBurn ? 0.5 : 1;
+      physical && attacker.pokemon.status === STATUS.BURN && !attackerAbility?.ignoresBurn && slug !== 'facade' ? 0.5 : 1;
     const spread = this.rng.int(85, 100) / 100;
     const criticalBonus = critical ? 1.5 * (attackerAbility?.critBonus ?? 1) : 1;
 
@@ -2408,15 +3709,23 @@ export class Battle {
     const aura = auraMultiplier([this.abilityOf(attacker), this.abilityOf(defender)], move);
 
     const held = this.heldDamage(attacker, move, effectiveness);
-    const charged = attackerAbility?.absorbCharge ? this.chargeMultiplier(attacker, move) : 1;
+    const charged = this.chargeMultiplier(attacker, move);
     const resisted = this.heldResist(defender, move, effectiveness);
-    const weather = weatherDamage(this.weatherFor(attacker), move.type);
+    // A Hydro Steam is the one water move the sun makes stronger.
+    let weather = weatherDamage(this.weatherFor(attacker), move.type);
+    if (slug === 'hydro-steam' && this.weatherFor(attacker) === WEATHER.SUN) weather = 1.5;
     const terrain = terrainDamage(
       this.field.terrain,
       move.type,
       this.grounded(attacker),
       this.grounded(defender),
     );
+    // The two sports that damp an element out, a Collision Course that hits a
+    // weakness harder, and a Glaive Rush that left its user wide open.
+    const sport =
+      (move.type === 'fire' && this.field.waterSport > 0) || (move.type === 'electric' && this.field.mudSport > 0) ? 1 / 3 : 1;
+    const drive = (slug === 'collision-course' || slug === 'electro-drift') && effectiveness > 1 ? 5461 / 4096 : 1;
+    const exposed = defender.volatile.glaiveRush === this.turn ? 2 : 1;
     // An Infiltrator is not stopped by anything the other side put up.
     const screen = attackerAbility?.infiltrates ? 1 : this.screenMultiplier(defender, move, critical);
     const formula = Math.floor(
@@ -2434,8 +3743,15 @@ export class Battle {
         weather *
         terrain *
         screen *
-        charged,
+        charged *
+        sport *
+        drive *
+        exposed,
     );
+    // Something that takes nothing — a Wonder Guard, a berry's worth of
+    // resistance ripened to nothing — takes nothing, not the one point every
+    // other hit is rounded up to.
+    if (abilityTaken === 0) return { damage: 0, effectiveness, critical };
     // The companion's armour comes off the finished hit, weakness and all.
     const damage = Math.max(1, Math.floor(formula * companionArmour(defender, effectiveness)));
     return { damage, effectiveness, critical };
@@ -2453,15 +3769,36 @@ export class Battle {
    * @param {Combatant} defender
    */
   effectivenessOf(attacker, move, defender) {
-    const types = this.typesOf(defender);
-    const plain = typeEffectiveness(move.type, types);
-    if (plain > 0) return plain;
+    if (move.type === 'stellar' || move.type === 'typeless') return 1;
+    const slug = this.slugOf(move);
+    let types = this.typesOf(defender);
 
-    const ability = this.abilityOf(attacker);
-    if (!ability?.hitsGhosts || !['normal', 'fighting'].includes(move.type)) return plain;
-    // Only the Ghost part of the immunity is ignored; the rest of the chart
-    // still applies, so a Ghost/Flying takes the Flying half as usual.
-    return typeEffectiveness(move.type, types.filter((type) => type !== 'ghost'));
+    // A Flying type that has been brought down takes Ground moves like
+    // anything else, and a Thousand Arrows brings it down on the way.
+    if (move.type === 'ground' && types.includes('flying') && (this.grounded(defender) || slug === 'thousand-arrows')) {
+      types = types.filter((type) => type !== 'flying');
+    }
+    // A Scrappy, a Mind's Eye or a Foresight reads a Ghost's immunity to
+    // Normal and Fighting as no immunity at all; only the Ghost part goes, so
+    // a Ghost/Flying takes the Flying half as usual.
+    const seesGhosts = this.abilityOf(attacker)?.hitsGhosts || defender.volatile.identified;
+    if (seesGhosts && ['normal', 'fighting'].includes(move.type)) types = types.filter((type) => type !== 'ghost');
+
+    // A Ring Target takes away its holder's immunities; a Freeze-Dry is
+    // strong against Water whatever the chart says.
+    const ringed = Boolean(heldPassive(defender.pokemon, 'ringTarget'));
+    let value = 1;
+    for (const type of types) {
+      let one = typeEffectiveness(move.type, [type]);
+      if (slug === 'freeze-dry' && type === 'water') one = 2;
+      if (one === 0 && ringed) one = 1;
+      value *= one;
+    }
+    // A Flying Press is Fighting and Flying at once.
+    if (slug === 'flying-press') value *= typeEffectiveness('flying', types);
+    // Tar makes fire twice as bad.
+    if (defender.volatile.tarShot && move.type === 'fire') value *= 2;
+    return value;
   }
 
   /**
@@ -2478,10 +3815,17 @@ export class Battle {
     const sharp = this.abilityOf(attacker)?.crit?.(this.abilityContext(attacker, defender, []));
     if (sharp?.always) return true;
 
+    // A Laser Focus makes the next hit a sure one.
+    if (attacker.volatile.laserFocus > 0) {
+      attacker.volatile.laserFocus = 0;
+      return true;
+    }
+
     const lens = heldPassive(attacker.pokemon, 'crit');
     const fromItem = lens && itemSuits(lens, attacker.pokemon) ? lens.stages ?? 0 : 0;
     const stage =
-      (move.meta?.critRate ?? 0) + fromItem + (sharp?.stages ?? 0) + (attacker.marks.critStages ?? 0);
+      (move.meta?.critRate ?? 0) + fromItem + (sharp?.stages ?? 0) + (attacker.marks.critStages ?? 0) +
+      (attacker.volatile.focusEnergy ? 2 : 0);
     return this.rng.next() < criticalChance(stage);
   }
 
@@ -2507,6 +3851,14 @@ export class Battle {
    * @param {number} effectiveness
    */
   heldDamage(attacker, move, effectiveness) {
+    // A Gem goes off once, for the one move of its type it powers.
+    const gem = heldPassive(attacker.pokemon, 'gem');
+    if (gem && gem.moveType === move.type && !move.rules?.damage && !move.rules?.ohko) {
+      attacker.marks.gemUsed = attacker.pokemon.heldItem;
+      return gem.multiplier;
+    }
+    if (attacker.marks.gemUsed) return itemOf(attacker.marks.gemUsed)?.held?.multiplier ?? 1;
+
     const held = heldPassive(attacker.pokemon, 'damage');
     if (!held || !itemSuits(held, attacker.pokemon)) return 1;
 
@@ -2536,8 +3888,9 @@ export class Battle {
     if (berry.superEffectiveOnly && effectiveness <= 1) return 1;
 
     defender.marks.ateResist = defender.pokemon.heldItem;
-    defender.pokemon.heldItem = null;
-    return berry.multiplier;
+    this.consumeItem(defender);
+    // A Ripen makes the berry take off three quarters rather than half.
+    return this.abilityOf(defender)?.berryDouble ? berry.multiplier / 2 : berry.multiplier;
   }
 
   /**
@@ -2548,20 +3901,32 @@ export class Battle {
    */
   applySecondaryEffects(attacker, defender, move, log) {
     const meta = move.meta;
+    const slug = this.slugOf(move);
+    const changes = chargeOwnsStats(slug) ? [] : move.statChanges ?? [];
+    const isSelf = (change) => change.self ?? change.change > 0;
+
+    // The price of the move itself — a Close Combat's drops, a Make It
+    // Rain's — is paid whatever else happens, and no Sheer Force waives it.
+    const price = changes.filter((change) => isSelf(change) && change.secondary === false);
+    if (price.length && attacker.pokemon.hp > 0) this.applyStatChanges(attacker, defender, move, log, price);
     if (!meta) return;
 
     const ability = this.abilityOf(attacker);
     // Sheer Force trades every secondary effect away for the damage it adds;
-    // a Covert Cloak and a Shield Dust refuse them from the other side.
-    if (ability?.noSecondary || heldShield(defender.pokemon, 'secondary')) return;
-    if (this.abilityOf(defender, attacker)?.noSecondaryTaken) return;
+    // a Covert Cloak and a Shield Dust refuse the ones aimed at their holder,
+    // and a substitute takes them in its Pokémon's place.
+    if (ability?.noSecondary) return;
+    const reaches = this.secondaryAllowed(attacker, defender, move);
 
     // Serene Grace doubles the odds of whatever a move was already going to do.
     const odds = ability?.secondary ?? 1;
 
-    const jealous = !RAISED_THIS_TURN_ONLY.has(attacker.lastMove ?? '') || defender.marks.raisedTurn === this.turn;
-    if (meta.ailment && meta.ailment !== 'none' && meta.ailmentChance > 0 && jealous) {
-      if (this.rng.next() < (meta.ailmentChance / 100) * odds) this.inflictAilment(attacker, defender, meta.ailment, log);
+    const jealous = !RAISED_THIS_TURN_ONLY.has(slug) || defender.marks.raisedTurn === this.turn;
+    const ailment = meta.ailment;
+    if (reaches && ailment && ailment !== 'none' && meta.ailmentChance > 0 && jealous) {
+      if (this.rng.next() < (meta.ailmentChance / 100) * odds) {
+        this.inflictAilment(attacker, defender, ailment, log, { toxic: Boolean(meta.toxic) });
+      }
     }
 
     const flinchChance = Math.max(
@@ -2572,13 +3937,17 @@ export class Battle {
         ? Math.max(heldPassive(attacker.pokemon, 'flinch')?.chance ?? 0, ability?.flinch ?? 0)
         : 0,
     );
-    if (flinchChance > 0 && this.rng.next() < flinchChance * odds && !this.abilityOf(defender, attacker)?.flinchImmune) {
+    if (reaches && flinchChance > 0 && this.rng.next() < flinchChance * odds && !this.abilityOf(defender, attacker)?.flinchImmune) {
       defender.flinched = true;
     }
 
-    if (move.statChanges?.length && meta.statChance > 0) {
+    // A chance at stages: its user's own (a Flame Charge's Speed), which
+    // nothing on the other side can refuse, and the target's, which can be.
+    const ownSide = changes.filter((change) => isSelf(change) && change.secondary !== false);
+    const theirs = reaches ? changes.filter((change) => !isSelf(change)) : [];
+    if ((ownSide.length || theirs.length) && meta.statChance > 0) {
       if (this.rng.next() < (meta.statChance / 100) * odds) {
-        this.applyStatChanges(attacker, defender, move, log);
+        this.applyStatChanges(attacker, defender, move, log, [...(attacker.pokemon.hp > 0 ? ownSide : []), ...theirs]);
       }
     }
   }
@@ -2591,11 +3960,12 @@ export class Battle {
    */
   applyStatusMove(attacker, defender, move, log) {
     const meta = move.meta;
+    const slug = this.slugOf(move);
     const before = log.length;
     let did = false;
 
     // A move that calls the weather, lays the terrain or puts up a screen.
-    const field = FIELD_MOVES[attacker.lastMove ?? ''];
+    const field = FIELD_MOVES[slug];
     if (field) {
       if (field.weather && this.startWeather(field.weather, attacker, log)) did = true;
       if (field.terrain && this.startTerrain(field.terrain, attacker, log)) did = true;
@@ -2612,6 +3982,7 @@ export class Battle {
       if (field.room) {
         const state = this.field.toggleTrickRoom();
         log.push({ kind: 'trickRoom', side: attacker.side, data: { state } });
+        if (state === 'started') this.roomService(log);
         did = true;
       }
       if (field.tailwind && this.field.setTailwind(attacker.side)) {
@@ -2625,45 +3996,55 @@ export class Battle {
       }
     }
 
-    // Getting behind something for the turn.
-    const guard = PROTECT_MOVES[attacker.lastMove ?? ''];
-    if (guard) {
+    // Getting behind something for the turn — or bracing for it.
+    const guard = PROTECT_MOVES[slug];
+    if (guard || slug === 'endure') {
       const streak = attacker.volatile.protectStreak ?? 0;
       if (this.rng.chance(protectChance(streak))) {
         attacker.volatile.protectStreak = streak + 1;
-        attacker.volatile.protectTurn = this.turn;
-        attacker.volatile.protectMove = attacker.lastMove;
-        log.push({ kind: 'protect', side: attacker.side, data: { move: attacker.lastMove } });
+        if (guard) {
+          attacker.volatile.protectTurn = this.turn;
+          attacker.volatile.protectMove = slug;
+          log.push({ kind: 'protect', side: attacker.side, data: { move: slug } });
+        } else {
+          STATUS_MOVES.endure({ battle: this, user: attacker, target: defender, move, log });
+        }
         did = true;
       } else {
         attacker.volatile.protectStreak = 0;
       }
+      if (!did) log.push({ kind: 'failed', side: attacker.side });
+      return;
+    }
+
+    // A move with a rule of its own does exactly that and nothing more.
+    const own = STATUS_MOVES[slug];
+    if (own) {
+      did = own({ battle: this, user: attacker, target: defender, move, log });
+      if (!did && log.length === before) log.push({ kind: 'failed', side: attacker.side });
+      return;
     }
 
     // Taking a move away.
-    const lock = LOCK_MOVES[attacker.lastMove ?? ''];
+    const lock = LOCK_MOVES[slug];
     if (lock && this.applyLock(attacker, defender, lock, log)) did = true;
 
     if (meta?.healing > 0) {
       // Sunshine makes a Synthesis worth two thirds of a bar and any other
       // weather a quarter; every other healing move takes its own number.
-      const healing = weatherHealing(this.weatherFor(attacker), attacker.lastMove ?? '', meta.healing);
-      const amount = Math.max(1, Math.floor((maxHp(attacker.pokemon) * healing) / 100));
-      const before = attacker.pokemon.hp;
-      attacker.pokemon.hp = Math.min(maxHp(attacker.pokemon), attacker.pokemon.hp + amount);
-      if (attacker.pokemon.hp !== before) {
-        log.push({ kind: 'heal', side: attacker.side, data: { amount: attacker.pokemon.hp - before } });
-        did = true;
-      }
+      const healing = weatherHealing(this.weatherFor(attacker), slug, meta.healing);
+      if (this.gainHp(attacker, Math.floor((attacker.maxHp * healing) / 100), log) > 0) did = true;
     }
 
     if (meta?.ailment && meta.ailment !== 'none') {
       // A status move's listed chance is 0 when it always applies.
       const chance = meta.ailmentChance > 0 ? meta.ailmentChance / 100 : 1;
-      if (this.rng.next() < chance && this.inflictAilment(attacker, defender, meta.ailment, log)) did = true;
+      if (this.rng.next() < chance && this.inflictAilment(attacker, defender, meta.ailment, log, { toxic: Boolean(meta.toxic) })) {
+        did = true;
+      }
     }
 
-    if (move.statChanges?.length) {
+    if (move.statChanges?.length && !chargeOwnsStats(slug)) {
       if (this.applyStatChanges(attacker, defender, move, log)) did = true;
     }
 
@@ -2672,6 +4053,31 @@ export class Battle {
     // Dance at the ceiling has already said that its Attack will go no
     // higher, and a Clear Body has already refused the drop in its own name.
     if (!did && log.length === before) log.push({ kind: 'failed', side: attacker.side });
+  }
+
+  /**
+   * A Room Service slowing its holder the moment a Trick Room goes up.
+   *
+   * @param {LogEntry[]} log
+   */
+  roomService(log) {
+    for (const combatant of [this.player, this.foe]) {
+      const held = combatant ? heldPassive(combatant.pokemon, 'room') : null;
+      if (!held) continue;
+      if (!this.applyStage(combatant, 'spe', held.stages ?? -1, log, { source: 'self', quiet: true })) continue;
+      log.push({ kind: 'heldFired', side: combatant.side, data: { item: combatant.pokemon.heldItem } });
+      this.consumeItem(combatant);
+    }
+  }
+
+  /**
+   * Use up a held item, remembering it for a Recycle.
+   *
+   * @param {Combatant} combatant
+   */
+  consumeItem(combatant) {
+    combatant.marks.consumed = combatant.pokemon.heldItem;
+    combatant.pokemon.heldItem = null;
   }
 
   /**
@@ -2766,18 +4172,19 @@ export class Battle {
    * @param {LogEntry[]} log
    * @returns {boolean} whether any stage actually moved
    */
-  applyStatChanges(attacker, defender, move, log) {
-    // A move that raises stats targets its user; one that lowers them targets
-    // the opponent. That holds for essentially every move in the games — bar
-    // the two that raise the opponent's on purpose, to confuse something that
-    // now hits harder, which the move data files under its own category.
-    const raisesTheOther = move.meta?.category === 'swagger';
+  applyStatChanges(attacker, defender, move, log, changes = move.statChanges) {
     let changed = false;
-    for (const change of move.statChanges) {
-      const target = change.change > 0 && !raisesTheOther ? attacker : defender;
+    for (const change of changes) {
+      // The data says who each stage lands on — a Close Combat's drops are
+      // its user's price, a Growl's the target's loss. A record from before
+      // it said so falls back on the old reading: rises to the user, drops to
+      // the target.
+      const self = change.self ?? change.change > 0;
+      const target = self ? attacker : defender;
+      if (target.pokemon.hp <= 0) continue;
       // A Clear Amulet refuses a drop the other side is trying to apply.
-      if (change.change < 0 && heldShield(target.pokemon, 'statDrops')) continue;
-      if (this.applyStage(target, change.stat, change.change, log)) changed = true;
+      if (!self && change.change < 0 && heldShield(target.pokemon, 'statDrops')) continue;
+      if (this.applyStage(target, change.stat, change.change, log, self ? { source: 'self' } : {})) changed = true;
     }
     return changed;
   }
@@ -2797,10 +4204,17 @@ export class Battle {
    * @param {LogEntry[]} log
    * @returns {boolean} whether it took hold
    */
-  inflictAilment(source, target, ailment, log) {
+  inflictAilment(source, target, ailment, log, options = {}) {
+    // A Safeguard keeps the other side's conditions off its whole side.
+    if (source !== target && this.field.sides[target.side].safeguard > 0 && !this.abilityOf(source)?.infiltrates) {
+      if (AILMENT_TO_STATUS[ailment] || ailment === 'confusion') {
+        this.say(target, 'move.safeguard.protected');
+        return false;
+      }
+    }
     if (ailment === 'confusion') return this.confuse(target, log);
     if (ailment === 'infatuation') return this.infatuate(source, target, log);
-    return this.inflictStatus(target, ailment, log);
+    return this.inflictStatus(target, ailment, log, options);
   }
 
   /**
@@ -2884,10 +4298,12 @@ export class Battle {
    * @param {LogEntry[]} log
    * @returns {boolean} whether it took hold
    */
-  inflictStatus(target, ailment, log) {
+  inflictStatus(target, ailment, log, options = {}) {
     const status = AILMENT_TO_STATUS[ailment];
     if (!status) return false;
     if (target.pokemon.status) return false;
+    // Nobody falls asleep through an Uproar.
+    if (status === STATUS.SLEEP && this.uproar()) return false;
 
     const types = this.typesOf(target);
     const source = target === this.player ? this.foe : this.player;
@@ -2912,12 +4328,17 @@ export class Battle {
 
     target.pokemon.status = status;
     target.pokemon.statusTurns = status === STATUS.SLEEP ? this.rng.int(1, 3) : 0;
-    log.push({ kind: 'status', side: target.side, data: { status } });
+    // A Toxic's poison is the bad kind, which bites harder every turn.
+    const toxic = status === STATUS.POISON && Boolean(options.toxic);
+    target.pokemon.toxic = toxic;
+    target.marks.toxicTurns = 0;
+    log.push({ kind: 'status', side: target.side, data: { status, ...(toxic ? { toxic: true } : {}) } });
 
-    // A Synchronize passes what it was given straight back.
-    if (ability?.reflectsStatus && other && other.pokemon.hp > 0 && !other.pokemon.status) {
+    // A Synchronize passes a burn, a poison or a paralysis straight back.
+    const passes = status === STATUS.BURN || status === STATUS.POISON || status === STATUS.PARALYSIS;
+    if (ability?.reflectsStatus && passes && other && other.pokemon.hp > 0 && !other.pokemon.status) {
       log.push({ kind: 'ability', side: target.side, data: { ability: abilityName(target.pokemon) } });
-      this.inflictStatus(other, ailment, log);
+      this.inflictStatus(other, ailment, log, { toxic });
     }
     return true;
   }
@@ -2937,7 +4358,15 @@ export class Battle {
     if (ability?.indirectImmune) return;
     if (status === STATUS.POISON && ability?.feedsOnPoison) return;
 
-    const damage = Math.max(1, Math.floor(maxHp(combatant.pokemon) / 16));
+    // A bad poison takes a sixteenth more every turn it lasts; a burn on a
+    // Heatproof bites half as hard.
+    let share = 1 / 16;
+    if (status === STATUS.POISON && combatant.pokemon.toxic) {
+      combatant.marks.toxicTurns = Math.min(15, (combatant.marks.toxicTurns ?? 0) + 1);
+      share = combatant.marks.toxicTurns / 16;
+    }
+    if (status === STATUS.BURN && ability?.burnHalved) share /= 2;
+    const damage = Math.max(1, Math.floor(combatant.maxHp * share));
     combatant.pokemon.hp = Math.max(0, combatant.pokemon.hp - damage);
     log.push({ kind: 'statusDamage', side: combatant.side, data: { status, amount: damage } });
   }
@@ -3088,6 +4517,7 @@ function makeCombatant(pokemon, side) {
     lastMove: null,
     repeats: 0,
     movedLast: false,
+    turn: freshTurn(),
     // Read rather than stored: a level-up mid-battle raises it, and every
     // ability that asks about full or half health has to see that.
     get maxHp() {
@@ -3262,6 +4692,9 @@ function movesWorthUsing(attacker, defender, usable) {
     const move = moveOf(slot.move);
     if (!move) return false;
     if (cannotTouch(defender, move)) return false;
+    // A move that needs a partner, or that sends the other Pokémon away
+    // before it is beaten, is not something to reach for unasked.
+    if (neverAutomatic(slot.move)) return false;
     switch (categoryOf(move)) {
       case 'stat':
         return hasRoomToChange(move, attacker, defender);
@@ -3285,6 +4718,10 @@ function movesWorthUsing(attacker, defender, usable) {
  * @param {any} move
  */
 export function expectedDamage(attacker, defender, move) {
+  // The fixed-damage moves are worth what they take.
+  const slug = Object.entries(gameData().moves).find(([, entry]) => entry === move)?.[0] ?? '';
+  const fixed = estimatedFixedDamage(attacker, defender, move, slug);
+  if (fixed !== null) return fixed * ((move.accuracy ?? 100) / 100);
   const weighed = weightPower(
     move,
     speciesOf(attacker.pokemon.speciesId)?.weight ?? 100,
@@ -3309,6 +4746,29 @@ export function expectedDamage(attacker, defender, move) {
   const hits = move.meta?.minHits ? ((move.meta.minHits + (move.meta.maxHits ?? move.meta.minHits)) / 2) : 1;
 
   return base * stab * effectiveness * accuracy * hits * 0.925;
+}
+
+/**
+ * What a fixed-damage move is worth before it is used, for ranking it: a
+ * Seismic Toss its user's level, a Super Fang half of what is left, a one-hit
+ * KO its thirty-in-a-hundred of everything. The ones that answer a hit are
+ * worth nothing ahead of time.
+ *
+ * @param {Combatant} attacker
+ * @param {Combatant} defender
+ * @param {any} move
+ * @param {string} slug
+ * @returns {number|null}
+ */
+function estimatedFixedDamage(attacker, defender, move, slug) {
+  if (move.rules?.damage === 'level') return levelOf(attacker.pokemon);
+  if (typeof move.rules?.damage === 'number') return move.rules.damage;
+  if (move.rules?.ohko) return levelOf(defender.pokemon) > levelOf(attacker.pokemon) ? 0 : defender.pokemon.hp * 0.3;
+  if (slug === 'super-fang' || slug === 'natures-madness' || slug === 'ruination') return Math.floor(defender.pokemon.hp / 2);
+  if (slug === 'endeavor') return Math.max(0, defender.pokemon.hp - attacker.pokemon.hp);
+  if (slug === 'final-gambit') return attacker.pokemon.hp;
+  if (RETALIATES.has(slug) || slug === 'bide') return 0;
+  return null;
 }
 
 /**
@@ -3350,6 +4810,9 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
   for (const slot of usable) {
     const move = moveOf(slot.move);
     if (!move) continue;
+    // What cannot do anything in a battle of one against one, or would end it
+    // unwon, is only ever used when the player put it in the order.
+    if (neverAutomatic(slot.move)) continue;
     const category = categoryOf(move);
     if (!conditionHolds(policy.conditions?.[category] ?? 'always', battle, attacker, defender)) continue;
 
@@ -3387,7 +4850,7 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
  */
 export function categoryOf(move) {
   if (move.damageClass !== 'status') return 'damage';
-  if ((move.meta?.healing ?? 0) > 0) return 'heal';
+  if ((move.meta?.healing ?? 0) > 0 || hasFlag(move, 'heal')) return 'heal';
   if (move.meta?.ailment && move.meta.ailment !== 'none') return 'status';
   if (move.statChanges?.length) return 'stat';
   return 'field';

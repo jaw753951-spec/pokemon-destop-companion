@@ -430,7 +430,9 @@ export const ABILITIES = {
   'bad-dreams': {
     turn: (ctx) => { if (ctx.foe.pokemon.status === 'slp') ctx.damage(ctx.foe, 1 / 8); },
   },
-  'ice-face': { sturdy: true, busted: true },
+  // An Ice Face takes one physical blow and melts; snow freezes it back
+  // (see `formeFor`).
+  'ice-face': { busted: 'physical' },
 
   // ---- Stats the other side is not allowed to touch.
 

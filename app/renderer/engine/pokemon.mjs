@@ -28,6 +28,7 @@ import {
  * @property {Array<{move: string, pp: number, ppUp?: number}>} moves
  * @property {number} hp remaining hit points
  * @property {string|null} status `brn`, `psn`, `par`, `slp`, `frz` or null
+ * @property {boolean} [toxic] whether a poison is the bad kind a Toxic gives
  * @property {number} statusTurns
  * @property {string|null} heldItem
  * @property {string} ability

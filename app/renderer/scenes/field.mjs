@@ -282,9 +282,16 @@ export function fieldScene(session) {
   /**
    * @param {import('../core/app.mjs').App} app
    * @param {{foes: any[], trainer: any|null, leader: any|null}} setup
-   * @param {{outcome: 'won'|'lost', defeated: any[]}} result
+   * @param {{outcome: 'won'|'lost'|'fled', defeated: any[]}} result
    */
   function finishBattle(app, setup, result) {
+    // Sent away, or gone: nothing was won and nothing lost.
+    if (result.outcome === 'fled') {
+      patchUp(app);
+      restock(app);
+      refreshArt(app);
+      return;
+    }
     if (result.outcome === 'lost') {
       // Blacking out costs the catch and nothing else. A wild Pokémon that was
       // never beaten cannot be thrown a ball — it is the one that walked away

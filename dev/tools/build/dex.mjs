@@ -469,7 +469,11 @@ async function attachShowdown(moves, log) {
     if (effect.stats.length) {
       move.statChanges = effect.stats;
     } else {
-      move.statChanges = (move.statChanges ?? []).map((change) => ({ ...change, self: move.damageClass === 'status' && move.target === 'user' }));
+      move.statChanges = (move.statChanges ?? []).map((change) => ({
+        ...change,
+        self: move.damageClass === 'status' && move.target === 'user',
+        secondary: move.damageClass !== 'status',
+      }));
     }
 
     const before = JSON.stringify(move.meta);

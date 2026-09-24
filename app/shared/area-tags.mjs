@@ -67,3 +67,39 @@ export function weatherForArea(area) {
   }
   return null;
 }
+
+/**
+ * The type a place gives a Camouflage: grass where things grow, water by the
+ * shore, rock underground, and the plain Normal of a town or a road.
+ *
+ * @param {string[]} tags an area's terrain tags
+ * @returns {string}
+ */
+export function environmentType(tags) {
+  for (const tag of tags) {
+    const type = TAG_ENVIRONMENT[tag];
+    if (type) return type;
+  }
+  return 'normal';
+}
+
+/** @type {Record<string, string>} */
+const TAG_ENVIRONMENT = {
+  water: 'water',
+  beach: 'water',
+  ice: 'ice',
+  volcano: 'fire',
+  ash: 'fire',
+  desert: 'ground',
+  sand: 'ground',
+  cave: 'rock',
+  mountain: 'rock',
+  rough: 'rock',
+  graveyard: 'ghost',
+  ruins: 'psychic',
+  forest: 'grass',
+  jungle: 'grass',
+  meadow: 'grass',
+  grass: 'grass',
+  safari: 'grass',
+};
