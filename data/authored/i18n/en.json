@@ -203,6 +203,7 @@
   "battle.transformed": "{name} transformed into {target}!",
   "battle.abilityChanged": "{name}'s Ability became {ability}!",
   "battle.pickup": "{name} picked up a {item}!",
+  "battle.frisked": "{name} frisked {target} and found its {item}!",
   "battle.abilityTraced": "{name} traced {ability}!",
   "battle.charging": "{name} is gathering its strength!",
   "battle.recharge": "{name} must recharge!",

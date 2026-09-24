@@ -314,6 +314,15 @@ export const ABILITIES = {
   'neutralizing-gas': { neutralizes: true },
 
   'steely-spirit': { power: (ctx, move) => (move.type === 'steel' ? 1.5 : 1) },
+  // What the weight moves weigh it at (see `weightOf`).
+  'heavy-metal': { weight: 2 },
+  'light-metal': { weight: 0.5 },
+  // It reads what the other side is holding as it comes in.
+  frisk: {
+    start: (ctx) => {
+      if (ctx.foe.pokemon.heldItem) ctx.note('frisked', { item: ctx.foe.pokemon.heldItem });
+    },
+  },
   // Its held item does nothing (see `heldPassive`).
   klutz: {},
 

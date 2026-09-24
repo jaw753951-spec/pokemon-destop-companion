@@ -35,6 +35,8 @@ import {
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
+ * @property {Record<string, number>} [moveUses] how many times it has used a
+ *   move some evolution counts — Rage Fist, for a Primeape
  * @property {string} [standing] the shape a key item left it in — a Sky Forme
  *   Shaymin's, a fused Necrozma's — kept until the item is used again
  * @property {string} [forme] the alternate forme it is wearing, if any — the
@@ -497,7 +499,8 @@ export const TRADE_ITEM = 'linking-cord';
  * had one.
  *
  * @param {Pokemon} pokemon
- * @param {{item?: string|null, timeOfDay?: string}} [context]
+ * @param {{item?: string|null, timeOfDay?: string, crits?: number}} [context] `crits` is how
+ *   many critical hits it landed in the battle it has just finished
  * @returns {{to: number, trigger: string}|null}
  */
 export function pendingEvolution(pokemon, context = {}) {
@@ -539,6 +542,17 @@ export function pendingEvolution(pokemon, context = {}) {
         2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
         [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
       levelled.push({ to: evolution.to, weight });
+      continue;
+    }
+
+    // Counted rather than levelled: Rage Fist used twenty times, three
+    // critical hits landed in the battle just won.
+    if (evolution.trigger === 'use-move' && !context.item && !everstone) {
+      if ((pokemon.moveUses?.[evolution.usedMove] ?? 0) >= (evolution.moveCount ?? 1)) levelled.push({ to: evolution.to, weight: 9 });
+      continue;
+    }
+    if (evolution.trigger === 'three-critical-hits' && !context.item && !everstone) {
+      if ((context.crits ?? 0) >= 3) levelled.push({ to: evolution.to, weight: 9 });
       continue;
     }
 

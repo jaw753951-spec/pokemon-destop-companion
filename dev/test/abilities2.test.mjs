@@ -9,7 +9,7 @@ import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { moveOf, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
 import { ABILITIES, afterBattle, auraMultiplier } from '../../app/renderer/engine/abilities.mjs';
-import { Battle } from '../../app/renderer/engine/battle.mjs';
+import { Battle, weightPower } from '../../app/renderer/engine/battle.mjs';
 import { TERRAIN, WEATHER } from '../../app/renderer/engine/field.mjs';
 import { heldPassive } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, maxHp, setMove, statsOf } from '../../app/renderer/engine/pokemon.mjs';
@@ -139,4 +139,42 @@ test('Natural Cure and Regenerator do their work as the battle ends', options, (
   afterBattle(slowbro, maxHp(slowbro));
   assert.equal(slowbro.hp, 1 + Math.floor(maxHp(slowbro) / 3));
   assert.ok(statsOf(slowbro).hp > 0);
+});
+
+test('a weight move weighs, and so do Heavy Metal, Light Metal and a Float Stone', options, () => {
+  // Low Kick by the target's weight: a 90.5 kg Charizard takes the 80.
+  assert.equal(weightPower(moveOf('low-kick'), 100, 905), 80);
+  assert.equal(weightPower(moveOf('grass-knot'), 100, 50), 20);
+  // Heavy Slam by how many times over: five times is the most there is.
+  assert.equal(weightPower(moveOf('heavy-slam'), 1000, 200), 120);
+  assert.equal(weightPower(moveOf('heat-crash'), 300, 200), 40);
+  assert.equal(weightPower(moveOf('tackle'), 300, 200), null);
+
+  const steelix = make('steelix', 50, ['heavy-slam'], 'sturdy');
+  const battle = fight(steelix, make('pikachu', 50, ['splash']));
+  const plain = battle.weightOf(battle.player);
+  battle.player.marks.ability = 'heavy-metal';
+  assert.equal(battle.weightOf(battle.player), plain * 2);
+  battle.player.marks.ability = 'light-metal';
+  assert.equal(battle.weightOf(battle.player), plain / 2);
+  battle.player.marks.ability = null;
+  steelix.heldItem = 'float-stone';
+  assert.equal(battle.weightOf(battle.player), plain / 2);
+  assert.equal(battle.effectiveMove(battle.player, battle.foe, moveOf('heavy-slam')).power, 120);
+});
+
+test('Frisk reads what the other side holds', options, () => {
+  const foe = make('pikachu', 50, ['splash']);
+  foe.heldItem = 'light-ball';
+  const battle = fight(make('banette', 50, ['splash'], 'frisk'), foe);
+  const log = battle.makeLog();
+  battle.enter(battle.player, log);
+  assert.ok(log.some((entry) => entry.kind === 'frisked' && entry.data.item === 'light-ball'));
+});
+
+test("a critical hit is counted for a Farfetch'd", options, () => {
+  const battle = fight(make('farfetchd-galar', 50, ['leaf-blade']), make('chansey', 90, ['splash']));
+  battle.player.stages.crit = 6;
+  battle.takeTurn();
+  assert.ok((battle.player.marks.crits ?? 0) >= 1);
 });

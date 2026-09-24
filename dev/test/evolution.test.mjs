@@ -96,10 +96,20 @@ test("a later game's rule stands in for one this game cannot meet", options, () 
   setMove(eevee, 1, 'baby-doll-eyes');
   assert.equal(pendingEvolution(eevee)?.to, id('sylveon'));
 
-  // Twenty uses of Rage Fist is knowing it, from level 35.
+});
+
+test('an Annihilape and a Sirfetch\'d evolve the way the games have them', options, () => {
+  // Twenty Rage Fists, counted on the Pokémon across battles.
   const primeape = make('primeape', 40);
-  setMove(primeape, 0, 'rage-fist');
+  primeape.moveUses = { 'rage-fist': 19 };
+  assert.equal(pendingEvolution(primeape)?.to ?? null, null);
+  primeape.moveUses['rage-fist'] = 20;
   assert.equal(pendingEvolution(primeape)?.to, id('annihilape'));
+
+  // Three critical hits in the battle just won.
+  const farfetchd = make('farfetchd-galar', 30);
+  assert.equal(pendingEvolution(farfetchd, { crits: 2 }), null);
+  assert.equal(pendingEvolution(farfetchd, { crits: 3 })?.to, id('sirfetchd'));
 });
 
 test('an item that is not the one it is waiting for does not set off a levelling evolution', options, () => {
@@ -138,6 +148,8 @@ test('every evolution the dex carries has a way here', options, () => {
   for (const species of Object.values(gameData().species)) {
     for (const evolution of species.evolutions ?? []) {
       const ok =
+        evolution.trigger === 'use-move' ||
+        evolution.trigger === 'three-critical-hits' ||
         evolution.trigger === 'use-item' ||
         evolution.trigger === 'trade' ||
         evolution.trigger === 'shed' ||

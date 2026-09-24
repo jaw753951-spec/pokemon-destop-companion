@@ -832,6 +832,18 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         break;
       }
 
+      case 'frisked': {
+        const self = entry.side === 'player' ? player : foe;
+        const other = entry.side === 'player' ? foe : player;
+        const slug = entry.data?.item ?? '';
+        say(t('battle.frisked', {
+          name: nameOf(self),
+          target: nameOf(other),
+          item: localized(gameData().items[slug]?.name, slug),
+        }));
+        break;
+      }
+
       case 'abilityChanged':
         say(t('battle.abilityChanged', {
           name: nameOf(entry.side === 'player' ? player : foe),
@@ -1062,7 +1074,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     }
 
     if (battle.outcome === 'won') {
-      const evolution = pendingEvolution(session.active, { timeOfDay: timeOfDay() });
+      const evolution = pendingEvolution(session.active, {
+        timeOfDay: timeOfDay(),
+        crits: battle.player.marks.crits ?? 0,
+      });
       if (evolution) {
         const from = nameOf(session.active);
         const fromSpecies = session.active.speciesId;

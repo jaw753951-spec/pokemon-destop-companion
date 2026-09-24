@@ -163,6 +163,32 @@ const TYPE_CHECKED_STATUS = new Set(['thunder-wave']);
 /** The type each terrain gives a Mimicry. @type {Record<string, string>} */
 const MIMICRY_TYPES = { electric: 'electric', grassy: 'grass', misty: 'fairy', psychic: 'psychic' };
 
+/**
+ * The moves whose power the weights decide: a Low Kick and a Grass Knot by
+ * how heavy the target is, a Heavy Slam and a Heat Crash by how many times
+ * over the user outweighs it.
+ */
+const WEIGHT_MOVES = { 'low-kick': 'target', 'grass-knot': 'target', 'heavy-slam': 'ratio', 'heat-crash': 'ratio' };
+
+/**
+ * A weight move's power, or null for any other move.
+ *
+ * @param {any} move
+ * @param {number} userWeight hectograms
+ * @param {number} targetWeight hectograms
+ * @returns {number|null}
+ */
+export function weightPower(move, userWeight, targetWeight) {
+  const kind = Object.entries(WEIGHT_MOVES).find(([slug]) => moveOf(slug)?.id === move?.id)?.[1];
+  if (!kind) return null;
+  if (kind === 'target') {
+    const kg = targetWeight / 10;
+    return kg < 10 ? 20 : kg < 25 ? 40 : kg < 50 ? 60 : kg < 100 ? 80 : kg < 200 ? 100 : 120;
+  }
+  const ratio = userWeight / targetWeight;
+  return ratio >= 5 ? 120 : ratio >= 4 ? 100 : ratio >= 3 ? 80 : ratio >= 2 ? 60 : 40;
+}
+
 /** The forme whose Tera Starstorm is Stellar. */
 const STELLAR_FORME = 'terapagos-stellar';
 
@@ -349,6 +375,23 @@ export class Battle {
   ownAbility(combatant) {
     const slug = this.abilitySlugOf(combatant);
     return slug ? ABILITIES[slug] ?? null : null;
+  }
+
+  /**
+   * How heavy a combatant is, in hectograms as the dex keeps it: its
+   * species', or what it transformed into, doubled by a Heavy Metal, halved
+   * by a Light Metal or a Float Stone.
+   *
+   * @param {Combatant} combatant
+   */
+  weightOf(combatant) {
+    const species = speciesOf(combatant.transform?.speciesId ?? combatant.pokemon.speciesId);
+    let weight = species?.weight ?? 100;
+    const ability = this.abilityOf(combatant);
+    if (ability?.weight) weight *= ability.weight;
+    const float = heldPassive(combatant.pokemon, 'weight');
+    if (float) weight *= float.multiplier;
+    return Math.max(1, weight);
   }
 
   /**
@@ -1364,6 +1407,13 @@ export class Battle {
     }
     attacker.charging = null;
 
+    // A move some evolution counts is counted on the Pokémon, for good.
+    const counted = speciesOf(attacker.pokemon.speciesId)?.evolutions?.some((evolution) => evolution.usedMove === moveName);
+    if (counted) {
+      attacker.pokemon.moveUses ??= {};
+      attacker.pokemon.moveUses[moveName] = (attacker.pokemon.moveUses[moveName] ?? 0) + 1;
+    }
+
     // A Metronome pays for repeating the same move, so the count is kept even
     // when nothing is holding one.
     attacker.repeats = attacker.lastMove === moveName ? attacker.repeats + 1 : 0;
@@ -1528,6 +1578,9 @@ export class Battle {
       const type = signatureType(attacker.pokemon, signature);
       if (type && type !== move.type) move = { ...move, type };
     }
+    // A move whose power is a matter of weight.
+    const weighed = weightPower(move, this.weightOf(attacker), this.weightOf(defender));
+    if (weighed !== null) move = { ...move, power: weighed };
     // A hungry Morpeko's Aura Wheel is Dark.
     if (attacker.marks.forme === 'morpeko-hangry' && moveOf('aura-wheel')?.id === move.id) {
       move = { ...move, type: 'dark' };
@@ -2026,6 +2079,8 @@ export class Battle {
     log.push({ kind: 'damage', side: defender.side, data: { amount: total, hits } });
     if (critical) {
       log.push({ kind: 'critical', side: defender.side });
+      // Three in one battle is how a Galarian Farfetch'd evolves.
+      attacker.marks.crits = (attacker.marks.crits ?? 0) + 1;
       // An Anger Point turns a weak spot into the highest Attack there is.
       const angered = this.abilityOf(defender, attacker);
       if (angered?.onCrit && defender.pokemon.hp > 0) {
@@ -3228,6 +3283,12 @@ function movesWorthUsing(attacker, defender, usable) {
  * @param {any} move
  */
 export function expectedDamage(attacker, defender, move) {
+  const weighed = weightPower(
+    move,
+    speciesOf(attacker.pokemon.speciesId)?.weight ?? 100,
+    speciesOf(defender.pokemon.speciesId)?.weight ?? 100,
+  );
+  if (weighed !== null) move = { ...move, power: weighed };
   if (!move.power) return 0;
   const level = levelOf(attacker.pokemon);
   const physical = move.damageClass === 'physical';

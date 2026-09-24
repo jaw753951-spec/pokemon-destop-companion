@@ -1124,6 +1124,8 @@ const UNWRITTEN = {
   // The Fairy type booster, which the other seventeen document and this
   // newcomer does not.
   'fairy-feather': { held: { on: 'damage', moveType: 'fairy', multiplier: 1.2 } },
+  // "Halves the holder's weight."
+  'float-stone': { held: { on: 'weight', multiplier: 0.5 } },
   // Ogerpon's masks: a fifth more on every move it uses, and the forme and
   // the Ivy Cudgel type the mask stands for (see \`forms.mjs\`).
   'wellspring-mask': { held: { on: 'damage', species: ['ogerpon'], multiplier: 1.2 } },
@@ -1972,6 +1974,9 @@ function reachableEvolution(detail, toSlug, to) {
     gender: detail.gender ?? null,
     relativeStats: detail.relative_physical_stats ?? null,
     region: detail.region?.name ?? null,
+    // A move used so many times (Rage Fist, for Annihilape).
+    usedMove: detail.used_move?.name ?? null,
+    moveCount: detail.min_move_count ?? null,
   };
   if (evolutionWorks(edge)) return edge;
   const fallback = EVOLUTION_FALLBACKS[toSlug];
@@ -1990,6 +1995,9 @@ function reachableEvolution(detail, toSlug, to) {
  */
 function evolutionWorks(edge) {
   if (edge.trigger === 'use-item' || edge.trigger === 'trade' || edge.trigger === 'shed') return true;
+  // Counted by the engine: uses of a move, and critical hits in one battle.
+  if (edge.trigger === 'use-move' && edge.usedMove && edge.moveCount) return true;
+  if (edge.trigger === 'three-critical-hits') return true;
   if (edge.trigger !== 'level-up') return false;
   if (edge.location) return false;
   return Boolean(edge.minLevel || edge.happiness || edge.knownMove || edge.knownMoveType || edge.heldItem);
@@ -2004,12 +2012,10 @@ function evolutionWorks(edge) {
  * @type {Record<string, Record<string, any>>}
  */
 const EVOLUTION_FALLBACKS = {
-  // Used a move enough times: knowing it is enough.
-  annihilape: { knownMove: 'rage-fist', minLevel: 35 },
+  // Twenty uses in a style this game has no styles for: knowing the move.
   overqwil: { knownMove: 'barb-barrage' },
   wyrdeer: { knownMove: 'psyshield-bash' },
   // Something that happens in a battle this game plays out on its own.
-  sirfetchd: { minLevel: 35 },
   runerigus: { minLevel: 34 },
   basculegion: { minLevel: 36 },
   maushold: { minLevel: 25 },
