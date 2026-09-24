@@ -85,8 +85,7 @@ jobs:
         run: npx electron-builder --${{ matrix.platform }} --publish never
 
       # The packages only have to live long enough for the release job below
-      # and the itch.io workflow to pick them up, which both happen within
-      # minutes. Kept for the default 90 days, the three platforms come to
+      # to pick them up, which happens within minutes. Kept for the default 90 days, the three platforms come to
       # ~750 MB a build and fill the account's Actions storage on their own.
       # A build-only dispatch has no release to download from, so its packages
       # stay a few days for someone to fetch them from the run page.
