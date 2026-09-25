@@ -22,7 +22,7 @@
 import { speciesOf } from '../core/data.mjs';
 // A cycle — `pokemon.mjs` reads the tables here — but only ever called into,
 // never read while the two modules are still loading.
-import { statsOf } from './pokemon.mjs';
+import { levelOf, statsOf } from './pokemon.mjs';
 
 /** The ability each forme-changing species keys off. */
 export const FORM_ABILITY = new Map([
@@ -170,17 +170,37 @@ export const SET_FORMES = new Map([
 ]);
 
 /**
- * The move each of Rotom's shapes brings with it, which the games swap in for
- * the last shape's when the appliance changes — the species' own shape
- * included, whose move is a Thunder Shock.
+ * The moves a shape a key item gives brings with it, which the games swap in
+ * for the last shape's when the item is used — place for place, so the first
+ * of one shape's moves becomes the first of the next's.
+ *
+ * Each of Rotom's appliances has its move, and the species' own shape has a
+ * Thunder Shock. A fused Kyurem trades its Scary Face and Glaciate for the
+ * fused moves of Zekrom or Reshiram, and an unbound Hoopa its Hyperspace Hole
+ * for a Hyperspace Fury. A Calyrex on its steed and a Necrozma that has taken
+ * in the light learn the move of the one they joined, and forget it again
+ * when the two part.
+ *
+ * @type {Map<string, string[]>}
  */
 export const FORME_MOVES = new Map([
-  ['rotom', 'thunder-shock'],
-  ['rotom-heat', 'overheat'],
-  ['rotom-wash', 'hydro-pump'],
-  ['rotom-frost', 'blizzard'],
-  ['rotom-fan', 'air-slash'],
-  ['rotom-mow', 'leaf-storm'],
+  ['rotom', ['thunder-shock']],
+  ['rotom-heat', ['overheat']],
+  ['rotom-wash', ['hydro-pump']],
+  ['rotom-frost', ['blizzard']],
+  ['rotom-fan', ['air-slash']],
+  ['rotom-mow', ['leaf-storm']],
+  ['kyurem', ['scary-face', 'glaciate']],
+  ['kyurem-black', ['fusion-bolt', 'freeze-shock']],
+  ['kyurem-white', ['fusion-flare', 'ice-burn']],
+  ['hoopa', ['hyperspace-hole']],
+  ['hoopa-unbound', ['hyperspace-fury']],
+  ['calyrex', []],
+  ['calyrex-ice', ['glacial-lance']],
+  ['calyrex-shadow', ['astral-barrage']],
+  ['necrozma', []],
+  ['necrozma-dusk', ['sunsteel-strike']],
+  ['necrozma-dawn', ['moongeist-beam']],
 ]);
 
 /**
@@ -368,8 +388,13 @@ const USE_SPECIES = new Set([...USE_FORMES.values(), ...SET_FORMES.values()].fla
 const FORECAST_FORMS = new Map([
   ['sun', 'castform-sunny'],
   ['rain', 'castform-rainy'],
+  // Hail is the older snow, and a Castform wears the same cloud under both.
+  ['hail', 'castform-snowy'],
   ['snow', 'castform-snowy'],
 ]);
+
+/** The level below which a Wishiwashi is too young to call a school. */
+export const SCHOOLING_LEVEL = 20;
 
 /**
  * Which forme a species should be in right now, given the battle around it.
@@ -445,9 +470,10 @@ export function formeFor(pokemon, state) {
     case 'zen-mode':
       return half ? find('darmanitan-zen') ?? find('darmanitan-galar-zen') : plain;
 
-    // Together above a quarter, scattered below it.
+    // Together above a quarter, scattered below it — and alone, whatever
+    // its health, until it is old enough to call a school at all.
     case 'schooling':
-      return quarter ? plain : find('wishiwashi-school');
+      return quarter || levelOf(pokemon) < SCHOOLING_LEVEL ? plain : find('wishiwashi-school');
 
     // The core is out below half; above it, the rock it starts as. The
     // species' own slug is the meteor — the dex files Minior under its

@@ -22,6 +22,7 @@ import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
 import { moveCard, moveSummary } from './movecard.mjs';
 import { walkerPortrait } from './portrait.mjs';
+import { undrawnFormeArt } from '../render/field.mjs';
 import { statHexagon, statTable } from './statgraph.mjs';
 import { typeChip } from './typechip.mjs';
 
@@ -43,13 +44,16 @@ export function pokemonTab(app, session, refresh, state = {}) {
   // The companion as it walks the road, so the tab shows the Pokémon the
   // player has been watching rather than its battle sprite; the battle art is
   // only for a species with no field art at all.
-  const walker = walkerPortrait(pokemon, { maxHeight: PORTRAIT_MAX_HEIGHT, label: name });
-  const portrait = walker ? null : artOf(pokemon, 'front');
+  // A forme the field art never drew — a Therian Tornadus — is shown in its
+  // battle art instead, so the tab shows the shape it is in.
+  const undrawn = undrawnFormeArt(pokemon);
+  const walker = undrawn ? null : walkerPortrait(pokemon, { maxHeight: PORTRAIT_MAX_HEIGHT, label: name });
+  const portrait = walker ? null : undrawn ?? artOf(pokemon, 'front');
 
   return el('div.tab-body.pokemon-tab', {}, [
     el('div.pokemon-left', {}, [
       walker ?? (portrait ? animatedPortrait(portrait, name) : null),
-      statHexagon({ base: baselineStats(species, level), actual: stats }),
+      statHexagon({ base: baselineStats(pokemon, level), actual: stats }),
       statTable(stats, pokemon.evs),
     ]),
 
@@ -141,16 +145,20 @@ function heldLine(app, session, refresh) {
  *
  * Plotting that under the Pokémon's real stats makes the hexagon show what the
  * companion's own training has added, rather than just the species' shape.
+ * A forme with stats of its own is measured against those — a Speed Forme
+ * Deoxys has not trained its Defense away.
  *
- * @param {any} species
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  * @param {number} level
  * @returns {Record<string, number>}
  */
-function baselineStats(species, level) {
+function baselineStats(pokemon, level) {
+  const species = speciesOf(pokemon.speciesId);
+  const base = (pokemon.forme && species?.forms?.find((form) => form.slug === pokemon.forme)?.stats) || species?.stats;
   /** @type {Record<string, number>} */
   const out = {};
   for (const stat of STATS) {
-    out[stat] = computeStat(species?.stats?.[stat] ?? 1, 0, 0, level, 1, stat === 'hp');
+    out[stat] = computeStat(base?.[stat] ?? 1, 0, 0, level, 1, stat === 'hp');
   }
   return out;
 }

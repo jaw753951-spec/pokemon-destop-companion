@@ -3723,6 +3723,9 @@ export class Battle {
    */
   bustForme(attacker, defender, move) {
     if (defender.marks.formeBroken) return false;
+    // The disguise and the ice are the Pokémon's own body: a Ditto that
+    // copied the ability has neither, and takes the hit as anything would.
+    if (defender.transform || !this.bustedFormeOf(defender.pokemon)) return false;
     const busted = this.abilityOf(defender, attacker)?.busted;
     // An Ice Face only stops a physical blow; a Disguise stops anything.
     if (busted === 'physical') return move?.damageClass === 'physical';

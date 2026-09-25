@@ -19,7 +19,7 @@ import {
   setMove,
 } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
-import { FORME_MOVES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
+import { FORME_MOVES, SET_FORMES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
 /**
  * What a player picks for an item that works on one move or one stat.
@@ -267,7 +267,9 @@ export function itemActions(session, slug) {
   // to the species it is for.
   if (item.use?.forme) {
     const species = speciesOf(session.active?.speciesId)?.slug ?? '';
-    return { use: Boolean(USE_FORMES.get(slug)?.has(species)), equip: false };
+    // A nectar sets one style rather than stepping through them, so it is
+    // filed apart from the key items — but it is used from the bag the same.
+    return { use: Boolean(USE_FORMES.get(slug)?.has(species) || SET_FORMES.get(slug)?.has(species)), equip: false };
   }
 
   return {
@@ -389,24 +391,38 @@ export function eventModifiers(session) {
 }
 
 /**
- * Swap the move one shape brought for the one the next shape brings, the
- * way a Rotom forgets its Overheat on the way out of the oven. The old move's
- * slot takes the new one; a Rotom that had forgotten the old move learns the
- * new one in a free slot if it has one, and otherwise goes without.
+ * Swap the moves one shape brought for the ones the next shape brings, the
+ * way a Rotom forgets its Overheat on the way out of the oven. Each old move's
+ * slot takes the new move in its place; a Pokémon that had forgotten the old
+ * move learns the new one in a free slot if it has one, and otherwise goes
+ * without. A move with nothing to take its place is forgotten — a Calyrex
+ * off its steed has no Glacial Lance — and one left with no moves at all
+ * remembers a Confusion, as the games have it.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {string} from the shape it was in
  * @param {string} to the shape it is in now
  */
 function swapFormeMove(pokemon, from, to) {
-  const old = FORME_MOVES.get(from);
-  const next = FORME_MOVES.get(to);
-  if (!next || old === next || !moveOf(next)) return;
-  if (pokemon.moves.some((slot) => slot.move === next)) return;
-  const at = pokemon.moves.findIndex((slot) => slot.move === old);
-  if (at >= 0) setMove(pokemon, at, next);
-  else if (pokemon.moves.length < 4) setMove(pokemon, pokemon.moves.length, next);
+  const old = FORME_MOVES.get(from) ?? [];
+  const next = FORME_MOVES.get(to) ?? [];
+  for (let place = 0; place < Math.max(old.length, next.length); place++) {
+    const was = old[place];
+    const now = next[place];
+    const at = was ? pokemon.moves.findIndex((slot) => slot.move === was) : -1;
+    if (now && moveOf(now)) {
+      if (pokemon.moves.some((slot) => slot.move === now)) continue;
+      if (at >= 0) setMove(pokemon, at, now);
+      else if (pokemon.moves.length < 4) setMove(pokemon, pokemon.moves.length, now);
+    } else if (!now && at >= 0) {
+      pokemon.moves.splice(at, 1);
+    }
+  }
+  if (!pokemon.moves.length && moveOf(LAST_RESORT_MOVE)) setMove(pokemon, 0, LAST_RESORT_MOVE);
 }
+
+/** What a Pokémon that has forgotten every move it knew remembers. */
+const LAST_RESORT_MOVE = 'confusion';
 
 /**
  * Max the genes a Bottle Cap is spent on: the stat the player picked, or —

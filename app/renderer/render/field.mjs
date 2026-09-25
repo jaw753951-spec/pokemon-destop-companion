@@ -20,7 +20,7 @@ import {
   HOLD_BOOST_GLIDE_MS,
   HOLD_BOOST_RAMP_MS,
 } from '../../shared/constants.mjs';
-import { artOf } from '../core/data.mjs';
+import { artOf, formeArtOf } from '../core/data.mjs';
 
 /**
  * Where the companion's feet sit.
@@ -115,11 +115,32 @@ export function actorHeight(sprite, pokemon) {
  * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, durations?: number[], facing: 'left'|'right'}}|null}
  */
 export function walkerArt(pokemon, pose = 'walk') {
-  const art = artOf(pokemon, pose) ?? (pose === 'idle' ? artOf(pokemon, 'walk') : null);
+  // The forme's own art first, standing or else walking, and only then the
+  // species' — a Rotom in its washer stands in the washer.
+  const art =
+    formeArtOf(pokemon, pose) ??
+    (pose === 'idle' ? formeArtOf(pokemon, 'walk') : null) ??
+    artOf(pokemon, pose) ??
+    (pose === 'idle' ? artOf(pokemon, 'walk') : null);
   if (art) return { path: art.path, meta: { ...art.meta, facing: 'right' } };
   const icon = artOf(pokemon, 'icon');
   if (!icon) return null;
   return { path: icon.path, meta: { ...icon.meta, frames: 1, delay: 1000, facing: 'left' } };
+}
+
+/**
+ * The battle sprite of a forme the walking art has no picture of — a Therian
+ * Tornadus, a Calyrex on its steed — for the screens that show a Pokémon
+ * standing still, where the shape it is in matters more than the art set it
+ * is drawn from. Nothing when the forme is drawn walking, or wears none.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
+ */
+export function undrawnFormeArt(pokemon) {
+  if (!pokemon?.forme || formeArtOf(pokemon, 'idle') || formeArtOf(pokemon, 'walk')) return null;
+  const front = formeArtOf(pokemon, 'front');
+  return front ? { path: front.path, meta: { ...front.meta, facing: 'left' } } : null;
 }
 
 /** Field pixels per second. About one tile every half-second. */

@@ -75,6 +75,49 @@ function collabForm(record, slug) {
   return found?.[0] ?? null;
 }
 
+/**
+ * The collab's name for an alternate forme, where it is not the forme slug's
+ * tail title-cased (`rotom-heat` → `Heat`, `darmanitan-galar-zen` →
+ * `Galar_Zen`).
+ *
+ * The masked Ogerpon are the canon sets the collab names by the mask alone;
+ * its `_Mask` sets are the Terastal ones, crystal all over.
+ *
+ * @type {Record<string, string>}
+ */
+const COLLAB_FORME_NAMES = {
+  'oricorio-pau': 'Pa_U',
+  'zacian-crowned': 'Crowned_Sword',
+  'zamazenta-crowned': 'Crowned_Shield',
+  'necrozma-dusk': 'Dusk_Mane',
+  'necrozma-dawn': 'Dawn_Wings',
+  'calyrex-ice': 'Ice_Rider',
+  'calyrex-shadow': 'Shadow_Rider',
+  'ogerpon-wellspring-mask': 'Wellspring',
+  'ogerpon-hearthflame-mask': 'Hearthflame',
+  'ogerpon-cornerstone-mask': 'Cornerstone',
+};
+
+/**
+ * Which of a species' collab subgroups draws one of its alternate formes.
+ *
+ * @param {any} record the species' tracker record
+ * @param {string} speciesSlug the slug of the species the dex number is
+ * @param {string} formeSlug
+ * @returns {string|null} the subgroup's key
+ */
+export function collabForme(record, speciesSlug, formeSlug) {
+  const wanted =
+    COLLAB_FORME_NAMES[formeSlug] ??
+    formeSlug
+      .replace(new RegExp(`^${speciesSlug}-`), '')
+      .split('-')
+      .map((part) => part.replace(/^./, (c) => c.toUpperCase()))
+      .join('_');
+  const found = Object.entries(record?.subgroups ?? {}).find(([, group]) => group.name === wanted);
+  return found?.[0] ?? null;
+}
+
 /** The collab times its frames in the handheld's frames, sixty to the second. */
 const TICK_MS = 1000 / 60;
 
@@ -99,6 +142,8 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   /** @type {Set<string>} */
   const artists = new Set();
   const missing = [];
+  /** The formes the collab has not drawn, which walk in the species' own art. @type {string[]} */
+  const missingFormes = [];
 
   // The regional Pokémon the dex step files under their variety ids walk in
   // the collab's form sheets, under the species' own number.
@@ -112,9 +157,10 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
       pool(async () => {
         const entry = manifest[id] ?? (manifest[id] = { shiny: {} });
         entry.shiny ??= {};
-        for (const pose of POSES) {
-          delete entry[pose.key];
-          delete entry.shiny[pose.key];
+        for (const into of [entry, entry.shiny]) {
+          for (const name of Object.keys(into)) {
+            if (POSES.some((pose) => name === pose.key || name.startsWith(`${pose.key}-form-`))) delete into[name];
+          }
         }
 
         const dex = species[id]?.dex ?? id;
@@ -168,6 +214,40 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         // are the better miss.
         if (iconed.has('') && !iconed.has('-shiny')) delete entry.shiny.icon;
         if (!entry.walk) missing.push(id);
+
+        // The formes a battle, a held item or a key item puts it in walk and
+        // stand in sheets of their own, beside the species' — a Rotom in its
+        // washer, an Arceus in its plate's colours, a Mimikyu with its
+        // disguise busted. The collab files each under the species' number,
+        // with its shiny directly beneath it as a regional form's is.
+        const speciesSlug = species[dex]?.slug ?? '';
+        for (const forme of species[id]?.forms ?? []) {
+          const group = collabForme(tracker?.[key], speciesSlug, forme.slug);
+          const formeRecord = group ? tracker?.[key]?.subgroups?.[group] : null;
+          if (!hasSheet(formeRecord, 'Walk')) {
+            missingFormes.push(forme.slug);
+            continue;
+          }
+          const formeShiny = formeRecord.subgroups?.['0001'];
+          for (const variant of [
+            { suffix: '', into: entry, base: `${SPRITE_COLLAB}/sprite/${key}/${group}`, record: formeRecord },
+            ...(hasSheet(formeShiny, 'Walk')
+              ? [{ suffix: '-shiny', into: entry.shiny, base: `${SPRITE_COLLAB}/sprite/${key}/${group}/0001`, record: formeShiny }]
+              : []),
+          ]) {
+            const anims = parseAnimData((await fetchBuffer(`${variant.base}/AnimData.xml`, { allowMissing: true }))?.toString('utf8'));
+            let built = false;
+            for (const pose of POSES) {
+              const strip = await buildStrip(variant.base, anims, pose.anim);
+              if (!strip) continue;
+              await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}-form-${forme.slug}${variant.suffix}.png`), strip.png);
+              variant.into[`${pose.key}-form-${forme.slug}`] = strip.meta;
+              built = true;
+            }
+            if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
+          }
+          if (!entry[`walk-form-${forme.slug}`]) missingFormes.push(forme.slug);
+        }
       }),
     ),
   );
@@ -187,7 +267,14 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
 
   const walking = Object.values(manifest).filter((entry) => entry.walk).length;
   const shiny = Object.values(manifest).filter((entry) => entry.shiny?.walk).length;
-  log(`walkers ${walking}/${ids.length} (${shiny} with shiny art), ${artists.size} artists credited`);
+  const formes = Object.values(manifest).reduce(
+    (total, entry) => total + Object.keys(entry).filter((name) => name.startsWith('walk-form-')).length,
+    0,
+  );
+  log(`walkers ${walking}/${ids.length} (${shiny} with shiny art, ${formes} formes), ${artists.size} artists credited`);
+  if (missingFormes.length) {
+    log(`  formes in their species' art: ${missingFormes.length} (${missingFormes.join(', ')})`);
+  }
   if (missing.length) {
     log(`  on their box icon: ${missing.length} (${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ', …' : ''})`);
   }

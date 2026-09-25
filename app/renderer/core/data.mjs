@@ -176,24 +176,12 @@ export function artOf(pokemon, kind) {
   if (!entry) return null;
 
   // An alternate forme is a picture of its own beside the default's, which is
-  // why the forme is part of the path rather than a filter over it. A back is
-  // published for only some formes (a masked Ogerpon's) and no box icon for
-  // any, so those fall back to the default's — a Mimikyu that lost its
-  // disguise still walks on the same feet, and the player's own busted
-  // Mimikyu is drawn mirrored as ever.
-  const forme = pokemon.forme;
-  if (forme && (kind === 'front' || kind === 'back')) {
-    const key = `${kind === 'back' ? 'back-' : ''}form-${forme}`;
-    const formMeta = entry[key];
-    if (formMeta) {
-      const formShiny = pokemon.shiny ? entry.shiny?.[key] : null;
-      const form = formShiny ?? formMeta;
-      return {
-        path: `pokemon/${pokemon.speciesId}/${kind}-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
-        meta: form,
-      };
-    }
-  }
+  // why the forme is part of the path rather than a filter over it. Where a
+  // forme has none of a kind — no box icon is published for any, a back for
+  // only some, and the Sprite Collab has not drawn every forme walking —
+  // the default's stands in.
+  const forme = formeArtOf(pokemon, kind);
+  if (forme) return forme;
 
   const shiny = pokemon.shiny ? entry.shiny?.[kind] : null;
   const meta = shiny ?? entry[kind];
@@ -201,6 +189,33 @@ export function artOf(pokemon, kind) {
 
   const suffix = shiny ? '-shiny' : '';
   return { path: `pokemon/${pokemon.speciesId}/${kind}${suffix}.png`, meta };
+}
+
+/**
+ * The picture of a kind drawn for the forme a Pokémon is wearing, if there is
+ * one — and nothing when it wears none, or when that forme was never drawn in
+ * that kind.
+ *
+ * The battle sprites file a forme's front as `form-<slug>`, its back as
+ * `back-form-<slug>`; the walking and standing art as `walk-form-<slug>` and
+ * `idle-form-<slug>`.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
+ * @returns {{path: string, meta: any}|null}
+ */
+export function formeArtOf(pokemon, kind) {
+  const forme = pokemon?.forme;
+  if (!forme || kind === 'icon') return null;
+  const entry = gameData().sprites[pokemon.speciesId];
+  const key = kind === 'front' ? `form-${forme}` : `${kind}-form-${forme}`;
+  const meta = entry?.[key];
+  if (!meta) return null;
+  const shiny = pokemon.shiny ? entry.shiny?.[key] : null;
+  return {
+    path: `pokemon/${pokemon.speciesId}/${kind}-form-${forme}${shiny ? '-shiny' : ''}.png`,
+    meta: shiny ?? meta,
+  };
 }
 
 /**

@@ -9,7 +9,7 @@
  * and a displaced position.
  */
 
-import { actorScale, walkerArt } from './field.mjs';
+import { actorScale, undrawnFormeArt, walkerArt } from './field.mjs';
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
 
@@ -48,10 +48,14 @@ const SCALE_STEP = 0.5;
  * species was. One set of art for the whole game is worth more than the best
  * picture of each Pokémon taken separately.
  *
- * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
+ * A forme the walking art never drew is the exception: a battle is where a
+ * shape changes, and a Calyrex that mounted its steed or a Cramorant with a
+ * catch in its mouth has to look it, so it is fought in its battle sprite.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
  */
 export function battlerArt(pokemon) {
-  return walkerArt(pokemon, 'idle');
+  return undrawnFormeArt(pokemon) ?? walkerArt(pokemon, 'idle');
 }
 
 /**
