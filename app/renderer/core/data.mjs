@@ -166,7 +166,7 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * alternate palette never built falls back to the ordinary one, which is worth
  * doing silently: a missing picture is worse than a missing sparkle.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
  * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
  * @returns {{path: string, meta: any}|null}
  */
@@ -182,6 +182,14 @@ export function artOf(pokemon, kind) {
   // the default's stands in.
   const forme = formeArtOf(pokemon, kind);
   if (forme) return forme;
+
+  // A female of a species whose sexes look different walks and stands as
+  // herself — a pink Jellicent, a Pyroar without the mane.
+  if (pokemon.gender === 'female' && (kind === 'walk' || kind === 'idle') && entry[`${kind}-female`]) {
+    const key = `${kind}-female`;
+    const shiny = pokemon.shiny ? entry.shiny?.[key] : null;
+    return { path: `pokemon/${pokemon.speciesId}/${key}${shiny ? '-shiny' : ''}.png`, meta: shiny ?? entry[key] };
+  }
 
   const shiny = pokemon.shiny ? entry.shiny?.[kind] : null;
   const meta = shiny ?? entry[kind];
@@ -227,12 +235,21 @@ export function formeArtOf(pokemon, kind) {
  * is exactly the moment a player is looking for the difference — and the same
  * trap again the moment a Castform walks out of the rain.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
  */
 export const spriteKey = (pokemon) =>
   pokemon
-    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}`
+    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}${
+        femaleArt(pokemon) ? ':female' : ''
+      }`
     : '';
+
+/**
+ * Whether a Pokémon is drawn as a female apart from its species' art.
+ *
+ * @param {{speciesId: number, gender?: string|null}} pokemon
+ */
+const femaleArt = (pokemon) => pokemon.gender === 'female' && Boolean(gameData().sprites?.[pokemon.speciesId]?.['walk-female']);
 
 /**
  * The `pdc://` URL of a Pokémon's art, for the screens that set an `img` or a

@@ -5,11 +5,12 @@
  * trade.
  */
 import test from 'node:test';
+import { readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { artOf, gameData, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
+import { artOf, gameData, speciesIdBySlug, spriteKey } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { WEATHER } from '../../app/renderer/engine/field.mjs';
 import { HELD_FORMES, SCHOOLING_LEVEL, settleForme, standingTypes } from '../../app/renderer/engine/forms.mjs';
@@ -81,11 +82,15 @@ test('every forme looks like itself: its own walking art, or its battle sprite w
   const wash = { speciesId: /** @type {number} */ (speciesIdBySlug('rotom')), forme: 'rotom-wash' };
   assert.match(walkerArt(wash, 'idle')?.path ?? '', /idle-form-rotom-wash\.png$/);
   assert.match(artOf({ ...wash, shiny: true }, 'walk')?.path ?? '', /walk-form-rotom-wash(-shiny)?\.png$/);
-  // A forme no walking art draws — one only a battle puts it in — fights in
-  // its battle sprite, and would walk in its species' art.
-  const gulping = { speciesId: /** @type {number} */ (speciesIdBySlug('cramorant')), forme: 'cramorant-gulping' };
-  assert.match(walkerArt(gulping, 'walk')?.path ?? '', /\/walk\.png$/);
-  assert.equal(battlerArt(gulping)?.meta.facing, 'left');
+  // A forme no walking art draws — one only a battle puts it in — stands in
+  // its battle sprite cut down to the walking art's size, facing the same way.
+  const cramorant = /** @type {number} */ (speciesIdBySlug('cramorant'));
+  const gulping = { speciesId: cramorant, forme: 'cramorant-gulping' };
+  const stood = battlerArt(gulping);
+  assert.match(stood?.path ?? '', /idle-form-cramorant-gulping\.png$/);
+  assert.equal(stood?.meta.facing, 'right');
+  const own = battlerArt({ speciesId: cramorant });
+  assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
   // A Calyrex on its steed walks on it, in the Essentials follower.
   const rider = { speciesId: /** @type {number} */ (speciesIdBySlug('calyrex')), forme: 'calyrex-ice' };
   assert.match(walkerArt(rider, 'walk')?.path ?? '', /walk-form-calyrex-ice\.png$/);
@@ -247,4 +252,33 @@ test('a full moveset asks what the new move goes over, and a Rotom cannot skip i
   useItem(catalog, 'rotom-catalog');
   assert.equal(rotom.forme ?? null, null);
   assert.deepEqual(rotom.moves.map((slot) => slot.move), ['thunder-shock']);
+});
+
+test('a variety walks in its own art, and a female in hers where her species draws one', options, () => {
+  const sprites = gameData().sprites;
+  // Every variety has walking art that is not its species' — but the small
+  // and large Gourgeist, which no set draws.
+  const walkFile = (id) => {
+    try {
+      return readFileSync(new URL(`../../assets/pokemon/${id}/walk.png`, import.meta.url));
+    } catch {
+      return null;
+    }
+  };
+  for (const species of Object.values(gameData().species)) {
+    if (!species.regional || ['gourgeist-small', 'gourgeist-large'].includes(species.slug)) continue;
+    assert.ok(sprites[species.id]?.walk, `${species.slug} has no walk`);
+    const mine = walkFile(species.id);
+    const theirs = walkFile(species.dex);
+    if (mine && theirs) assert.ok(!mine.equals(theirs), `${species.slug} walks in its species' art`);
+  }
+  const jellicent = /** @type {number} */ (speciesIdBySlug('jellicent'));
+  const her = { speciesId: jellicent, gender: 'female' };
+  const him = { speciesId: jellicent, gender: 'male' };
+  assert.match(walkerArt(her, 'walk')?.path ?? '', /walk-female\.png$/);
+  assert.match(walkerArt(him, 'walk')?.path ?? '', /\/walk\.png$/);
+  assert.notEqual(spriteKey(her), spriteKey(him), 'a battle reloads the art between the two');
+  // A species drawn the same for both keeps one key.
+  const geodude = /** @type {number} */ (speciesIdBySlug('geodude'));
+  assert.equal(spriteKey({ speciesId: geodude, gender: 'female' }), spriteKey({ speciesId: geodude, gender: 'male' }));
 });

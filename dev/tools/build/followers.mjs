@@ -9,10 +9,12 @@
  * Incarnate one. The Essentials packs draw a follower for nearly every one of
  * them: four rows of four frames, facing down, left, right and up.
  *
- * They are drawn for the handhelds' followers, about twice the collab's size,
- * so every sheet is brought down to half — one pixel kept of every two by two,
- * from whichever of the four positions keeps the most of the Pokémon — which
- * puts it at the collab's density. The row facing right is the walk, its
+ * They are drawn for the handhelds' followers, most of them about twice the
+ * collab's size, so a sheet is brought down to half — one pixel kept of every
+ * two by two, from whichever of the four positions keeps the most of the
+ * Pokémon — wherever that lands nearer the size the collab would have drawn
+ * it, and kept whole where it does not: a Rapid Strike Urshifu beside the
+ * collab's Single Strike one, a small Pokémon the packs draw small. The row facing right is the walk, its
  * first frame the stand, and past the last box icon the row facing down is
  * the icon, the way the collab's own standing frame stands in there.
  */
@@ -41,6 +43,8 @@ const FRAME_MS = Math.round((10 * 1000) / 60);
 const ESSENTIALS_NAMES = {
   mabosstiff: 'MABOSTIFF',
   'stunfisk-galar': 'STUNFISK_1',
+  'urshifu-rapid-strike': 'URSHIFU_1',
+  'oinkologne-female': 'OINKOLOGNE_1',
   'tornadus-therian': 'TORNADUS_1',
   'thundurus-therian': 'THUNDURUS_1',
   'keldeo-resolute': 'KELDEO_1',
@@ -70,7 +74,7 @@ export const essentialsName = (slug) => ESSENTIALS_NAMES[slug] ?? slug.toUpperCa
  *   for the sheets used, or null when none were
  */
 export async function buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon, pool, log }) {
-  /** @type {Array<{id: number, slug: string, key: string, icon: boolean}>} */
+  /** @type {Array<{id: number, slug: string, key: string, icon: boolean, female?: boolean}>} */
   const wanted = [];
   for (const id of ids) {
     const entry = manifest[id];
@@ -78,6 +82,8 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
     if (!entry.walk) {
       const dex = species[id]?.dex ?? id;
       wanted.push({ id, slug: species[id]?.slug ?? '', key: '', icon: dex > lastBoxIcon });
+      // And her, where the packs draw the female apart (`PYROAR_female`).
+      if (!species[id]?.regional) wanted.push({ id, slug: species[id]?.slug ?? '', key: '-female', icon: false, female: true });
     }
     for (const forme of species[id]?.forms ?? []) {
       if (!entry[`walk-form-${forme.slug}`] && ESSENTIALS_NAMES[forme.slug]) {
@@ -86,15 +92,20 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
     }
   }
 
+  const expected = expectedHeights(species, manifest);
   const found = [];
   const missing = [];
+  const females = [];
+  const whole = [];
   await Promise.all(
     wanted.map((want) =>
       pool(async () => {
-        const name = essentialsName(want.slug);
+        const name = `${essentialsName(want.slug)}${want.female ? '_female' : ''}`;
         const entry = manifest[want.id];
         entry.shiny ??= {};
         let built = false;
+        /** Whether this sheet is drawn at half its size, decided on the ordinary one. @type {boolean|null} */
+        let half = null;
         for (const variant of [
           { folder: 'Followers', suffix: '', into: entry },
           { folder: 'Followers shiny', suffix: '-shiny', into: entry.shiny },
@@ -104,7 +115,16 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
             { allowMissing: true },
           );
           if (!source) continue;
-          const sheet = halve(decodePng(source));
+          const full = decodePng(source);
+          // Drawn whole or at half, whichever lands nearer the size the
+          // collab would have drawn it: the pixels are whole either way.
+          if (half === null) {
+            const tall = strip(full, FACING_RIGHT, Math.floor(full.width / 4), Math.floor(full.height / 4), [0, 1, 2, 3])?.meta.height;
+            const aim = expected(want);
+            half = !tall || !aim || Math.abs(Math.log(tall / 2 / aim)) <= Math.abs(Math.log(tall / aim));
+            if (!half) whole.push(`${want.slug}${want.female ? ' (female)' : ''}`);
+          }
+          const sheet = half ? halve(full) : full;
           const width = Math.floor(sheet.width / 4);
           const height = Math.floor(sheet.height / 4);
           const walk = strip(sheet, FACING_RIGHT, width, height, [0, 1, 2, 3]);
@@ -119,22 +139,61 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
             if (icon) {
               await writeOut(join(assetDir, 'pokemon', String(want.id), `icon${variant.suffix}.png`), icon.png);
               variant.into.icon = icon.meta;
+              entry.iconFrom = 'followers';
             }
           }
           if (!variant.suffix) built = true;
         }
-        (built ? found : missing).push(want.slug);
+        // A species drawn the same for both sexes has no female sheet, which
+        // is no miss.
+        if (!want.female) (built ? found : missing).push(want.slug);
+        else if (built) females.push(want.slug);
       }),
     ),
   );
 
-  log(`followers ${found.length} from Pokémon Essentials${missing.length ? `, not drawn there either: ${missing.join(', ')}` : ''}`);
+  log(`followers ${found.length} from Pokémon Essentials (${females.length} with a female of their own; at their own size: ${whole.join(', ') || 'none'})${missing.length ? `, not drawn there either: ${missing.join(', ')}` : ''}`);
   if (!found.length) return null;
   return {
     source: 'Pokémon Essentials Gen 8/9 resource packs',
     url: 'https://eeveeexpo.com/resources/1101/',
     license: 'free for fan projects, with credit',
     artists: await overworldArtists(),
+  };
+}
+
+/**
+ * How tall the collab would have drawn a Pokémon it has not drawn.
+ *
+ * A variety, a female or a forme of a species the collab draws is its
+ * species' walking height. Anything else is read off the collab's own habit:
+ * across every species it draws, the height of the walk against the
+ * Pokédex height, fitted as a power — a Wailord is not drawn forty times a
+ * Diglett's height, and the fit knows by how much it is not.
+ *
+ * @param {Record<string, any>} species
+ * @param {Record<string, any>} manifest as the collab left it
+ * @returns {(want: {id: number}) => number|null}
+ */
+function expectedHeights(species, manifest) {
+  const points = Object.values(species)
+    .filter((entry) => !entry.regional && entry.height > 0 && manifest[entry.id]?.walk?.height)
+    .map((entry) => [Math.log(entry.height), Math.log(manifest[entry.id].walk.height)]);
+  const meanX = points.reduce((sum, [x]) => sum + x, 0) / (points.length || 1);
+  const meanY = points.reduce((sum, [, y]) => sum + y, 0) / (points.length || 1);
+  let covariance = 0;
+  let variance = 0;
+  for (const [x, y] of points) {
+    covariance += (x - meanX) * (y - meanY);
+    variance += (x - meanX) ** 2;
+  }
+  const slope = variance ? covariance / variance : 0;
+  return (want) => {
+    const entry = species[want.id];
+    const own = manifest[entry?.dex ?? want.id]?.walk?.height;
+    if (own) return own;
+    if (!entry?.height || !points.length) return null;
+    return Math.exp(meanY + slope * (Math.log(entry.height) - meanX));
   };
 }
 

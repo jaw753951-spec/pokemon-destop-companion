@@ -22,13 +22,14 @@
  * box icon, which the renderer falls back to on its own.
  */
 import { join } from 'node:path';
-import { readFile } from 'node:fs/promises';
+import { readFile, rm } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 
 import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { concatX, crop, opaqueBounds } from '../lib/image.mjs';
+import { concatX, crop, opaqueBounds, paletteShift, recolour } from '../lib/image.mjs';
 import { MAX_SPECIES, SPRITE_COLLAB } from '../sources.mjs';
-import { buildFollowers } from './followers.mjs';
+import { buildFollowers, halve } from './followers.mjs';
 
 /** The sheets' rows run clockwise from facing the viewer; this one faces right. */
 const FACING_RIGHT = 2;
@@ -56,9 +57,52 @@ const COLLAB_FORM_NAMES = {
   'tauros-paldea-blaze-breed': 'Paldea_Blaze',
   'tauros-paldea-aqua-breed': 'Paldea_Aqua',
   'basculin-white-striped': 'White',
+  'basculin-blue-striped': 'Blue',
   'darmanitan-galar-standard': 'Galar',
   'urshifu-rapid-strike': 'Rapid_Strike',
+  // The varieties that are Pokémon of their own though no region names them.
+  'lycanroc-midnight': 'Midnight',
+  'lycanroc-dusk': 'Dusk',
+  'toxtricity-low-key': 'Lowkey',
+  'ursaluna-bloodmoon': 'Bloodmoon',
+  'wormadam-sandy': 'Sand',
+  'wormadam-trash': 'Trash',
+  'pumpkaboo-small': 'Small',
+  'pumpkaboo-large': 'Large',
+  'pumpkaboo-super': 'Super',
+  'gourgeist-small': 'Small',
+  'gourgeist-large': 'Large',
+  'gourgeist-super': 'Super',
 };
+
+/**
+ * Where the collab draws a variety the dex keeps as a Pokémon of its own:
+ * a region's form under its subgroup, and a species' female — the female
+ * Meowstic, Indeedee and Basculegion — under the gender level of its own
+ * sheets, `0000/0000/0002`, with the shiny female at `0000/0001/0002`.
+ * Nothing when the collab has not drawn it, rather than the species' own
+ * sheets under the variety's name.
+ *
+ * @param {any} root the species' tracker record
+ * @param {string} key the species' number, four digits
+ * @param {any} entry the variety's dex entry
+ * @returns {{record: any, path: string, shinyRecord: any, shinyPath: string}|null}
+ */
+function collabVariety(root, key, entry) {
+  if (entry.gender === 'female') {
+    const plain = root?.subgroups?.['0000'];
+    return {
+      record: plain?.subgroups?.['0000']?.subgroups?.['0002'],
+      path: `${key}/0000/0000/0002`,
+      shinyRecord: plain?.subgroups?.['0001']?.subgroups?.['0002'],
+      shinyPath: `${key}/0000/0001/0002`,
+    };
+  }
+  const form = collabForm(root, entry.slug);
+  if (!form) return null;
+  const record = root?.subgroups?.[form];
+  return { record, path: `${key}/${form}`, shinyRecord: record?.subgroups?.['0001'], shinyPath: `${key}/${form}/0001` };
+}
 
 /**
  * Which of a species' collab subgroups draws a regional variety.
@@ -160,26 +204,33 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         entry.shiny ??= {};
         for (const into of [entry, entry.shiny]) {
           for (const name of Object.keys(into)) {
-            if (POSES.some((pose) => name === pose.key || name.startsWith(`${pose.key}-form-`))) delete into[name];
+            if (POSES.some((pose) => name === pose.key || name.startsWith(`${pose.key}-`))) delete into[name];
           }
         }
 
         const dex = species[id]?.dex ?? id;
         const key = String(dex).padStart(4, '0');
-        const form = species[id]?.regional ? collabForm(tracker?.[key], species[id].slug) : null;
-        const record = form ? tracker?.[key]?.subgroups?.[form] : tracker?.[key];
-        const path = form ? `${key}/${form}` : key;
+        // A species' shiny sits under its normal subgroup; a form's directly
+        // under the form.
+        const variety = species[id]?.regional
+          ? collabVariety(tracker?.[key], key, species[id])
+          : {
+              record: tracker?.[key],
+              path: key,
+              shinyRecord: tracker?.[key]?.subgroups?.['0000']?.subgroups?.['0001'],
+              shinyPath: `${key}/0000/0001`,
+            };
+        const { record, path, shinyRecord, shinyPath } = variety ?? { record: null, path: key, shinyRecord: null, shinyPath: '' };
         // The tracker lists a sheet by name whether or not it is locked, and
         // the value is only the lock: `Walk: false` is a walk that exists.
-        if (!hasSheet(record, 'Walk')) {
+        // A variety's sheet that is byte for byte its species' — the collab's
+        // Rapid Strike Urshifu is the Single Strike one — draws nothing of its
+        // own, and is looked for elsewhere like one never drawn.
+        if (!hasSheet(record, 'Walk') || (species[id]?.regional && (await sameSheet(path, key)))) {
           missing.push(id);
           return;
         }
 
-        // A species' shiny sits under its normal subgroup; a form's directly
-        // under the form.
-        const shinyRecord = form ? record.subgroups?.['0001'] : record.subgroups?.['0000']?.subgroups?.['0001'];
-        const shinyPath = form ? `${path}/0001` : `${path}/0000/0001`;
         const variants = [
           { suffix: '', into: entry, base: `${SPRITE_COLLAB}/sprite/${path}`, record },
           ...(hasSheet(shinyRecord, 'Walk')
@@ -199,11 +250,14 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             variant.into[pose.key] = strip.meta;
             built = true;
           }
-          if (dex > LAST_BOX_ICON || (species[id]?.regional && !manifest[id]?.icon)) {
+          // `iconFrom` marks an icon this step made, which a later run makes
+          // again rather than mistaking it for one the icon sets published.
+          if (dex > LAST_BOX_ICON || (species[id]?.regional && (!entry.icon || entry.iconFrom === 'walker'))) {
             const icon = await buildIcon(variant.base, anims);
             if (icon) {
               await writeOut(join(assetDir, 'pokemon', String(id), `icon${variant.suffix}.png`), icon.png);
               variant.into.icon = icon.meta;
+              entry.iconFrom = 'walker';
               iconed.add(variant.suffix);
               built = true;
             }
@@ -213,8 +267,39 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         // A shiny icon left over from the render would be the one picture in
         // the box at another density; the ordinary colours in the right art
         // are the better miss.
-        if (iconed.has('') && !iconed.has('-shiny')) delete entry.shiny.icon;
+        if (iconed.has('') && !iconed.has('-shiny')) {
+          delete entry.shiny.icon;
+          await rm(join(assetDir, 'pokemon', String(id), 'icon-shiny.png'), { force: true });
+        }
         if (!entry.walk) missing.push(id);
+
+        // A species whose female looks different walks as one: a Jellicent
+        // pink, a Pyroar without the mane. The collab keeps her under the
+        // gender level of the species' sheets.
+        if (!species[id]?.regional) {
+          const plain = tracker?.[key]?.subgroups?.['0000'];
+          const female = plain?.subgroups?.['0000']?.subgroups?.['0002'];
+          const femaleShiny = plain?.subgroups?.['0001']?.subgroups?.['0002'];
+          if (hasSheet(female, 'Walk')) {
+            for (const variant of [
+              { suffix: '', into: entry, base: `${SPRITE_COLLAB}/sprite/${key}/0000/0000/0002`, record: female },
+              ...(hasSheet(femaleShiny, 'Walk')
+                ? [{ suffix: '-shiny', into: entry.shiny, base: `${SPRITE_COLLAB}/sprite/${key}/0000/0001/0002`, record: femaleShiny }]
+                : []),
+            ]) {
+              const anims = parseAnimData((await fetchBuffer(`${variant.base}/AnimData.xml`, { allowMissing: true }))?.toString('utf8'));
+              let built = false;
+              for (const pose of POSES) {
+                const strip = await buildStrip(variant.base, anims, pose.anim);
+                if (!strip) continue;
+                await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}-female${variant.suffix}.png`), strip.png);
+                variant.into[`${pose.key}-female`] = strip.meta;
+                built = true;
+              }
+              if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
+            }
+          }
+        }
 
         // The formes a battle, a held item or a key item puts it in walk and
         // stand in sheets of their own, beside the species' — a Rotom in its
@@ -256,6 +341,33 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   // What the collab has not drawn walks in the Essentials packs' followers.
   const followers = await buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log });
 
+  // A variety neither set draws — a small or a large Gourgeist — walks in its
+  // species' art rather than its box icon: the same Pokémon, a size off.
+  const borrowed = [];
+  for (const id of ids) {
+    const entry = manifest[id];
+    const dex = species[id]?.dex;
+    if (!entry || entry.walk || !dex || !manifest[dex]?.walk) continue;
+    for (const [into, from, suffix] of [[entry, manifest[dex], ''], [entry.shiny, manifest[dex].shiny ?? {}, '-shiny']]) {
+      for (const pose of POSES) {
+        if (!from[pose.key]) continue;
+        const file = await readFile(join(assetDir, 'pokemon', String(dex), `${pose.key}${suffix}.png`));
+        await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}${suffix}.png`), file);
+        into[pose.key] = from[pose.key];
+      }
+    }
+    borrowed.push(species[id].slug);
+  }
+  if (borrowed.length) log(`walkers borrowed from their species: ${borrowed.join(', ')}`);
+
+  // A forme only a battle puts a Pokémon in stands in its battle sprite, cut
+  // down to the walking art's size.
+  await shrinkBattleFormes({ assetDir, species, manifest, ids, log });
+
+  // And a shiny the sets never drew — or drew as a copy of the ordinary
+  // sheet — is painted from the battle sprites' two palettes.
+  await paintShinies({ assetDir, manifest, ids, log });
+
   await writeOut(manifestPath, JSON.stringify(manifest));
   await writeOut(
     join(dataDir, 'credits.json'),
@@ -278,7 +390,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   );
   log(`walkers ${walking}/${ids.length} (${shiny} with shiny art, ${formes} formes), ${artists.size} artists credited`);
   const stillFormes = missingFormes.filter((slug) =>
-    Object.values(manifest).every((entry) => !entry[`walk-form-${slug}`]),
+    Object.values(manifest).every((entry) => !entry[`walk-form-${slug}`] && !entry[`idle-form-${slug}`]),
   );
   if (stillFormes.length) {
     log(`  formes in their species' art: ${stillFormes.length} (${stillFormes.join(', ')})`);
@@ -446,4 +558,137 @@ function creditsOf(record, names) {
     .filter(Boolean)
     .map((handle) => names.get(handle) ?? handle)
     .filter((name) => name && !name.startsWith('<@'));
+}
+
+/**
+ * Whether a variety's walking sheet is the very file its species walks in.
+ *
+ * @param {string} path the variety's sheet directory
+ * @param {string} key the species' own
+ */
+async function sameSheet(path, key) {
+  if (path === key) return true;
+  const [mine, theirs] = await Promise.all([
+    fetchBuffer(`${SPRITE_COLLAB}/sprite/${path}/Walk-Anim.png`, { allowMissing: true }),
+    fetchBuffer(`${SPRITE_COLLAB}/sprite/${key}/Walk-Anim.png`, { allowMissing: true }),
+  ]);
+  if (!mine || !theirs) return false;
+  const digest = (buffer) => createHash('sha1').update(buffer).digest('hex');
+  return digest(mine) === digest(theirs);
+}
+
+/**
+ * Standing art for the formes a battle alone puts a Pokémon in and no walking
+ * set draws — a Cramorant with its catch, a Stellar Terapagos, a Galarian
+ * Zen Mode — made from the forme's battle sprite.
+ *
+ * The battle sprites are drawn several times the walking art's size, so
+ * the forme's is halved as many times as brings the species' own battle
+ * sprite down to its own standing art: the forme keeps its size against
+ * the species' shape, and every pixel stays a whole one. Each frame is turned
+ * to face right, the way the walking art faces.
+ *
+ * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, ids: number[], log: (message: string) => void}} context
+ */
+async function shrinkBattleFormes({ assetDir, species, manifest, ids, log }) {
+  const made = [];
+  for (const id of ids) {
+    const entry = manifest[id];
+    if (!entry?.front || !entry.idle) continue;
+    for (const forme of species[id]?.forms ?? []) {
+      if (entry[`walk-form-${forme.slug}`] || entry[`idle-form-${forme.slug}`] || !entry[`form-${forme.slug}`]) continue;
+      const halvings = Math.max(0, Math.round(Math.log2(entry.front.height / entry.idle.height)));
+      for (const [into, suffix] of [[entry, ''], [entry.shiny ?? {}, '-shiny']]) {
+        const meta = into[`form-${forme.slug}`];
+        if (!meta) continue;
+        const sheet = decodePng(await readFile(join(assetDir, 'pokemon', String(id), `front-form-${forme.slug}${suffix}.png`)));
+        const frames = Array.from({ length: meta.frames ?? 1 }, (_, index) => {
+          let frame = crop(sheet, index * meta.width, 0, meta.width, meta.height);
+          for (let step = 0; step < halvings; step++) frame = halve(frame);
+          return mirror(frame);
+        });
+        const strip = concatX(frames);
+        await writeOut(join(assetDir, 'pokemon', String(id), `idle-form-${forme.slug}${suffix}.png`), encodePng(strip.width, strip.height, strip.data));
+        into[`idle-form-${forme.slug}`] = { ...meta, width: frames[0].width, height: frames[0].height };
+      }
+      made.push(forme.slug);
+    }
+  }
+  if (made.length) log(`battle formes from their battle sprites: ${made.join(', ')}`);
+}
+
+/** @param {import('../lib/image.mjs').Raster} frame */
+function mirror(frame) {
+  const data = new Uint8Array(frame.data.length);
+  for (let y = 0; y < frame.height; y++) {
+    for (let x = 0; x < frame.width; x++) {
+      const from = (y * frame.width + (frame.width - 1 - x)) * 4;
+      data.set(frame.data.subarray(from, from + 4), (y * frame.width + x) * 4);
+    }
+  }
+  return { width: frame.width, height: frame.height, data };
+}
+
+/**
+ * Shiny walking art for the Pokémon whose sheets have none of their own.
+ *
+ * The collab leaves some shinies undrawn and files others as a copy of the
+ * ordinary sheet — a Pecharunt or an Ogerpon walks in its ordinary colours
+ * either way. The box icons meet the same gap with a recolouring read off
+ * the two battle sprites, colour for colour, and the walking art takes the
+ * same one: the species' battle sprites for its own art and its female's,
+ * a forme's for the forme's.
+ *
+ * @param {{assetDir: string, manifest: Record<string, any>, ids: number[], log: (message: string) => void}} context
+ */
+async function paintShinies({ assetDir, manifest, ids, log }) {
+  const dir = (id) => join(assetDir, 'pokemon', String(id));
+  const first = (sheet, meta) => crop(sheet, 0, 0, meta.width, meta.height);
+  const digest = (buffer) => createHash('sha1').update(buffer).digest('hex');
+  const painted = [];
+  for (const id of ids) {
+    const entry = manifest[id];
+    if (!entry?.walk) continue;
+    entry.shiny ??= {};
+    /** The recolouring for a battle-sprite key, read once. @type {Map<string, Map<number, [number, number, number]>>} */
+    const shifts = new Map();
+    const shiftFor = async (front) => {
+      if (shifts.has(front)) return shifts.get(front);
+      let shift = new Map();
+      const plain = entry[front];
+      const shiny = entry.shiny[front];
+      const file = front === 'front' ? 'front' : `front-${front}`;
+      if (plain && shiny && plain.width === shiny.width && plain.height === shiny.height) {
+        const [a, b] = await Promise.all([
+          readFile(join(dir(id), `${file}.png`)),
+          readFile(join(dir(id), `${file}-shiny.png`)),
+        ]);
+        shift = paletteShift(first(decodePng(a), plain), first(decodePng(b), shiny));
+      }
+      shifts.set(front, shift);
+      return shift;
+    };
+    for (const key of Object.keys(entry)) {
+      const pose = key === 'icon' || POSES.some((candidate) => key === candidate.key || key.startsWith(`${candidate.key}-`));
+      if (!pose || !entry[key]?.width) continue;
+      // Only an icon this step drew; the icon sets' own have theirs painted
+      // by the sprites step.
+      if (key === 'icon' && entry.iconFrom !== 'walker' && entry.iconFrom !== 'followers') continue;
+      const plainFile = join(dir(id), `${key}.png`);
+      const shinyFile = join(dir(id), `${key}-shiny.png`);
+      const plain = await readFile(plainFile);
+      if (entry.shiny[key]) {
+        const shiny = await readFile(shinyFile).catch(() => null);
+        if (shiny && digest(shiny) !== digest(plain)) continue;
+      }
+      const forme = key.match(/-form-(.+)$/)?.[1];
+      const shift = await shiftFor(forme ? `form-${forme}` : 'front');
+      if (shift.size === 0) continue;
+      const recoloured = recolour(decodePng(plain), shift);
+      await writeOut(shinyFile, encodePng(recoloured.width, recoloured.height, recoloured.data));
+      entry.shiny[key] = entry[key];
+      painted.push(`${id}:${key}`);
+    }
+  }
+  if (painted.length) log(`shiny walking art painted from the battle sprites: ${painted.length}`);
 }
