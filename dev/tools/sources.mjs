@@ -27,6 +27,13 @@ export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/maste
 export const SPRITE_COLLAB = 'https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master';
 
 /**
+ * The Smogon Sprite Project's sprites, drawn in the DS games' pixel style for
+ * every Pokémon and forme the DS games never had — the art Pokémon Showdown,
+ * PokeRogue and the Essentials packs all draw their battlers from.
+ */
+export const SMOGON_SPRITES = 'https://raw.githubusercontent.com/smogon/sprites/master/src/sprites/gen5';
+
+/**
  * The Pokémon Essentials Gen 8/9 resource packs' follower sprites: a walking
  * sheet for every species and most formes, drawn by the fan-game community
  * and free for fan projects with credit. Read from a copy of the packs kept

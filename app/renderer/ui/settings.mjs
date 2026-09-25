@@ -233,8 +233,8 @@ function languageRows(app, rebuild) {
  * @returns {HTMLElement[]}
  */
 function creditRows() {
-  const { sprites, followers } = gameData().credits ?? {};
-  if (!sprites && !followers) return [el('p.meta', { text: t('credits.none') })];
+  const { sprites, followers, battle } = gameData().credits ?? {};
+  if (!sprites && !followers && !battle) return [el('p.meta', { text: t('credits.none') })];
   return [
     ...(sprites
       ? [
@@ -252,6 +252,15 @@ function creditRows() {
           el('p.meta', { text: t('credits.followersNote', { source: followers.source }) }),
           el('p.meta.credits-url', { text: followers.url }),
           el('p.credits-names', { text: followers.artists.join(', ') }),
+        ]
+      : []),
+    // The formes only a battle puts a Pokémon in stand in the Smogon Sprite
+    // Project's battlers, shrunk to the walking art's pixels.
+    ...(battle
+      ? [
+          el('div.section-title', { text: t('credits.battle') }),
+          el('p.meta', { text: t('credits.battleNote', { source: battle.source }) }),
+          el('p.meta.credits-url', { text: battle.url }),
         ]
       : []),
   ];

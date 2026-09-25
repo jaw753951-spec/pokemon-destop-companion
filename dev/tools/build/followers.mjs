@@ -10,9 +10,8 @@
  * them: four rows of four frames, facing down, left, right and up.
  *
  * They are drawn for the handhelds' followers, most of them about twice the
- * collab's size, so a sheet is brought down to half — one pixel kept of every
- * two by two, from whichever of the four positions keeps the most of the
- * Pokémon — wherever that lands nearer the size the collab would have drawn
+ * collab's size, so a sheet is brought down to half — shrunk as pixel art,
+ * its outline kept whole — wherever that lands nearer the size the collab would have drawn
  * it, and kept whole where it does not: a Rapid Strike Urshifu beside the
  * collab's Single Strike one, a small Pokémon the packs draw small. The row facing right is the walk, its
  * first frame the stand, and past the last box icon the row facing down is
@@ -22,12 +21,15 @@ import { join } from 'node:path';
 
 import { fetchBuffer, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { concatX, crop, opaqueBounds } from '../lib/image.mjs';
+import { concatX, crop, doubledPixels, opaqueBounds, shrinkPixelArt, undouble } from '../lib/image.mjs';
 import { ESSENTIALS } from '../sources.mjs';
 
 /** The rows of a follower sheet. */
 const FACING_DOWN = 0;
 const FACING_RIGHT = 2;
+
+/** How much of a sheet has to be two-by-two blocks for it to count as blown up to twice its size. */
+const DOUBLED = 0.95;
 
 /** How long each walking frame shows: ten of the handheld's sixtieths, as the collab's walks mostly run. */
 const FRAME_MS = Math.round((10 * 1000) / 60);
@@ -98,6 +100,7 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
   const missing = [];
   const females = [];
   const whole = [];
+  const shrunk = [];
   await Promise.all(
     wanted.map((want) =>
       pool(async () => {
@@ -117,15 +120,27 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
           );
           if (!source) continue;
           const full = decodePng(source);
-          // Drawn whole or at half, whichever lands nearer the size the
-          // collab would have drawn it: the pixels are whole either way.
+          // Most of the packs' sheets are pixel art blown up to twice its
+          // size, and come back to their own pixels at half, losing nothing
+          // — which is what every one of them is drawn at, whatever size that
+          // makes it, so each pixel is the size of every other Pokémon's. A
+          // sheet drawn at its own pixels is drawn whole, or shrunk as pixel
+          // art where whole is far off the size the collab would have drawn.
+          // Read frame by frame off the row this game draws: a sheet can be
+          // blown up in one direction's row and drawn afresh in another's,
+          // and the blocks of one frame need not sit on the next one's parity.
+          const doubled = rowDoubled(full, FACING_RIGHT);
           if (half === null) {
-            const tall = strip(full, FACING_RIGHT, Math.floor(full.width / 4), Math.floor(full.height / 4), [0, 1, 2, 3])?.meta.height;
-            const aim = expected(want);
-            half = !tall || !aim || Math.abs(Math.log(tall / 2 / aim)) <= Math.abs(Math.log(tall / aim));
-            if (!half) whole.push(`${want.slug}${want.female ? ' (female)' : ''}`);
+            if (doubled) {
+              half = true;
+            } else {
+              const tall = strip(full, FACING_RIGHT, Math.floor(full.width / 4), Math.floor(full.height / 4), [0, 1, 2, 3])?.meta.height;
+              const aim = expected(want);
+              half = !tall || !aim || Math.abs(Math.log(tall / 2 / aim)) <= Math.abs(Math.log(tall / aim));
+              (half ? shrunk : whole).push(`${want.slug}${want.female ? ' (female)' : ''}`);
+            }
           }
-          const sheet = half ? halve(full) : full;
+          const sheet = !half ? full : doubled ? undoubleSheet(full) : halve(full);
           const width = Math.floor(sheet.width / 4);
           const height = Math.floor(sheet.height / 4);
           const walk = strip(sheet, FACING_RIGHT, width, height, [0, 1, 2, 3]);
@@ -155,7 +170,7 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
     ),
   );
 
-  log(`followers ${found.length} from Pokémon Essentials (${females.length} with a female of their own; at their own size: ${whole.join(', ') || 'none'})${missing.length ? `, not drawn there either: ${missing.join(', ')}` : ''}`);
+  log(`followers ${found.length} from Pokémon Essentials (${females.length} with a female of their own; drawn at their own pixels whole: ${whole.join(', ') || 'none'}; shrunk: ${shrunk.join(', ') || 'none'})${missing.length ? `, not drawn there either: ${missing.join(', ')}` : ''}`);
   if (!found.length) return null;
   return {
     source: 'Pokémon Essentials Gen 8/9 resource packs',
@@ -201,33 +216,54 @@ function expectedHeights(species, manifest) {
 }
 
 /**
- * A sheet at half its size: of every two by two pixels, the one at whichever
- * of the four positions keeps the most of the drawing across the sheet, so a
- * one-pixel outline or a thin tail is not dropped for falling on the wrong
- * parity.
+ * Whether every frame of a sheet's row is pixel art blown up to twice its
+ * size.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet four frames by four rows
+ * @param {number} row
+ */
+function rowDoubled(sheet, row) {
+  const width = Math.floor(sheet.width / 4);
+  const height = Math.floor(sheet.height / 4);
+  return [0, 1, 2, 3].every((column) => doubledPixels(crop(sheet, column * width, row * height, width, height)).share >= DOUBLED);
+}
+
+/**
+ * A sheet blown up to twice its size, back at its own pixels frame by frame,
+ * each on the parity its own blocks sit on; a frame that is not blown up is
+ * shrunk as pixel art.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet four frames by four rows
+ */
+function undoubleSheet(sheet) {
+  const width = Math.floor(sheet.width / 4);
+  const height = Math.floor(sheet.height / 4);
+  const half = { width: Math.floor(width / 2), height: Math.floor(height / 2) };
+  const out = { width: half.width * 4, height: half.height * 4, data: new Uint8Array(half.width * 4 * half.height * 4 * 4) };
+  for (let row = 0; row < 4; row++) {
+    for (let column = 0; column < 4; column++) {
+      const cell = crop(sheet, column * width, row * height, width, height);
+      const parity = doubledPixels(cell);
+      const small = parity.share >= DOUBLED ? undouble(cell, parity) : shrinkPixelArt(cell);
+      for (let y = 0; y < Math.min(small.height, half.height); y++) {
+        for (let x = 0; x < Math.min(small.width, half.width); x++) {
+          const from = (y * small.width + x) * 4;
+          out.data.set(small.data.subarray(from, from + 4), ((row * half.height + y) * out.width + column * half.width + x) * 4);
+        }
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * A sheet at half its size, shrunk as pixel art (see `shrinkPixelArt`): the
+ * outline kept whole and each shape in its own colour, rather than a pixel
+ * of every two by two from a fixed corner.
  *
  * @param {import('../lib/image.mjs').Raster} sheet
  */
-export function halve(sheet) {
-  const width = Math.floor(sheet.width / 2);
-  const height = Math.floor(sheet.height / 2);
-  let best = { dx: 0, dy: 0, kept: -1 };
-  for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    let kept = 0;
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) if (sheet.data[((y * 2 + dy) * sheet.width + x * 2 + dx) * 4 + 3]) kept++;
-    }
-    if (kept > best.kept) best = { dx, dy, kept };
-  }
-  const data = new Uint8Array(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const from = ((y * 2 + best.dy) * sheet.width + x * 2 + best.dx) * 4;
-      data.set(sheet.data.subarray(from, from + 4), (y * width + x) * 4);
-    }
-  }
-  return { width, height, data };
-}
+export const halve = (sheet) => shrinkPixelArt(sheet);
 
 /**
  * Frames of one row, cut to one box shared by all of them — down to the

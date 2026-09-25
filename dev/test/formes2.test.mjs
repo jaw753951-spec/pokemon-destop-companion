@@ -91,6 +91,9 @@ test('every forme looks like itself: its own walking art, or its battle sprite w
   assert.equal(stood?.meta.facing, 'right');
   const own = battlerArt({ speciesId: cramorant });
   assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
+  // One frame, from the pixel art the Smogon Sprite Project drew, not a
+  // render cut down.
+  assert.equal(stood?.meta.frames, 1);
   // A Calyrex on its steed walks on it, in the Essentials follower.
   const rider = { speciesId: /** @type {number} */ (speciesIdBySlug('calyrex')), forme: 'calyrex-ice' };
   assert.match(walkerArt(rider, 'walk')?.path ?? '', /walk-form-calyrex-ice\.png$/);

@@ -28,9 +28,9 @@ import { createHash } from 'node:crypto';
 
 import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { concatX, crop, opaqueBounds, paletteShift, recolour } from '../lib/image.mjs';
-import { MAX_SPECIES, SPRITE_COLLAB } from '../sources.mjs';
-import { buildFollowers, halve } from './followers.mjs';
+import { concatX, crop, opaqueBounds, paletteShift, recolour, shrinkPixelArt } from '../lib/image.mjs';
+import { MAX_SPECIES, SMOGON_SPRITES, SPRITE_COLLAB } from '../sources.mjs';
+import { buildFollowers } from './followers.mjs';
 
 /** The sheets' rows run clockwise from facing the viewer; this one faces right. */
 const FACING_RIGHT = 2;
@@ -379,7 +379,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
 
   // A forme only a battle puts a Pokémon in stands in its battle sprite, cut
   // down to the walking art's size.
-  await shrinkBattleFormes({ assetDir, species, manifest, ids, log });
+  const smogon = await shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawnShinies });
 
   // What someone drew by hand for this game goes over whatever the sets had.
   const authored = await applyAuthored({ assetDir, species, manifest, log, drawnShinies });
@@ -399,6 +399,16 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         artists: [...artists].sort((a, b) => a.localeCompare(b)),
       },
       ...(followers ? { followers } : {}),
+      ...(smogon
+        ? {
+            battle: {
+              source: 'Smogon Sprite Project',
+              url: 'https://github.com/smogon/sprites',
+              license: 'fan art, with credit',
+              artists: ['Smogon Sprite Project contributors'],
+            },
+          }
+        : {}),
     }),
   );
 
@@ -598,43 +608,89 @@ async function sameSheet(path, key) {
 }
 
 /**
+ * The Smogon Sprite Project's names for the formes only a battle puts a
+ * Pokémon in, which no walking set draws.
+ *
+ * @type {Record<string, string>}
+ */
+const SMOGON_BATTLE_FORMES = {
+  'cramorant-gulping': 'scramorant-ogulping',
+  'cramorant-gorging': 'scramorant-ogorging',
+  'darmanitan-galar-zen': 'sdarmanitan-ogalar_zen',
+  'terapagos-stellar': 'sterapagos-ostellar',
+};
+
+/**
  * Standing art for the formes a battle alone puts a Pokémon in and no walking
  * set draws — a Cramorant with its catch, a Stellar Terapagos, a Galarian
- * Zen Mode — made from the forme's battle sprite.
+ * Zen Mode.
  *
- * The battle sprites are drawn several times the walking art's size, so
- * the forme's is halved as many times as brings the species' own battle
- * sprite down to its own standing art: the forme keeps its size against
- * the species' shape, and every pixel stays a whole one. Each frame is turned
- * to face right, the way the walking art faces.
+ * They are the Smogon Sprite Project's DS-style battlers, shrunk to half as
+ * pixel art — about the walking art's size, with every pixel the size of
+ * every other Pokémon's — and turned to face right, the way the walking art
+ * faces. A forme the project has not drawn falls back on its own battle
+ * sprite, halved as many times as brings the species' own battle sprite down
+ * to its standing art. The battle sprites were the only source once, but
+ * they are models rendered to pixels, and a render halved comes out in
+ * crumbs.
  *
- * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, ids: number[], log: (message: string) => void}} context
+ * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
  */
-async function shrinkBattleFormes({ assetDir, species, manifest, ids, log }) {
-  const made = [];
+async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawnShinies }) {
+  const drawn = [];
+  const rendered = [];
   for (const id of ids) {
     const entry = manifest[id];
-    if (!entry?.front || !entry.idle) continue;
+    if (!entry?.idle) continue;
+    entry.shiny ??= {};
     for (const forme of species[id]?.forms ?? []) {
-      if (entry[`walk-form-${forme.slug}`] || entry[`idle-form-${forme.slug}`] || !entry[`form-${forme.slug}`]) continue;
+      if (entry[`walk-form-${forme.slug}`] || entry[`idle-form-${forme.slug}`]) continue;
+      const key = `idle-form-${forme.slug}`;
+      const name = SMOGON_BATTLE_FORMES[forme.slug];
+      const plain = name ? await fetchBuffer(`${SMOGON_SPRITES}/${name}.png`, { allowMissing: true }) : null;
+      if (plain) {
+        const shiny = await fetchBuffer(`${SMOGON_SPRITES}/${name}-s.png`, { allowMissing: true });
+        for (const [into, suffix, source] of [[entry, '', plain], [entry.shiny, '-shiny', shiny]]) {
+          if (!source) continue;
+          const frame = trimmed(mirror(shrinkPixelArt(decodePng(source))));
+          await writeOut(join(assetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(frame.width, frame.height, frame.data));
+          into[key] = { width: frame.width, height: frame.height, frames: 1, delay: 1000, durations: [1000] };
+        }
+        if (shiny) drawnShinies.add(`${id}:${key}`);
+        drawn.push(forme.slug);
+        continue;
+      }
+      if (!entry.front || !entry[`form-${forme.slug}`]) continue;
       const halvings = Math.max(0, Math.round(Math.log2(entry.front.height / entry.idle.height)));
-      for (const [into, suffix] of [[entry, ''], [entry.shiny ?? {}, '-shiny']]) {
+      for (const [into, suffix] of [[entry, ''], [entry.shiny, '-shiny']]) {
         const meta = into[`form-${forme.slug}`];
         if (!meta) continue;
         const sheet = decodePng(await readFile(join(assetDir, 'pokemon', String(id), `front-form-${forme.slug}${suffix}.png`)));
         const frames = Array.from({ length: meta.frames ?? 1 }, (_, index) => {
           let frame = crop(sheet, index * meta.width, 0, meta.width, meta.height);
-          for (let step = 0; step < halvings; step++) frame = halve(frame);
+          for (let step = 0; step < halvings; step++) frame = shrinkPixelArt(frame);
           return mirror(frame);
         });
         const strip = concatX(frames);
-        await writeOut(join(assetDir, 'pokemon', String(id), `idle-form-${forme.slug}${suffix}.png`), encodePng(strip.width, strip.height, strip.data));
-        into[`idle-form-${forme.slug}`] = { ...meta, width: frames[0].width, height: frames[0].height };
+        await writeOut(join(assetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(strip.width, strip.height, strip.data));
+        into[key] = { ...meta, width: frames[0].width, height: frames[0].height };
       }
-      made.push(forme.slug);
+      rendered.push(forme.slug);
     }
   }
-  if (made.length) log(`battle formes from their battle sprites: ${made.join(', ')}`);
+  if (drawn.length) log(`battle formes from the Smogon Sprite Project: ${drawn.join(', ')}`);
+  if (rendered.length) log(`battle formes from their battle sprites: ${rendered.join(', ')}`);
+  return drawn.length > 0;
+}
+
+/**
+ * A drawing cut to what is drawn in it.
+ *
+ * @param {import('../lib/image.mjs').Raster} image
+ */
+function trimmed(image) {
+  const bounds = opaqueBounds(image);
+  return bounds ? crop(image, bounds.x, bounds.y, bounds.width, bounds.height) : image;
 }
 
 /** @param {import('../lib/image.mjs').Raster} frame */
