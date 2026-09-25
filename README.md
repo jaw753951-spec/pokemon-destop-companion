@@ -5,8 +5,9 @@
 정비하고, 체육관 관장·사천왕·챔피언에게 도전할 수 있습니다.
 
 **비상업 팬 프로젝트입니다.** Pokémon 및 관련 명칭·이미지·음악의 모든 권리는 Nintendo /
-Creatures Inc. / GAME FREAK inc. 에 있습니다. 이 저장소는 저작물을 포함하지 않습니다 —
-아래 "에셋" 항목을 참고하세요.
+Creatures Inc. / GAME FREAK inc. 에 있습니다. 이 저장소는 저작물을 대부분 포함하지 않고 빌드할 때
+받아 옵니다 — 아래 "에셋" 항목을 참고하세요. 예외는 원본이 개인 저장소라 사라질 수 있는 팬 도트 약 140장
+(1.2MB)으로, `data/vendor/` 에 보관합니다.
 
 ---
 
@@ -1110,13 +1111,13 @@ dist/                패키지 산출물 (gitignored)
 | --- | --- | --- |
 | `dex` | 종족값·기술(분류 포함)·아이템·특성·타입 상성·기술머신 (언어 시트에 적힌 모든 언어의 공식 명칭/설명 포함) | `data/generated/{species,moves,items,abilities,machines,types}.json` |
 | `sprites` | 포켓몬 1025종의 애니 스프라이트 스트립(평범·이로치)·박스 아이콘·울음소리 | `assets/pokemon/`, `assets/cries/`, `sprites.json` |
-| `walkers` | PMD Sprite Collab의 걷기·서 있기 스트립(평범·이로치, 폼 포함), Collab에 없는 것은 Essentials 팔로워를 절반 크기로, 그리고 크레딧 | `assets/pokemon/`, `sprites.json`, `credits.json` |
+| `walkers` | PMD Sprite Collab의 걷기·서 있기 스트립(평범·이로치, 폼·암컷 포함). Collab에 없는 것은 `data/vendor/` 에 보관한 Essentials 팔로워·스모곤 도트로, 직접 그린 `data/authored/sprites/` 가 마지막에 덮어씀. 그리고 크레딧 | `assets/pokemon/`, `sprites.json`, `credits.json`, (새로 받은) `data/vendor/` |
 | `items` | 아이템 아이콘, 볼 등급별 희귀도 티어 | `assets/items/`, `item-tiers.json`, `dev/docs/item-rarity.md` |
 | `actors` | 트레이너 정면/필드 도트, 나무열매 나무, 아이템 볼 | `assets/trainers/`, `assets/props/`, `actors.json` |
 | `areas` | 공식 맵 30곳을 시간대 5종의 심리스 스크롤 배경으로 렌더 (걷는 줄 포함) | `assets/areas/`, `areas.json` |
 | `battle` | 전투 배경 17종(지형·체육관·사천왕 방), 리그 방 5곳, 체육관 뱃지 8종 | `assets/battle/`, `assets/rooms/`, `assets/badges/`, `battle.json` |
 | `audio` | 에리어·전투·연출 BGM 36곡을 노트 이벤트 JSON으로 변환 | `assets/bgm/`, `bgm.json` |
-| `verify` | 매니페스트와 실제 파일이 맞는지 교차 검증 | — |
+| `verify` | 매니페스트와 실제 파일이 맞는지 교차 검증. 걷기·서 있기 도트가 빠진 종이나 폼이 있으면 실패 | — |
 
 전체 산출물은 약 95MB (스프라이트 66MB · 울음소리 17MB · 배경 4MB · 아이템 3MB ·
 BGM 2MB · 트레이너 1MB · 전투 배경과 뱃지 1MB) + 데이터 4MB 입니다. 스프라이트가 예전의
@@ -1275,6 +1276,9 @@ GBC 4색 그림이라 넣지 않았습니다. 관동은 PokeAPI에 한국어 지
 
 Collab에 없는 55종과 8개 폼의 걷기 도트는 [Pokémon Essentials Gen 8/9 리소스 팩](https://eeveeexpo.com/resources/1101/)의
 팔로워 도트입니다. 팬 프로젝트에서 출처를 밝히는 조건으로 공개되어 있고, 팩의 `gen9_credits.txt` 에
-적힌 오버월드 작가 전원을 같은 크레딧 탭에 따로 적습니다. 파이프라인은 이 팩을 담고 있는 GitHub의
-Essentials 프로젝트([Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX](https://github.com/Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX))에서
-받으므로, 그 저장소가 사라지면 이 55종은 다시 박스 아이콘으로 걷습니다.
+적힌 오버월드 작가 전원을 같은 크레딧 탭에 따로 적습니다. 이 팩은 개인의 GitHub 저장소
+([Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX](https://github.com/Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX))에
+담긴 사본에서 받는데, 그 저장소가 사라지면 55종이 다시 박스 아이콘으로 걷게 되므로 **쓰는 파일(평범·이로치,
+크레딧 파일)을 `data/vendor/essentials/` 에 보관**하고 빌드는 그것을 읽습니다. 전투 전용 폼 4개의 스모곤 도트도
+`data/vendor/smogon/` 에 둡니다. 새로 필요한 파일은 고정된 커밋에서 받아 그 폴더에 추가되고 빌드 로그가
+커밋하라고 알립니다. 자세한 것은 `data/vendor/README.md` 에 있습니다.

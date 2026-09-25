@@ -30,6 +30,7 @@ import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { concatX, crop, opaqueBounds, paletteShift, recolour, shrinkPixelArt } from '../lib/image.mjs';
 import { MAX_SPECIES, SMOGON_SPRITES, SPRITE_COLLAB } from '../sources.mjs';
+import { saveVendored, vendored } from '../lib/vendor.mjs';
 import { buildFollowers } from './followers.mjs';
 
 /** The sheets' rows run clockwise from facing the viewer; this one faces right. */
@@ -388,6 +389,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   // sheet — is painted from the battle sprites' two palettes.
   await paintShinies({ assetDir, manifest, ids, log, drawnShinies });
 
+  await saveVendored(log);
   await writeOut(manifestPath, JSON.stringify(manifest));
   await writeOut(
     join(dataDir, 'credits.json'),
@@ -647,9 +649,9 @@ async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawn
       if (entry[`walk-form-${forme.slug}`] || entry[`idle-form-${forme.slug}`]) continue;
       const key = `idle-form-${forme.slug}`;
       const name = SMOGON_BATTLE_FORMES[forme.slug];
-      const plain = name ? await fetchBuffer(`${SMOGON_SPRITES}/${name}.png`, { allowMissing: true }) : null;
+      const plain = name ? await vendored('smogon', `${SMOGON_SPRITES}/${name}.png`) : null;
       if (plain) {
-        const shiny = await fetchBuffer(`${SMOGON_SPRITES}/${name}-s.png`, { allowMissing: true });
+        const shiny = await vendored('smogon', `${SMOGON_SPRITES}/${name}-s.png`);
         for (const [into, suffix, source] of [[entry, '', plain], [entry.shiny, '-shiny', shiny]]) {
           if (!source) continue;
           const frame = trimmed(mirror(shrinkPixelArt(decodePng(source))));

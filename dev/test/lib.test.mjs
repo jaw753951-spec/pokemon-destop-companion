@@ -285,3 +285,23 @@ test('pixel art shrinks with its outline whole, and a blown-up drawing comes bac
   assert.deepEqual([parity.dx, parity.dy], [1, 1]);
   assert.deepEqual(undouble(blown, parity), art);
 });
+
+test('every sprite the vendored sources list is in the repository, and nothing unlisted is', async () => {
+  const { readdir, readFile: read } = await import('node:fs/promises');
+  const { join, relative } = await import('node:path');
+  const { VENDOR_DIR } = await import('../tools/lib/vendor.mjs');
+  const walk = async (dir) =>
+    (await readdir(dir, { withFileTypes: true })).flatMap((entry) => entry).reduce(async (acc, entry) => {
+      const list = await acc;
+      const path = join(dir, entry.name);
+      return entry.isDirectory() ? [...list, ...(await walk(path))] : [...list, path];
+    }, Promise.resolve(/** @type {string[]} */ ([])));
+  for (const source of ['essentials', 'smogon']) {
+    const root = join(VENDOR_DIR, source);
+    const index = JSON.parse(await read(join(root, 'index.json'), 'utf8'));
+    assert.match(index.commit, /^[0-9a-f]{40}$/, `${source} is pinned to a commit`);
+    const files = (await walk(root)).map((path) => relative(root, path)).filter((path) => path !== 'index.json');
+    assert.deepEqual([...files].sort(), [...index.present].sort(), `${source}: index and files disagree`);
+    assert.equal(index.present.filter((path) => index.absent.includes(path)).length, 0);
+  }
+});

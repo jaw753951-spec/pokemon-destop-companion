@@ -27,20 +27,20 @@ export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/maste
 export const SPRITE_COLLAB = 'https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master';
 
 /**
- * The Smogon Sprite Project's sprites, drawn in the DS games' pixel style for
- * every Pokémon and forme the DS games never had — the art Pokémon Showdown,
- * PokeRogue and the Essentials packs all draw their battlers from.
+ * Where the Smogon Sprite Project's DS-style sprites sit in its repository —
+ * drawn in the DS games' pixel style for every Pokémon and forme the DS games
+ * never had, the art Pokémon Showdown, PokeRogue and the Essentials packs all
+ * draw their battlers from. The files the build uses are kept in
+ * `data/vendor/smogon/` (see `lib/vendor.mjs`).
  */
-export const SMOGON_SPRITES = 'https://raw.githubusercontent.com/smogon/sprites/master/src/sprites/gen5';
+export const SMOGON_SPRITES = 'src/sprites/gen5';
 
-/**
- * The Pokémon Essentials Gen 8/9 resource packs' follower sprites: a walking
+/*
+ * The Pokémon Essentials Gen 8/9 resource packs' follower sprites — a walking
  * sheet for every species and most formes, drawn by the fan-game community
- * and free for fan projects with credit. Read from a copy of the packs kept
- * in an Essentials project on GitHub, for the species and formes the Sprite
- * Collab has not drawn.
+ * and free for fan projects with credit — are kept in `data/vendor/essentials/`
+ * for the species and formes the Sprite Collab has not drawn.
  */
-export const ESSENTIALS = 'https://raw.githubusercontent.com/Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX/main';
 
 /**
  * How a move is classified — contact, sound, powder, punch and the rest.

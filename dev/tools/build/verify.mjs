@@ -112,10 +112,15 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     // source — so a gap here is a Pokémon that walks the field in its
     // ordinary colours, not a broken build.
     if (sprite?.shiny?.front && !sprite?.shiny?.icon) noShinyIcon.push(entry.id);
-    // The field art comes from the Sprite Collab, which has not drawn every
-    // species; the rest walk in their box icon.
+    // The field art comes from the Sprite Collab, and what it has not drawn
+    // from the copies in data/vendor: every species walks in walking art, and
+    // one that has fallen back on its box icon is a source that went missing.
     if (!sprite?.walk) noWalk.push(entry.id);
     else if (!sprite?.shiny?.walk) noShinyWalk.push(entry.id);
+    for (const form of entry.forms ?? []) {
+      const stands = sprite?.[`walk-form-${form.slug}`] || sprite?.[`idle-form-${form.slug}`];
+      if (!stands) noWalk.push(`${entry.id} (${form.slug})`);
+    }
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
     for (const ability of entry.abilities ?? []) {
       if (!abilities[ability.name]) unknownAbilities.add(ability.name);
@@ -130,7 +135,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   if (noShinyIcon.length) {
     log(`note: ${noShinyIcon.length} species have no shiny box icon`);
   }
-  if (noWalk.length) log(`note: ${noWalk.length} species have no walking art and walk in their box icon (${summarize(noWalk)})`);
+  note(
+    noWalk.length === 0,
+    `species or formes with no walking or standing art — a sprite source went missing: ${summarize(noWalk)}`,
+  );
   if (noShinyWalk.length) {
     log(`note: ${noShinyWalk.length} species have no shiny walking art and walk in their ordinary colours`);
   }

@@ -19,10 +19,10 @@
  */
 import { join } from 'node:path';
 
-import { fetchBuffer, writeOut } from '../lib/http.mjs';
+import { writeOut } from '../lib/http.mjs';
+import { vendored } from '../lib/vendor.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { concatX, crop, doubledPixels, opaqueBounds, shrinkPixelArt, undouble } from '../lib/image.mjs';
-import { ESSENTIALS } from '../sources.mjs';
 
 /** The rows of a follower sheet. */
 const FACING_DOWN = 0;
@@ -114,10 +114,7 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
           { folder: 'Followers', suffix: '', into: entry },
           { folder: 'Followers shiny', suffix: '-shiny', into: entry.shiny },
         ]) {
-          const source = await fetchBuffer(
-            `${ESSENTIALS}/Graphics/Characters/${encodeURIComponent(variant.folder)}/${name}.png`,
-            { allowMissing: true },
-          );
+          const source = await vendored('essentials', `Graphics/Characters/${variant.folder}/${name}.png`);
           if (!source) continue;
           const full = decodePng(source);
           // Most of the packs' sheets are pixel art blown up to twice its
@@ -326,7 +323,7 @@ function still(sheet, row, width, height) {
  * @returns {Promise<string[]>}
  */
 async function overworldArtists() {
-  const text = (await fetchBuffer(`${ESSENTIALS}/gen9_credits.txt`, { allowMissing: true }))?.toString('utf8') ?? '';
+  const text = (await vendored('essentials', 'gen9_credits.txt'))?.toString('utf8') ?? '';
   return parseOverworldArtists(text);
 }
 
