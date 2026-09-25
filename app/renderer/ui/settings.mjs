@@ -233,13 +233,27 @@ function languageRows(app, rebuild) {
  * @returns {HTMLElement[]}
  */
 function creditRows() {
-  const sprites = gameData().credits?.sprites;
-  if (!sprites) return [el('p.meta', { text: t('credits.none') })];
+  const { sprites, followers } = gameData().credits ?? {};
+  if (!sprites && !followers) return [el('p.meta', { text: t('credits.none') })];
   return [
-    el('div.section-title', { text: t('credits.sprites') }),
-    el('p.meta', { text: t('credits.spritesNote', { source: sprites.source, license: sprites.license }) }),
-    el('p.meta.credits-url', { text: sprites.url }),
-    el('p.credits-names', { text: sprites.artists.join(', ') }),
+    ...(sprites
+      ? [
+          el('div.section-title', { text: t('credits.sprites') }),
+          el('p.meta', { text: t('credits.spritesNote', { source: sprites.source, license: sprites.license }) }),
+          el('p.meta.credits-url', { text: sprites.url }),
+          el('p.credits-names', { text: sprites.artists.join(', ') }),
+        ]
+      : []),
+    // The species and formes the collab has not drawn walk in the Essentials
+    // packs' followers, whose artists are thanked the same way.
+    ...(followers
+      ? [
+          el('div.section-title', { text: t('credits.followers') }),
+          el('p.meta', { text: t('credits.followersNote', { source: followers.source }) }),
+          el('p.meta.credits-url', { text: followers.url }),
+          el('p.credits-names', { text: followers.artists.join(', ') }),
+        ]
+      : []),
   ];
 }
 

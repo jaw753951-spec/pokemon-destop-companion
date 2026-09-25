@@ -149,6 +149,8 @@
   "items.noBerries": "No berries in the bag.",
   "credits.sprites": "Pokémon sprites",
   "credits.spritesNote": "The Pokémon on the road and in battle are from the {source}, used under {license}: non-commercial use only, with thanks to every artist below.",
+  "credits.followers": "Walking sprites (not in the Collab)",
+  "credits.followersNote": "The species and formes the Sprite Collab has not drawn walk in the follower sprites of the {source}, at half size. They are shared for fan projects with credit, with thanks to every artist below.",
   "credits.none": "Nothing to credit.",
   "items.afterBattle": "After a battle",
   "items.afterBattleNote": "After a win, healing items from the bag top the companion up to this much health, the smallest that closes the gap first.",

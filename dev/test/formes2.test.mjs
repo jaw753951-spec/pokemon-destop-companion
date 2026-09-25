@@ -81,10 +81,25 @@ test('every forme looks like itself: its own walking art, or its battle sprite w
   const wash = { speciesId: /** @type {number} */ (speciesIdBySlug('rotom')), forme: 'rotom-wash' };
   assert.match(walkerArt(wash, 'idle')?.path ?? '', /idle-form-rotom-wash\.png$/);
   assert.match(artOf({ ...wash, shiny: true }, 'walk')?.path ?? '', /walk-form-rotom-wash(-shiny)?\.png$/);
-  // A forme the collab never drew still walks the road in its species' art.
+  // A forme no walking art draws — one only a battle puts it in — fights in
+  // its battle sprite, and would walk in its species' art.
+  const gulping = { speciesId: /** @type {number} */ (speciesIdBySlug('cramorant')), forme: 'cramorant-gulping' };
+  assert.match(walkerArt(gulping, 'walk')?.path ?? '', /\/walk\.png$/);
+  assert.equal(battlerArt(gulping)?.meta.facing, 'left');
+  // A Calyrex on its steed walks on it, in the Essentials follower.
   const rider = { speciesId: /** @type {number} */ (speciesIdBySlug('calyrex')), forme: 'calyrex-ice' };
-  assert.match(walkerArt(rider, 'walk')?.path ?? '', /\/walk\.png$/);
-  assert.equal(battlerArt(rider)?.meta.facing, 'left');
+  assert.match(walkerArt(rider, 'walk')?.path ?? '', /walk-form-calyrex-ice\.png$/);
+});
+
+test('every species walks, and every shape it stands in outside a battle has walking art', options, () => {
+  const sprites = gameData().sprites;
+  for (const species of Object.values(gameData().species)) {
+    assert.ok(sprites[species.id]?.walk, `${species.slug} walks in its box icon`);
+    for (const form of species.forms ?? []) {
+      if (!['use', 'item'].includes(form.trigger)) continue;
+      assert.ok(sprites[species.id]?.[`walk-form-${form.slug}`], `${form.slug} walks in its species' art`);
+    }
+  }
 });
 
 test('a Castform in hail is snowy, as it is in snow', options, () => {

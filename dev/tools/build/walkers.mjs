@@ -28,6 +28,7 @@ import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { concatX, crop, opaqueBounds } from '../lib/image.mjs';
 import { MAX_SPECIES, SPRITE_COLLAB } from '../sources.mjs';
+import { buildFollowers } from './followers.mjs';
 
 /** The sheets' rows run clockwise from facing the viewer; this one faces right. */
 const FACING_RIGHT = 2;
@@ -252,6 +253,9 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
     ),
   );
 
+  // What the collab has not drawn walks in the Essentials packs' followers.
+  const followers = await buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log });
+
   await writeOut(manifestPath, JSON.stringify(manifest));
   await writeOut(
     join(dataDir, 'credits.json'),
@@ -262,6 +266,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         license: 'CC BY-NC 4.0',
         artists: [...artists].sort((a, b) => a.localeCompare(b)),
       },
+      ...(followers ? { followers } : {}),
     }),
   );
 
@@ -272,11 +277,15 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
     0,
   );
   log(`walkers ${walking}/${ids.length} (${shiny} with shiny art, ${formes} formes), ${artists.size} artists credited`);
-  if (missingFormes.length) {
-    log(`  formes in their species' art: ${missingFormes.length} (${missingFormes.join(', ')})`);
+  const stillFormes = missingFormes.filter((slug) =>
+    Object.values(manifest).every((entry) => !entry[`walk-form-${slug}`]),
+  );
+  if (stillFormes.length) {
+    log(`  formes in their species' art: ${stillFormes.length} (${stillFormes.join(', ')})`);
   }
-  if (missing.length) {
-    log(`  on their box icon: ${missing.length} (${missing.slice(0, 12).join(', ')}${missing.length > 12 ? ', …' : ''})`);
+  const stillMissing = missing.filter((id) => !manifest[id]?.walk);
+  if (stillMissing.length) {
+    log(`  on their box icon: ${stillMissing.length} (${stillMissing.slice(0, 12).join(', ')}${stillMissing.length > 12 ? ', …' : ''})`);
   }
 }
 

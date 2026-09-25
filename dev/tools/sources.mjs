@@ -27,6 +27,15 @@ export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/maste
 export const SPRITE_COLLAB = 'https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master';
 
 /**
+ * The Pokémon Essentials Gen 8/9 resource packs' follower sprites: a walking
+ * sheet for every species and most formes, drawn by the fan-game community
+ * and free for fan projects with credit. Read from a copy of the packs kept
+ * in an Essentials project on GitHub, for the species and formes the Sprite
+ * Collab has not drawn.
+ */
+export const ESSENTIALS = 'https://raw.githubusercontent.com/Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX/main';
+
+/**
  * How a move is classified — contact, sound, powder, punch and the rest.
  *
  * PokeAPI has no field for it, and the decompilations only carry the flags

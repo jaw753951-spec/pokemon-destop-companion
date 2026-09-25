@@ -221,3 +221,34 @@ test('combineMetatiles places secondary metatiles after the primary block', () =
   assert.equal(combined[512 * 8], 0x0abc);
   assert.equal(combined.length, (512 + 1) * 8);
 });
+
+test('a follower sheet is halved from whichever pixel of each two by two keeps the most of it', async () => {
+  const { halve } = await import('../tools/build/followers.mjs');
+  // A one-pixel line on odd columns: sampling the even ones would lose it.
+  const width = 4;
+  const height = 4;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) data[(y * width + 1) * 4 + 3] = 255;
+  const half = halve({ width, height, data });
+  assert.equal(half.width, 2);
+  assert.equal(half.height, 2);
+  assert.equal(half.data[3], 255);
+  assert.equal(half.data[(1 * 2) * 4 + 3], 255);
+});
+
+test('the overworld artists are read from the credits file, each once', async () => {
+  const { parseOverworldArtists, essentialsName } = await import('../tools/build/followers.mjs');
+  const text = [
+    'Pokemon Gen 9 Overworld sprites:',
+    '-Gen 1-5 Pokemon Overworlds - MissingLukey, Larry Turbo',
+    '-Gen 6+ Berry Tree Overworlds - Anarlaurendil',
+    '-Gen 8 Pokemon Overworlds - SageDeoxys, LarryTurbo',
+    '',
+    'Pokemon Battler Sprites:',
+    '-Gen 1-5 Pokemon Sprites - veekun',
+  ].join('\n');
+  assert.deepEqual(parseOverworldArtists(text), ['Larry Turbo', 'MissingLukey', 'SageDeoxys']);
+  assert.equal(essentialsName('iron-crown'), 'IRONCROWN');
+  assert.equal(essentialsName('mabosstiff'), 'MABOSTIFF');
+  assert.equal(essentialsName('calyrex-ice'), 'CALYREX_1');
+});
