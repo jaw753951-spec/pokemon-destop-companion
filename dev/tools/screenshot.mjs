@@ -321,7 +321,7 @@ const seedTray = () => {
 };
 /** Open the menu on the first Pokémon waiting in the post-battle tray. */
 const clickTray = () => {
-  const entry = document.querySelector('.screen button img[src*="/icon.png"]');
+  const entry = document.querySelector('.screen button img[src*="/pokemon/"]');
   if (entry) { (entry.closest('button') || entry).click(); return true; }
   console.log('tray is empty');
   return false;

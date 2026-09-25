@@ -15,7 +15,7 @@ import {
   timeOfDay,
 } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
-import { gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { walkSteps } from '../engine/pokemon.mjs';
 
 import { name as localized, t } from '../core/i18n.mjs';
@@ -36,7 +36,6 @@ import {
   nextBoost,
   setGroundY,
   WALK_SPEED,
-  walkerArt,
 } from '../render/field.mjs';
 import { backdropForArea } from '../render/backdrop.mjs';
 import { drawWeather } from '../render/weather.mjs';
@@ -76,10 +75,8 @@ export function fieldScene(session) {
   let background = null;
   /** A bridge over the lane, drawn over the companion. @type {HTMLImageElement|null} */
   let overlay = null;
-  /** The companion walking, and standing still. @type {import('../core/assets.mjs').Sprite|null} */
+  /** The companion's picture. @type {import('../core/assets.mjs').Sprite|null} */
   let companion = null;
-  /** @type {import('../core/assets.mjs').Sprite|null} */
-  let companionStanding = null;
 
   let loadedAreaKey = '';
   /** Which art is on screen: the species, and which of its two palettes. */
@@ -168,27 +165,17 @@ export function fieldScene(session) {
     const speciesId = spriteKey(session.active);
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
-      // The walking art and the standing art, drawn at one density and sized
-      // to the Pokémon, so a Wurmple stays ankle-high and a Wailord fills the
-      // road without either being scaled to get there.
-      const walking = walkerArt(session.active, 'walk');
-      const standing = walkerArt(session.active, 'idle');
-      if (walking) {
-        loadSprite(walking.path, walking.meta)
+      // Its one picture, drawn at one density and sized to the Pokémon, so a
+      // Wurmple stays ankle-high and a Wailord fills the road without either
+      // being scaled to get there.
+      const art = artOf(session.active);
+      if (art) {
+        loadSprite(art.path, art.meta)
           .then((sprite) => {
             if (loadedSpriteId === speciesId) companion = sprite;
           })
           .catch(() => {
             companion = null;
-          });
-      }
-      if (standing) {
-        loadSprite(standing.path, standing.meta)
-          .then((sprite) => {
-            if (loadedSpriteId === speciesId) companionStanding = sprite;
-          })
-          .catch(() => {
-            companionStanding = null;
           });
       }
     }
@@ -634,9 +621,8 @@ export function fieldScene(session) {
           lit.save();
           lit.globalAlpha *= alpha;
           drawStepDust(lit, walk);
-          // Its walk while the road moves, and its standing strip while it
-          // does not.
-          drawWalker(lit, moving ? companion : companionStanding ?? companion, walk);
+          // A hop while the road moves, and its standing bob while it does not.
+          drawWalker(lit, companion, walk);
           lit.restore();
         }
         closeDaylightLayer(field, timeOfDay());

@@ -175,14 +175,14 @@ const POSES = [
 ];
 
 /**
- * @param {{assetDir: string, dataDir: string, sample: boolean, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
+ * @param {{assetDir: string, sheetDir: string, dataDir: string, sample: boolean, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
  */
-export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
+export async function buildWalkers({ assetDir, sheetDir, dataDir, sample, log, pool }) {
   const limit = sample ? 40 : MAX_SPECIES;
   const tracker = await fetchJson(`${SPRITE_COLLAB}/tracker.json`);
   const names = creditNames((await fetchBuffer(`${SPRITE_COLLAB}/credit_names.txt`))?.toString('utf8') ?? '');
 
-  const manifestPath = join(dataDir, 'sprites.json');
+  const manifestPath = join(sheetDir, 'sheets.json');
   /** @type {Record<string, any>} */
   const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
 
@@ -261,7 +261,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
           for (const pose of POSES) {
             const strip = await buildStrip(variant.base, anims, pose.anim);
             if (!strip) continue;
-            await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}${variant.suffix}.png`), strip.png);
+            await writeOut(join(sheetDir, 'pokemon', String(id), `${pose.key}${variant.suffix}.png`), strip.png);
             variant.into[pose.key] = strip.meta;
             built = true;
           }
@@ -270,7 +270,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
           if (dex > LAST_BOX_ICON || (species[id]?.regional && (!entry.icon || entry.iconFrom === 'walker'))) {
             const icon = await buildIcon(variant.base, anims);
             if (icon) {
-              await writeOut(join(assetDir, 'pokemon', String(id), `icon${variant.suffix}.png`), icon.png);
+              await writeOut(join(sheetDir, 'pokemon', String(id), `icon${variant.suffix}.png`), icon.png);
               variant.into.icon = icon.meta;
               entry.iconFrom = 'walker';
               iconed.add(variant.suffix);
@@ -285,7 +285,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
         // are the better miss.
         if (iconed.has('') && !iconed.has('-shiny')) {
           delete entry.shiny.icon;
-          await rm(join(assetDir, 'pokemon', String(id), 'icon-shiny.png'), { force: true });
+          await rm(join(sheetDir, 'pokemon', String(id), 'icon-shiny.png'), { force: true });
         }
         if (!entry.walk) missing.push(id);
 
@@ -308,7 +308,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
               for (const pose of POSES) {
                 const strip = await buildStrip(variant.base, anims, pose.anim);
                 if (!strip) continue;
-                await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}-female${variant.suffix}.png`), strip.png);
+                await writeOut(join(sheetDir, 'pokemon', String(id), `${pose.key}-female${variant.suffix}.png`), strip.png);
                 variant.into[`${pose.key}-female`] = strip.meta;
                 built = true;
               }
@@ -343,7 +343,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             for (const pose of POSES) {
               const strip = await buildStrip(variant.base, anims, pose.anim);
               if (!strip) continue;
-              await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}-form-${forme.slug}${variant.suffix}.png`), strip.png);
+              await writeOut(join(sheetDir, 'pokemon', String(id), `${pose.key}-form-${forme.slug}${variant.suffix}.png`), strip.png);
               variant.into[`${pose.key}-form-${forme.slug}`] = strip.meta;
               built = true;
             }
@@ -357,7 +357,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   );
 
   // What the collab has not drawn walks in the Essentials packs' followers.
-  const followers = await buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log, drawnShinies });
+  const followers = await buildFollowers({ assetDir: sheetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log, drawnShinies });
 
   // A variety neither set draws — a small or a large Gourgeist — walks in its
   // species' art rather than its box icon: the same Pokémon, a size off.
@@ -369,8 +369,8 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
     for (const [into, from, suffix] of [[entry, manifest[dex], ''], [entry.shiny, manifest[dex].shiny ?? {}, '-shiny']]) {
       for (const pose of POSES) {
         if (!from[pose.key]) continue;
-        const file = await readFile(join(assetDir, 'pokemon', String(dex), `${pose.key}${suffix}.png`));
-        await writeOut(join(assetDir, 'pokemon', String(id), `${pose.key}${suffix}.png`), file);
+        const file = await readFile(join(sheetDir, 'pokemon', String(dex), `${pose.key}${suffix}.png`));
+        await writeOut(join(sheetDir, 'pokemon', String(id), `${pose.key}${suffix}.png`), file);
         into[pose.key] = from[pose.key];
       }
     }
@@ -380,17 +380,18 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
 
   // A forme only a battle puts a Pokémon in stands in its battle sprite, cut
   // down to the walking art's size.
-  const smogon = await shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawnShinies });
+  const smogon = await shrinkBattleFormes({ sheetDir, species, manifest, ids, log, drawnShinies });
 
   // What someone drew by hand for this game goes over whatever the sets had.
-  const authored = await applyAuthored({ assetDir, species, manifest, log, drawnShinies });
+  const authored = await applyAuthored({ sheetDir, species, manifest, log, drawnShinies });
 
   // And a shiny the sets never drew — or drew as a copy of the ordinary
   // sheet — is painted from the battle sprites' two palettes.
-  await paintShinies({ assetDir, manifest, ids, log, drawnShinies });
+  await paintShinies({ sheetDir, manifest, ids, log, drawnShinies });
 
   await saveVendored(log);
   await writeOut(manifestPath, JSON.stringify(manifest));
+  await cutStills({ assetDir, sheetDir, dataDir, manifest, log });
   await writeOut(
     join(dataDir, 'credits.json'),
     JSON.stringify({
@@ -634,9 +635,9 @@ const SMOGON_BATTLE_FORMES = {
  * they are models rendered to pixels, and a render halved comes out in
  * crumbs.
  *
- * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
+ * @param {{sheetDir: string, species: Record<string, any>, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
  */
-async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawnShinies }) {
+async function shrinkBattleFormes({ sheetDir, species, manifest, ids, log, drawnShinies }) {
   const drawn = [];
   const rendered = [];
   for (const id of ids) {
@@ -653,7 +654,7 @@ async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawn
         for (const [into, suffix, source] of [[entry, '', plain], [entry.shiny, '-shiny', shiny]]) {
           if (!source) continue;
           const frame = trimmed(mirror(shrinkPixelArt(decodePng(source))));
-          await writeOut(join(assetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(frame.width, frame.height, frame.data));
+          await writeOut(join(sheetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(frame.width, frame.height, frame.data));
           into[key] = { width: frame.width, height: frame.height, frames: 1, delay: 1000, durations: [1000] };
         }
         if (shiny) drawnShinies.add(`${id}:${key}`);
@@ -665,14 +666,14 @@ async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawn
       for (const [into, suffix] of [[entry, ''], [entry.shiny, '-shiny']]) {
         const meta = into[`form-${forme.slug}`];
         if (!meta) continue;
-        const sheet = decodePng(await readFile(join(assetDir, 'pokemon', String(id), `front-form-${forme.slug}${suffix}.png`)));
+        const sheet = decodePng(await readFile(join(sheetDir, 'pokemon', String(id), `front-form-${forme.slug}${suffix}.png`)));
         const frames = Array.from({ length: meta.frames ?? 1 }, (_, index) => {
           let frame = crop(sheet, index * meta.width, 0, meta.width, meta.height);
           for (let step = 0; step < halvings; step++) frame = shrinkPixelArt(frame);
           return mirror(frame);
         });
         const strip = concatX(frames);
-        await writeOut(join(assetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(strip.width, strip.height, strip.data));
+        await writeOut(join(sheetDir, 'pokemon', String(id), `${key}${suffix}.png`), encodePng(strip.width, strip.height, strip.data));
         into[key] = { ...meta, width: frames[0].width, height: frames[0].height };
       }
       rendered.push(forme.slug);
@@ -681,6 +682,74 @@ async function shrinkBattleFormes({ assetDir, species, manifest, ids, log, drawn
   if (drawn.length) log(`battle formes from the Smogon Sprite Project: ${drawn.join(', ')}`);
   if (rendered.length) log(`battle formes from their battle sprites: ${rendered.join(', ')}`);
   return drawn.length > 0;
+}
+
+/**
+ * The one picture each Pokémon is shown in, everywhere the game shows it: in
+ * the box, on the road, in a battle, in its tab.
+ *
+ * Every screen used to draw it from a different set — a box icon, a walking
+ * strip, a standing strip, a Showdown animation — at different densities and
+ * in different poses, so the same Pokémon looked like four drawings of it.
+ * Now it is one: the first frame of its standing strip, which every sheet
+ * draws as the Pokémon at rest, or of its walk where it has no standing strip,
+ * trimmed to what is drawn and facing right like the sheets. The game moves
+ * it by moving the whole picture instead — a bob while it waits, a hop while
+ * it walks, a push forward to attack and back when hit — so no screen needs
+ * frames.
+ *
+ * The sheets stay behind in the build's own cache, where the next run cleans
+ * them up again, and only the stills go out with the game: `art` for the
+ * species, `art-female` for a female drawn apart, `art-form-<forme>` for a
+ * forme, each with its shiny beside it.
+ *
+ * @param {{assetDir: string, sheetDir: string, dataDir: string, manifest: Record<string, any>, log: (message: string) => void}} context
+ */
+async function cutStills({ assetDir, sheetDir, dataDir, manifest, log }) {
+  /** @param {string} name `idle…` for `walk…`, and the other way round */
+  const otherPose = (name) => name.replace(/^(idle|walk)/, (pose) => (pose === 'idle' ? 'walk' : 'idle'));
+  const out = join(assetDir, 'pokemon');
+  await rm(out, { recursive: true, force: true });
+  /** @type {Record<string, any>} */
+  const stills = {};
+  /** @type {string[]} */
+  const onIcons = [];
+  let count = 0;
+  for (const [id, entry] of Object.entries(manifest)) {
+    const into = /** @type {Record<string, any>} */ ({ shiny: {} });
+    if (entry.cry) into.cry = entry.cry;
+    const suffixes = new Set(['']);
+    for (const name of Object.keys(entry)) {
+      const match = /^(?:walk|idle)(-female|-form-.+)?$/.exec(name);
+      if (match) suffixes.add(match[1] ?? '');
+    }
+    for (const suffix of suffixes) {
+      // The same pose for both palettes, so a shiny is the same drawing in
+      // other colours rather than the Pokémon caught mid-step.
+      const pose = entry[`idle${suffix}`] ? `idle${suffix}` : entry[`walk${suffix}`] ? `walk${suffix}` : null;
+      for (const [from, to, tail] of [[entry, into, ''], [entry.shiny ?? {}, into.shiny, '-shiny']]) {
+        const key = pose && (from[pose] ? pose : from[otherPose(pose)] ? otherPose(pose) : null);
+        let frame = null;
+        if (key) {
+          const sheet = decodePng(await readFile(join(sheetDir, 'pokemon', id, `${key}${tail}.png`)));
+          frame = trimmed(crop(sheet, 0, 0, from[key].width, from[key].height));
+        } else if (!suffix && from.icon) {
+          // Nothing drew it walking: its box icon, turned to face right.
+          frame = mirror(trimmed(decodePng(await readFile(join(sheetDir, 'pokemon', id, `icon${tail}.png`)))));
+          if (!tail) onIcons.push(id);
+          into.fromIcon = true;
+        }
+        if (!frame) continue;
+        await writeOut(join(out, id, `art${suffix}${tail}.png`), encodePng(frame.width, frame.height, frame.data));
+        to[`art${suffix}`] = { width: frame.width, height: frame.height };
+        count++;
+      }
+    }
+    if (into.art) stills[id] = into;
+  }
+  await writeOut(join(dataDir, 'sprites.json'), JSON.stringify(stills));
+  log(`stills ${count} pictures for ${Object.keys(stills).length} Pokémon`);
+  if (onIcons.length) log(`  from their box icon: ${onIcons.join(', ')}`);
 }
 
 /**
@@ -715,10 +784,10 @@ function mirror(frame) {
  * same one: the species' battle sprites for its own art and its female's,
  * a forme's for the forme's.
  *
- * @param {{assetDir: string, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
+ * @param {{sheetDir: string, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
  */
-async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
-  const dir = (id) => join(assetDir, 'pokemon', String(id));
+async function paintShinies({ sheetDir, manifest, ids, log, drawnShinies }) {
+  const dir = (id) => join(sheetDir, 'pokemon', String(id));
   const first = (sheet, meta) => crop(sheet, 0, 0, meta.width, meta.height);
   const digest = (buffer) => createHash('sha1').update(buffer).digest('hex');
   const painted = [];
@@ -822,10 +891,10 @@ export const AUTHORED_SPRITES = fileURLToPath(new URL('../../../data/authored/sp
  * a forme by the forme's (`cramorant-gulping`), a species' female by its
  * slug and `-female` (`jellicent-female`).
  *
- * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, log: (message: string) => void, drawnShinies: Set<string>}} context
+ * @param {{sheetDir: string, species: Record<string, any>, manifest: Record<string, any>, log: (message: string) => void, drawnShinies: Set<string>}} context
  * @returns {Promise<string[]>} the directories used
  */
-async function applyAuthored({ assetDir, species, manifest, log, drawnShinies }) {
+async function applyAuthored({ sheetDir, species, manifest, log, drawnShinies }) {
   const names = await readdir(AUTHORED_SPRITES).catch(() => []);
   const used = [];
   const unknown = [];
@@ -844,7 +913,7 @@ async function applyAuthored({ assetDir, species, manifest, log, drawnShinies })
     for (const pose of POSES) {
       const strip = await buildStrip(base, anims, pose.anim);
       if (!strip) continue;
-      await writeOut(join(assetDir, 'pokemon', String(target.id), `${pose.key}${target.key}${target.shiny ? '-shiny' : ''}.png`), strip.png);
+      await writeOut(join(sheetDir, 'pokemon', String(target.id), `${pose.key}${target.key}${target.shiny ? '-shiny' : ''}.png`), strip.png);
       into[`${pose.key}${target.key}`] = strip.meta;
       built = true;
     }

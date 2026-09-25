@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { boostPace, drawWalker, nearOverpass, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { boostPace, drawWalker, idleBob, nearOverpass, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
 import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
 import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
@@ -17,15 +17,10 @@ test('the walk cycle is driven by distance, not by the clock', () => {
 test('a step lands every stride, and the cycle has four beats', () => {
   const beats = [0, 1, 2, 3].map((step) => walkFrame(step * STRIDE));
 
-  // Plant, step, plant, step: the feet are down on the even beats.
+  // Plant, step, plant, step: the picture hops on the odd beats.
   assert.deepEqual(
     beats.map((beat) => beat.lift),
     [0, 1, 0, 1],
-  );
-  // The two steps lean opposite ways, so the body rocks rather than drifts.
-  assert.deepEqual(
-    beats.map((beat) => beat.lean),
-    [0, 1, 0, -1],
   );
 });
 
@@ -33,7 +28,6 @@ test('the cycle repeats forever and never leaves the walk', () => {
   for (const distance of [0, 8, 37, 1000, 123456.7]) {
     const frame = walkFrame(distance);
     assert.ok([0, 1].includes(frame.lift), `lift ${frame.lift}`);
-    assert.ok([-1, 0, 1].includes(frame.lean), `lean ${frame.lean}`);
   }
 
   // Four strides on, the sprite is back where the cycle started.
@@ -208,6 +202,40 @@ test('a bobbing companion leaves its shadow on the ground', () => {
   // the nine-argument form, so the destination top is the seventh.
   const topOf = (recorded) => recorded.calls.image[0][6];
   assert.equal(topOf(grounded) - topOf(lifted), 3);
+});
+
+test('one picture hops as it walks and bobs as it stands, and never leans', () => {
+  const tops = (options) => {
+    const calls = [];
+    const context = {
+      globalAlpha: 1,
+      fillStyle: '',
+      save() {}, restore() {}, translate() {}, scale() {}, beginPath() {}, fill() {}, ellipse() {},
+      drawImage(...args) { calls.push(args); },
+    };
+    drawWalker(/** @type {any} */ (context), /** @type {any} */ ({ image: {}, width: 20, height: 24 }), { x: 60, y: 100, ...options });
+    // One whole picture per draw — no rows sheared apart — from its only frame.
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][1], 0);
+    return calls[0][6];
+  };
+  const ground = 100 - 24;
+
+  // Walking: a pixel's hop on each step, by distance, whatever the clock says.
+  assert.equal(tops({ distance: 0, moving: true, time: 230 }), ground);
+  assert.equal(tops({ distance: STRIDE, moving: true, time: 0 }), ground - 1);
+
+  // Standing: the bob, by the clock, up only and by whole pixels.
+  const standing = new Set();
+  for (let time = 0; time < 1000; time += 20) {
+    const top = tops({ distance: 0, moving: false, time });
+    assert.equal(ground - top, idleBob(time));
+    standing.add(top);
+  }
+  assert.deepEqual([...standing].sort((a, b) => a - b), [ground - 2, ground - 1, ground]);
+
+  // A companion lifted by what it is busy with takes that lift, not its bob.
+  assert.equal(tops({ distance: 0, moving: false, time: 230, lift: 3 }), ground - 3);
 });
 
 // -------------------------------------------------- the scene stack's clocks

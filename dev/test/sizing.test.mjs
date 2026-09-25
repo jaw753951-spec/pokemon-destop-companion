@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { setGameData } from '../../app/renderer/core/data.mjs';
 import { Sprite } from '../../app/renderer/core/assets.mjs';
-import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE, strideFrame, WALK_SPEED } from '../../app/renderer/render/field.mjs';
+import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE } from '../../app/renderer/render/field.mjs';
 import { BATTLE_ZOOM, fitScale, FOE_DEPTH } from '../../app/renderer/render/battler.mjs';
 import { companionArmour } from '../../app/renderer/engine/battle.mjs';
 import { treeFor } from '../../app/renderer/scenes/fieldevents.mjs';
@@ -78,16 +78,6 @@ test('a strip that times its frames unequally plays them for their own lengths',
   assert.equal(strip.frameAt(400), 0);
   // A strip with no timings of its own holds every frame for the one delay.
   assert.equal(new Sprite(/** @type {any} */ ({}), { width: 10, height: 10, frames: 3, delay: 100 }).frameAt(250), 2);
-});
-
-test('the walk steps with the road, not with the clock', () => {
-  const strip = new Sprite(/** @type {any} */ ({}), { width: 10, height: 10, frames: 4, delay: 100, durations: [100, 100, 100, 100] });
-  // Standing still, the same frame however long it stands.
-  assert.equal(strideFrame(strip, 0), strideFrame(strip, 0));
-  // Walking, the feet move as the road does.
-  const frames = new Set();
-  for (let distance = 0; distance < WALK_SPEED; distance += 2) frames.add(strideFrame(strip, distance));
-  assert.equal(frames.size, 4, 'a second of road is a whole walk cycle and then some');
 });
 
 test('the companion takes half of everything, and a weakness costs it half again', () => {

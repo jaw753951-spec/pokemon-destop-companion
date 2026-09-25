@@ -154,7 +154,7 @@ export function createHud(handlers) {
             onClick: () => onSelect(index),
           }, [
             el('img', {
-              src: url('assets', artPath(pokemon, 'icon') ?? ''),
+              src: url('assets', artPath(pokemon) ?? ''),
               alt: '',
               style: { width: '28px', height: '28px', objectFit: 'contain' },
             }),

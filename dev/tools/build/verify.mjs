@@ -93,33 +93,25 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   }
   note(strayFlags.size === 0, `moves carry classifications the game does not ship: ${summarize([...strayFlags])}`);
 
-  // Every species must be playable: a front sprite, an icon and a learnset.
+  // Every species must be playable: its picture and a learnset.
   const noSprite = [];
   const noShiny = [];
-  const noShinyIcon = [];
   const noWalk = [];
-  const noShinyWalk = [];
   const noLearnset = [];
   const unknownAbilities = new Set();
   /** How many species each language shows another language's name for. */
   const borrowed = new Map(LANGUAGES.map((language) => [language.code, 0]));
   for (const entry of Object.values(species)) {
     const sprite = sprites[entry.id];
-    if (!sprite?.front || !sprite.icon) noSprite.push(entry.id);
-    if (!sprite?.shiny?.front) noShiny.push(entry.id);
-    // The shiny box icon is derived from the two front sprites rather than
-    // downloaded, and that needs both of them to have come from the same
-    // source — so a gap here is a Pokémon that walks the field in its
-    // ordinary colours, not a broken build.
-    if (sprite?.shiny?.front && !sprite?.shiny?.icon) noShinyIcon.push(entry.id);
-    // The field art comes from the Sprite Collab, and what it has not drawn
-    // from the copies in data/vendor: every species walks in walking art, and
-    // one that has fallen back on its box icon is a source that went missing.
-    if (!sprite?.walk) noWalk.push(entry.id);
-    else if (!sprite?.shiny?.walk) noShinyWalk.push(entry.id);
+    // The picture comes from the Sprite Collab, and what it has not drawn
+    // from the copies in data/vendor: every species is cut from walking art,
+    // and one cut from its box icon is a source that went missing.
+    if (!sprite?.art) noSprite.push(entry.id);
+    else if (sprite.fromIcon) noWalk.push(entry.id);
+    // A shiny is painted where no set drew one, so a gap is a broken build.
+    if (sprite?.art && !sprite.shiny?.art) noShiny.push(entry.id);
     for (const form of entry.forms ?? []) {
-      const stands = sprite?.[`walk-form-${form.slug}`] || sprite?.[`idle-form-${form.slug}`];
-      if (!stands) noWalk.push(`${entry.id} (${form.slug})`);
+      if (!sprite?.[`art-form-${form.slug}`]) noWalk.push(`${entry.id} (${form.slug})`);
     }
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);
     for (const ability of entry.abilities ?? []) {
@@ -132,16 +124,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   }
   note(noSprite.length === 0, `species missing art: ${summarize(noSprite)}`);
   note(noShiny.length === 0, `species missing alternate-palette art: ${summarize(noShiny)}`);
-  if (noShinyIcon.length) {
-    log(`note: ${noShinyIcon.length} species have no shiny box icon`);
-  }
   note(
     noWalk.length === 0,
     `species or formes with no walking or standing art — a sprite source went missing: ${summarize(noWalk)}`,
   );
-  if (noShinyWalk.length) {
-    log(`note: ${noShinyWalk.length} species have no shiny walking art and walk in their ordinary colours`);
-  }
   note(unknownAbilities.size === 0, `species name abilities that were not built: ${summarize([...unknownAbilities])}`);
   note(noLearnset.length === 0, `species missing a level-up learnset: ${summarize(noLearnset)}`);
   for (const [code, count] of borrowed) {

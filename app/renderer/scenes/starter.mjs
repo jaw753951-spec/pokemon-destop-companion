@@ -101,36 +101,12 @@ function ballButton(app, speciesId, slot, caption, stage) {
  * @param {string} label
  */
 function portrait(speciesId, label) {
-  return walkerPortrait({ speciesId }, { zoom: STARTER_ZOOM, maxHeight: STARTER_MAX_HEIGHT, label }) ?? battlePortrait(speciesId);
+  return walkerPortrait({ speciesId }, { zoom: STARTER_ZOOM, maxHeight: STARTER_MAX_HEIGHT, label }) ?? el('div.starter-sprite');
 }
 
 /** Screen pixels per field pixel on the starter table, and the most it may stand. */
 const STARTER_ZOOM = 4;
 const STARTER_MAX_HEIGHT = 120;
-
-/**
- * The battle sprite, at twice size and held on its first frame — for a species
- * the field has no art for.
- *
- * The strip is one wide image of every animation frame, so it is shown as a
- * background sized to the whole strip and parked at its start — an `img` would
- * stretch all ten frames across the stage.
- *
- * @param {number} speciesId
- */
-function battlePortrait(speciesId) {
-  const meta = gameData().sprites[speciesId]?.front;
-  if (!meta) return el('div.starter-sprite');
-
-  return el('div.starter-sprite', {
-    style: {
-      width: `${meta.width * 2}px`,
-      height: `${meta.height * 2}px`,
-      backgroundImage: `url("${url('assets', `pokemon/${speciesId}/front.png`)}")`,
-      backgroundSize: `${meta.width * meta.frames * 2}px ${meta.height * 2}px`,
-    },
-  });
-}
 
 /**
  * @param {import('../core/app.mjs').App} app

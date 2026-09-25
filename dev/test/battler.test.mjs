@@ -8,7 +8,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Battler, fitScale, idleBob } from '../../app/renderer/render/battler.mjs';
+import { Battler, fitScale } from '../../app/renderer/render/battler.mjs';
+import { idleBob } from '../../app/renderer/render/field.mjs';
 
 /** A canvas context that remembers where the pen went. */
 function recorder() {
@@ -132,26 +133,60 @@ test('a fainted Pokémon stays down', () => {
   assert.equal(battler.pose, 'lose');
 });
 
-test('a battler with a single standing picture bobs while it waits, and a strip does not', () => {
-  const still = new Battler({ sprite: /** @type {any} */ ({ ...sprite, frames: 1 }), x: 100, y: 90, facing: 1, scale: 1.5 });
-  const strip = new Battler({ sprite: /** @type {any} */ ({ ...sprite, frames: 4 }), x: 100, y: 90, facing: 1, scale: 1.5 });
+test('a battler bobs while it waits', () => {
+  const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1, scale: 1.5 });
 
   const lifts = new Set();
   for (let step = 0; step < 24; step++) {
-    const dy = still.transform().dy;
+    const { dx, dy, scale } = battler.transform();
     // Up only, and by whole art pixels at the scale it is drawn.
     assert.ok(dy <= 0, `a bob should never sink into the ground, saw ${dy}`);
     assert.ok(Number.isInteger(-dy / 1.5), `a bob should move by whole art pixels, saw ${dy}`);
+    assert.equal(dx, 0);
+    assert.equal(scale, 1);
     lifts.add(dy);
-    assert.equal(strip.transform().dy, 0);
-    still.update(40);
-    strip.update(40);
+    battler.update(40);
   }
-  assert.ok(lifts.size > 1, 'a single picture should rise and fall');
+  assert.ok(lifts.size > 1, 'it should rise and fall');
   assert.equal(Math.min(...[...lifts]), -2 * 1.5);
-
-  // A pose takes over from the bob while it plays.
-  still.setPose('hit');
-  assert.equal(still.transform().dy, 0);
   assert.equal(idleBob(0), 0);
+});
+
+test('an attack is one push forward and a hit one push back, level and at its own size', () => {
+  /** @param {'attack'|'hit'} pose @param {1|-1} facing */
+  const track = (pose, facing) => {
+    const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing, scale: 2 });
+    battler.setPose(pose);
+    const moves = [];
+    while (!battler.poseDone) {
+      const transform = battler.transform();
+      assert.equal(transform.dy, 0, 'a push stays on the ground');
+      assert.equal(transform.scale, 1, 'a push does not resize the picture');
+      assert.equal(transform.rotate, 0);
+      assert.ok(Number.isInteger(transform.dx), 'by whole field pixels');
+      moves.push(transform.dx);
+      battler.update(20);
+    }
+    assert.equal(battler.pose, 'idle', 'and it settles back to waiting');
+    return moves;
+  };
+
+  for (const facing of /** @type {const} */ ([1, -1])) {
+    const attack = track('attack', facing);
+    const hit = track('hit', facing);
+    // Forward (towards the side it faces, which `draw` multiplies in) and back.
+    assert.ok(attack.every((dx) => dx >= 0) && Math.max(...attack) > 8, `attack ${attack.join(',')}`);
+    assert.ok(hit.every((dx) => dx <= 0) && Math.min(...hit) < -8, `hit ${hit.join(',')}`);
+    // Once: out to the far end, then back, never out again.
+    const turn = attack.indexOf(Math.max(...attack));
+    for (let i = 1; i <= turn; i++) assert.ok(attack[i] >= attack[i - 1]);
+    for (let i = turn + 1; i < attack.length; i++) assert.ok(attack[i] <= attack[i - 1]);
+  }
+
+  // The hit is washed red, fading as it settles.
+  const hit = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  hit.setPose('hit');
+  const first = hit.transform().flash;
+  hit.update(200);
+  assert.ok(first > hit.transform().flash && hit.transform().flash > 0);
 });

@@ -7,11 +7,11 @@
  * size, which puts about fifteen tiles across the window — the framing a Game
  * Boy Advance actually had, instead of twice as much map at half the size. The
  * map fills that frame, because a letterboxed strip reads as scenery instead
- * of a place. The companion walks in the PMD Sprite Collab's art, drawn at one
- * density for the whole dex and at one scale here. And the walk cycle is driven by
- * distance travelled rather than by the clock, so the sprite is tied to the
- * ground the way a stepped tile-grid sprite is — speed up the walk and the
- * legs go faster, stop and they stop mid-stride.
+ * of a place. The companion is its one picture, cut from the PMD Sprite
+ * Collab's art, drawn at one density for the whole dex and at one scale here.
+ * And its hop is driven by distance travelled rather than by the clock, so the
+ * sprite is tied to the ground the way a stepped tile-grid sprite is — speed
+ * up the walk and it hops faster, stop and it settles into its standing bob.
  */
 import {
   FIELD_HEIGHT,
@@ -20,8 +20,6 @@ import {
   HOLD_BOOST_GLIDE_MS,
   HOLD_BOOST_RAMP_MS,
 } from '../../shared/constants.mjs';
-import { artOf, formeArtOf } from '../core/data.mjs';
-
 /**
  * Where the companion's feet sit.
  *
@@ -102,47 +100,6 @@ export function actorHeight(sprite, pokemon) {
   return Math.round(sprite.height * actorScale(sprite, pokemon));
 }
 
-/**
- * The art a Pokémon walks or stands in, and which way that art faces.
- *
- * The Sprite Collab's strips face right, down the road; a species the collab
- * has not drawn falls back on its box icon, which faces left and is a single
- * still picture. Standing art falls back on walking art for a species drawn
- * walking but never standing.
- *
- * @param {{speciesId: number, shiny?: boolean}|null|undefined} pokemon
- * @param {'walk'|'idle'} [pose]
- * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, durations?: number[], facing: 'left'|'right'}}|null}
- */
-export function walkerArt(pokemon, pose = 'walk') {
-  // The forme's own art first, standing or else walking, and only then the
-  // species' — a Rotom in its washer stands in the washer.
-  const art =
-    formeArtOf(pokemon, pose) ??
-    (pose === 'idle' ? formeArtOf(pokemon, 'walk') : null) ??
-    artOf(pokemon, pose) ??
-    (pose === 'idle' ? artOf(pokemon, 'walk') : null);
-  if (art) return { path: art.path, meta: { ...art.meta, facing: 'right' } };
-  const icon = artOf(pokemon, 'icon');
-  if (!icon) return null;
-  return { path: icon.path, meta: { ...icon.meta, frames: 1, delay: 1000, facing: 'left' } };
-}
-
-/**
- * The battle sprite of a forme the walking art has no picture of — a Therian
- * Tornadus, a Calyrex on its steed — for the screens that show a Pokémon
- * standing still, where the shape it is in matters more than the art set it
- * is drawn from. Nothing when the forme is drawn walking, or wears none.
- *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
- */
-export function undrawnFormeArt(pokemon) {
-  if (!pokemon?.forme || formeArtOf(pokemon, 'idle') || formeArtOf(pokemon, 'walk')) return null;
-  const front = formeArtOf(pokemon, 'front');
-  return front ? { path: front.path, meta: { ...front.meta, facing: 'left' } } : null;
-}
-
 /** Field pixels per second. About one tile every half-second. */
 export const WALK_SPEED = 34;
 
@@ -181,18 +138,37 @@ export const COMPANION_X = Math.round(FIELD_WIDTH * 0.32);
 export const STRIDE = 8;
 
 /**
- * The four-beat walk: plant, step, plant, step. Each entry lifts the sprite
- * and leans its upper body, which is how a small sprite reads as walking
- * without the redrawn legs no official asset set gives us.
+ * The four-beat walk: plant, step, plant, step. Each step lifts the picture a
+ * pixel off the ground, which is how a Pokémon drawn in one picture reads as
+ * walking without legs that move.
  *
- * @type {Array<{lift: number, lean: number}>}
+ * @type {Array<{lift: number}>}
  */
-const WALK_CYCLE = [
-  { lift: 0, lean: 0 },
-  { lift: 1, lean: 1 },
-  { lift: 0, lean: 0 },
-  { lift: 1, lean: -1 },
-];
+const WALK_CYCLE = [{ lift: 0 }, { lift: 1 }, { lift: 0 }, { lift: 1 }];
+
+/**
+ * The bob a Pokémon makes standing where it is, in art pixels and
+ * milliseconds.
+ *
+ * Every Pokémon is one still picture, and one that holds perfectly still
+ * reads as the game having frozen. It rises and falls on the spot the way a
+ * companion gathering berries does: up only, since it cannot sink into the
+ * ground, and by whole art pixels, so the bob never leaves it made of pixels
+ * of two sizes. The road, a battle and its tab all use the same one.
+ */
+const IDLE_BOB_PX = 2;
+const IDLE_BOB_MS = 460;
+
+/**
+ * How far off the ground a standing Pokémon is this far into standing.
+ *
+ * @param {number} elapsed milliseconds
+ * @returns {number} art pixels
+ */
+export const idleBob = (elapsed) => Math.round(Math.abs(Math.sin((elapsed / IDLE_BOB_MS) * Math.PI)) * IDLE_BOB_PX);
+
+/** The most an {@link idleBob} lifts, for the screens that leave room over the head. */
+export const IDLE_BOB_HEIGHT = IDLE_BOB_PX;
 
 /**
  * Run `draw` in field space: twice size, with pixels kept square.
@@ -317,7 +293,7 @@ export function drawShadow(context, x, y, width) {
  * Which beat of the walk the companion is on after travelling this far.
  *
  * @param {number} distance field pixels covered
- * @returns {{lift: number, lean: number}}
+ * @returns {{lift: number}}
  */
 export function walkFrame(distance) {
   const step = Math.floor(distance / STRIDE) % WALK_CYCLE.length;
@@ -325,30 +301,12 @@ export function walkFrame(distance) {
 }
 
 /**
- * Which frame of its walk a Pokémon is on after travelling this far.
+ * Draw a Pokémon on the road, facing the way it is going.
  *
- * Driven by distance like the four-beat walk above, so the feet keep pace
- * with the road — a hurried companion steps faster, one stopped in front of a
- * berry tree does not step at all — and timed by the strip's own frame
- * lengths, taken at the ordinary walking pace.
- *
- * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {number} distance field pixels covered
- */
-export function strideFrame(sprite, distance) {
-  return sprite.frameAt(Math.max(0, (distance / WALK_SPEED) * 1000));
-}
-
-/**
- * Draw a Pokémon as an overworld sprite, facing the way it is going.
- *
- * Art with frames of its own animates: its walk while it moves, by distance,
- * and whatever strip it was handed — its standing one, for a stopped
- * companion — by the clock while it does not. A single still drawing, the box
- * icon a species without walking art falls back on, is made to walk instead:
- * the lean is a shear rather than a whole-sprite shift, so the feet stay
- * planted on the ground row and the displacement grows towards the head, and
- * the body rocks over its own footing.
+ * It is one still picture, moved rather than animated: it hops a pixel on
+ * each step while it walks, by distance, and bobs on the spot by the clock
+ * while it stands. A companion lifted by something it is busy with — picking
+ * berries, stepping through a door — takes that lift instead of its bob.
  *
  * Art facing the other way is mirrored about its own centre column.
  *
@@ -365,22 +323,19 @@ export function strideFrame(sprite, distance) {
  *   time?: number,
  * }} options `lift` raises the sprite off the ground without its shadow, for
  *   a companion busy with something where it stands; `time` is the clock a
- *   standing strip plays by
+ *   standing bob keeps
  */
 export function drawWalker(
   context,
   sprite,
   { x, y, distance, moving, facing = 'right', scale = POKEMON_SCALE, lift: raised = 0, time = 0 },
 ) {
-  const animated = sprite.frames > 1;
-  const frame = !animated ? 0 : moving ? strideFrame(sprite, distance) : sprite.frameAt(time);
-  const { lift, lean } = moving && !animated ? walkFrame(distance) : WALK_CYCLE[0];
+  const hop = moving ? walkFrame(distance).lift : raised ? 0 : Math.round(idleBob(time) * scale);
   const flip = (sprite.facing ?? 'left') !== facing;
-  const sx = frame * sprite.width;
 
   // Whole pixels in the field's own space: a sprite whose scale leaves it half
   // a pixel wide lands on a half pixel at one edge and a whole one at the
-  // other, and the walk cycle then makes that edge shimmer.
+  // other, and the hop then makes that edge shimmer.
   const width = Math.round(sprite.width * scale);
   const height = Math.round(sprite.height * scale);
   // The shadow stays on the ground whatever the sprite is doing above it,
@@ -389,7 +344,7 @@ export function drawWalker(
   drawShadow(context, x, y, width);
 
   const left = Math.round(x - width / 2);
-  const top = Math.round(y - height - lift - raised);
+  const top = Math.round(y - height - hop - raised);
 
   context.save();
   if (flip) {
@@ -398,37 +353,7 @@ export function drawWalker(
     context.translate(left * 2 + width, 0);
     context.scale(-1, 1);
   }
-
-  if (lean === 0) {
-    context.drawImage(sprite.image, sx, 0, sprite.width, sprite.height, left, top, width, height);
-  } else {
-    // One draw per row is a few dozen tiny blits for a sprite this size, which
-    // is cheaper than the offscreen canvas an equivalent transform would need.
-    //
-    // Each row is drawn from where it starts to where the *next* one starts,
-    // both rounded the same way, so consecutive rows always abut exactly. The
-    // old version gave every row the same fractional height at a fractional
-    // offset, which at most scales left hairlines of background showing
-    // through the sprite on the beats it leans — the "you can see the map
-    // through it while it walks" report.
-    for (let row = 0; row < sprite.height; row++) {
-      const weight = 1 - row / sprite.height;
-      const shift = Math.round(lean * weight);
-      const rowTop = top + Math.round(row * scale);
-      const rowBottom = top + Math.round((row + 1) * scale);
-      context.drawImage(
-        sprite.image,
-        sx,
-        row,
-        sprite.width,
-        1,
-        left + shift,
-        rowTop,
-        width,
-        Math.max(1, rowBottom - rowTop),
-      );
-    }
-  }
+  context.drawImage(sprite.image, 0, 0, sprite.width, sprite.height, left, top, width, height);
   context.restore();
 }
 

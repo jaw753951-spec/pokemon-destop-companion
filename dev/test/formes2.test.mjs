@@ -18,7 +18,6 @@ import { formeMoveNeed, itemActions, useItem } from '../../app/renderer/engine/i
 import { availableMoves, createPokemon, evolveInto, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { battlerArt } from '../../app/renderer/render/battler.mjs';
-import { walkerArt } from '../../app/renderer/render/field.mjs';
 
 const ready = await useRealGameData();
 const options = { skip: ready ? false : NEEDS_ASSETS };
@@ -63,50 +62,42 @@ function bag(contents, pokemon) {
   });
 }
 
-test('every forme looks like itself: its own walking art, or its battle sprite where there is none', options, () => {
+test('every forme looks like itself, in a picture of its own', options, () => {
   const sprites = gameData().sprites;
   for (const species of Object.values(gameData().species)) {
     for (const form of species.forms ?? []) {
       const pokemon = { speciesId: species.id, forme: form.slug };
-      const plain = { speciesId: species.id };
-      const fought = battlerArt(pokemon);
-      assert.ok(fought, `${form.slug} has nothing to fight in`);
-      assert.notEqual(fought.path, battlerArt(plain)?.path, `${form.slug} fights in its species' art`);
-      if (sprites[species.id]?.[`walk-form-${form.slug}`]) {
-        assert.match(walkerArt(pokemon, 'walk')?.path ?? '', new RegExp(`walk-form-${form.slug}\\.png$`));
-      }
+      const art = artOf(pokemon);
+      assert.match(art?.path ?? '', new RegExp(`/art-form-${form.slug}\\.png$`), `${form.slug} is drawn in its species' art`);
+      // The battle, the road and the box all draw the same one.
+      assert.equal(battlerArt(pokemon)?.path, art?.path);
+      assert.ok(sprites[species.id][`art-form-${form.slug}`]);
     }
   }
-  // A Rotom in the washer walks in the washer, and a shiny one in the shiny
-  // washer where the collab drew one.
+  // A Rotom in the washer is in the washer, and a shiny one in the shiny washer.
   const wash = { speciesId: /** @type {number} */ (speciesIdBySlug('rotom')), forme: 'rotom-wash' };
-  assert.match(walkerArt(wash, 'idle')?.path ?? '', /idle-form-rotom-wash\.png$/);
-  assert.match(artOf({ ...wash, shiny: true }, 'walk')?.path ?? '', /walk-form-rotom-wash(-shiny)?\.png$/);
-  // A forme no walking art draws — one only a battle puts it in — stands in
-  // its battle sprite cut down to the walking art's size, facing the same way.
+  assert.match(artOf(wash)?.path ?? '', /\/art-form-rotom-wash\.png$/);
+  assert.match(artOf({ ...wash, shiny: true })?.path ?? '', /\/art-form-rotom-wash-shiny\.png$/);
+  // A forme only a battle puts it in is the Smogon Sprite Project's pixel art
+  // cut to the walking art's size, facing the same way.
   const cramorant = /** @type {number} */ (speciesIdBySlug('cramorant'));
-  const gulping = { speciesId: cramorant, forme: 'cramorant-gulping' };
-  const stood = battlerArt(gulping);
-  assert.match(stood?.path ?? '', /idle-form-cramorant-gulping\.png$/);
+  const stood = artOf({ speciesId: cramorant, forme: 'cramorant-gulping' });
   assert.equal(stood?.meta.facing, 'right');
-  const own = battlerArt({ speciesId: cramorant });
+  const own = artOf({ speciesId: cramorant });
   assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
-  // One frame, from the pixel art the Smogon Sprite Project drew, not a
-  // render cut down.
-  assert.equal(stood?.meta.frames, 1);
-  // A Calyrex on its steed walks on it, in the Essentials follower.
-  const rider = { speciesId: /** @type {number} */ (speciesIdBySlug('calyrex')), forme: 'calyrex-ice' };
-  assert.match(walkerArt(rider, 'walk')?.path ?? '', /walk-form-calyrex-ice\.png$/);
 });
 
-test('every species walks, and every shape it stands in outside a battle has walking art', options, () => {
+test('every Pokémon is one still picture, facing right', options, () => {
   const sprites = gameData().sprites;
   for (const species of Object.values(gameData().species)) {
-    assert.ok(sprites[species.id]?.walk, `${species.slug} walks in its box icon`);
-    for (const form of species.forms ?? []) {
-      if (!['use', 'item'].includes(form.trigger)) continue;
-      assert.ok(sprites[species.id]?.[`walk-form-${form.slug}`], `${form.slug} walks in its species' art`);
-    }
+    const entry = sprites[species.id];
+    assert.ok(entry?.art, `${species.slug} has no picture`);
+    assert.ok(!entry.fromIcon, `${species.slug} is cut from its box icon`);
+    // Nothing of the old sets goes out with the game.
+    for (const key of Object.keys(entry)) assert.match(key, /^(art(-female|-form-.+)?|shiny|cry)$/, `${species.slug} ships ${key}`);
+    const art = artOf({ speciesId: species.id });
+    assert.equal(art?.meta.frames, 1);
+    assert.equal(art?.meta.facing, 'right');
   }
 });
 
@@ -259,27 +250,27 @@ test('a full moveset asks what the new move goes over, and a Rotom cannot skip i
 
 test('a variety walks in its own art, and a female in hers where her species draws one', options, () => {
   const sprites = gameData().sprites;
-  // Every variety has walking art that is not its species' — but the small
-  // and large Gourgeist, which no set draws.
-  const walkFile = (id) => {
+  // Every variety has a picture that is not its species' — but the small and
+  // large Gourgeist, which no set draws.
+  const artFile = (id) => {
     try {
-      return readFileSync(new URL(`../../assets/pokemon/${id}/walk.png`, import.meta.url));
+      return readFileSync(new URL(`../../assets/pokemon/${id}/art.png`, import.meta.url));
     } catch {
       return null;
     }
   };
   for (const species of Object.values(gameData().species)) {
     if (!species.regional || ['gourgeist-small', 'gourgeist-large'].includes(species.slug)) continue;
-    assert.ok(sprites[species.id]?.walk, `${species.slug} has no walk`);
-    const mine = walkFile(species.id);
-    const theirs = walkFile(species.dex);
-    if (mine && theirs) assert.ok(!mine.equals(theirs), `${species.slug} walks in its species' art`);
+    assert.ok(sprites[species.id]?.art, `${species.slug} has no picture`);
+    const mine = artFile(species.id);
+    const theirs = artFile(species.dex);
+    if (mine && theirs) assert.ok(!mine.equals(theirs), `${species.slug} is drawn in its species' art`);
   }
   const jellicent = /** @type {number} */ (speciesIdBySlug('jellicent'));
   const her = { speciesId: jellicent, gender: 'female' };
   const him = { speciesId: jellicent, gender: 'male' };
-  assert.match(walkerArt(her, 'walk')?.path ?? '', /walk-female\.png$/);
-  assert.match(walkerArt(him, 'walk')?.path ?? '', /\/walk\.png$/);
+  assert.match(artOf(her)?.path ?? '', /\/art-female\.png$/);
+  assert.match(artOf(him)?.path ?? '', /\/art\.png$/);
   assert.notEqual(spriteKey(her), spriteKey(him), 'a battle reloads the art between the two');
   // A species drawn the same for both keeps one key.
   const geodude = /** @type {number} */ (speciesIdBySlug('geodude'));
@@ -312,14 +303,17 @@ test('a shiny is a recolour of the drawing its Pokémon walks in, not of an olde
   // Dewott, Archen, Minior and Marshadow: the collab's shinies are of other drawings.
   for (const slug of ['dewott', 'archen', 'minior', 'marshadow']) {
     const id = /** @type {number} */ (speciesIdBySlug(slug));
-    for (const key of ['walk', 'idle']) {
-      assert.ok(sprites[id].shiny?.[key], `${slug} has a shiny ${key}`);
-      assert.ok(
-        sameSilhouette(png(id, key), sprites[id][key], png(id, `${key}-shiny`), sprites[id].shiny[key]),
-        `${slug}'s shiny ${key} is another drawing`,
-      );
+    assert.ok(sprites[id].shiny?.art, `${slug} has a shiny picture`);
+    assert.ok(
+      sameSilhouette(png(id, 'art'), sprites[id].art, png(id, 'art-shiny'), sprites[id].shiny.art),
+      `${slug}'s shiny is another drawing`,
+    );
+  }
+  // And every species has a shiny, and every forme drawn in both.
+  for (const species of Object.values(gameData().species)) {
+    assert.ok(sprites[species.id]?.shiny?.art, `${species.slug}: no shiny`);
+    for (const form of species.forms ?? []) {
+      assert.ok(sprites[species.id].shiny[`art-form-${form.slug}`], `${form.slug}: no shiny`);
     }
   }
-  // And every species has a shiny to walk in.
-  for (const species of Object.values(gameData().species)) assert.ok(sprites[species.id]?.shiny?.walk, `${species.slug}: no shiny walk`);
 });

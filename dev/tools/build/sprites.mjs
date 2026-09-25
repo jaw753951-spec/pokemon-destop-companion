@@ -1,6 +1,12 @@
 /**
- * Pack every Pokémon's animated sprite into a horizontal strip, plus the box
- * icon and cry the rest of the game needs.
+ * Pack every Pokémon's animated battle sprite into a horizontal strip, plus
+ * its box icon, and fetch the cry the game plays.
+ *
+ * None of the pictures go out with the game any more: they land in the
+ * build's sheet cache, where the walkers step reads the battle sprites' two
+ * palettes to paint the shinies no set drew, and falls back on the box icon
+ * for a Pokémon no set drew walking, before every Pokémon is cut down to its
+ * one picture. The cry is the part the game ships.
  *
  * Sources are tried best-first: the Showdown animations cover almost the whole
  * dex, Gen-5 Black/White fills a few gaps, and the static artwork is the last
@@ -27,9 +33,9 @@ import { concatX, crop, opaqueBounds, paletteShift, recolour, resampleFrames } f
 import { CRIES, MAX_SPECIES, MAX_SPRITE_FRAMES, SPRITES } from '../sources.mjs';
 
 /**
- * @param {{assetDir: string, dataDir: string, sample: boolean, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
+ * @param {{assetDir: string, sheetDir: string, dataDir: string, sample: boolean, log: (message: string) => void, pool: <T>(task: () => Promise<T>) => Promise<T>}} context
  */
-export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
+export async function buildSprites({ assetDir, sheetDir, dataDir, sample, log, pool }) {
   const limit = sample ? 40 : MAX_SPECIES;
   /** @type {Record<number, any>} */
   const manifest = {};
@@ -68,7 +74,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
           const front = await buildStrip(FRONT_SOURCES.map((path) => path(id, variant.shiny)));
           fronts[variant.suffix] = front;
           if (front) {
-            await writeOut(join(assetDir, 'pokemon', String(id), `front${variant.suffix}.png`), front.png);
+            await writeOut(join(sheetDir, 'pokemon', String(id), `front${variant.suffix}.png`), front.png);
             into.front = front.meta;
           } else if (!variant.shiny) {
             missing.front.push(id);
@@ -76,7 +82,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
 
           const back = await buildStrip(BACK_SOURCES.map((path) => path(id, variant.shiny)));
           if (back) {
-            await writeOut(join(assetDir, 'pokemon', String(id), `back${variant.suffix}.png`), back.png);
+            await writeOut(join(sheetDir, 'pokemon', String(id), `back${variant.suffix}.png`), back.png);
             into.back = back.meta;
           } else if (!variant.shiny) {
             missing.back.push(id);
@@ -85,7 +91,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
 
         const icon = await buildIcon(ICON_SOURCES.map((path) => path(id)));
         if (icon) {
-          await writeOut(join(assetDir, 'pokemon', String(id), 'icon.png'), icon.png);
+          await writeOut(join(sheetDir, 'pokemon', String(id), 'icon.png'), icon.png);
           entry.icon = icon.meta;
 
           // No published icon set is drawn in the alternate palettes, so the
@@ -93,7 +99,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
           // battle sprites spell out between them.
           const shiny = shinyIcon(icon, fronts[''], fronts['-shiny']);
           if (shiny) {
-            await writeOut(join(assetDir, 'pokemon', String(id), 'icon-shiny.png'), shiny.png);
+            await writeOut(join(sheetDir, 'pokemon', String(id), 'icon-shiny.png'), shiny.png);
             entry.shiny.icon = shiny.meta;
           }
         } else {
@@ -137,7 +143,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
               continue;
             }
             await writeOut(
-              join(assetDir, 'pokemon', String(id), `front-form-${forme.slug}${variant.suffix}.png`),
+              join(sheetDir, 'pokemon', String(id), `front-form-${forme.slug}${variant.suffix}.png`),
               strip.png,
             );
             const into = variant.shiny ? entry.shiny : entry;
@@ -146,7 +152,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
             const back = await buildStrip(BACK_SOURCES.map((path) => path(art, variant.shiny)));
             if (back) {
               await writeOut(
-                join(assetDir, 'pokemon', String(id), `back-form-${forme.slug}${variant.suffix}.png`),
+                join(sheetDir, 'pokemon', String(id), `back-form-${forme.slug}${variant.suffix}.png`),
                 back.png,
               );
               into[`back-form-${forme.slug}`] = back.meta;
@@ -161,7 +167,7 @@ export async function buildSprites({ assetDir, dataDir, sample, log, pool }) {
     ),
   );
 
-  await writeOut(join(dataDir, 'sprites.json'), JSON.stringify(manifest));
+  await writeOut(join(sheetDir, 'sheets.json'), JSON.stringify(manifest));
 
   const animated = Object.values(manifest).filter((entry) => entry.front?.frames > 1).length;
   const shiny = Object.values(manifest).filter((entry) => entry.shiny?.front).length;

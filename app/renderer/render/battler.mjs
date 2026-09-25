@@ -1,15 +1,14 @@
 /**
- * Drawing a Pokémon in battle, with the poses the official sprites do not have.
+ * Drawing a Pokémon in battle, with the poses its one picture does not have.
  *
- * No official asset set contains attack, hit, victory or defeat frames — the
- * cartridges animate the idle sprite instead. So each pose here is a timed
- * transform of the same sprite: a lunge towards the opponent, a tinted shake
- * on being hit, a hop on winning, and a slump and fade on fainting. The result
- * reads as two-frame animation because each pose alternates between a settled
- * and a displaced position.
+ * Every Pokémon is a single still picture, so each pose here is a timed move
+ * of that picture: a bob on the spot while it waits, one push towards the
+ * opponent on its attack, one push back — tinted red — on being hit, a hop on
+ * winning, and a slide into the ground on fainting.
  */
 
-import { actorScale, undrawnFormeArt, walkerArt } from './field.mjs';
+import { artOf } from '../core/data.mjs';
+import { actorScale, idleBob } from './field.mjs';
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
 
@@ -36,27 +35,21 @@ export function fitScale(sprite, room, preferred) {
 const SCALE_STEP = 0.5;
 
 /**
- * The art a Pokémon is drawn from in a battle: its **standing** art, the same
- * picture it waits on the road in.
+ * The art a Pokémon is drawn from in a battle: its one picture, the same it
+ * walks the road and sits in the box in.
  *
  * The game used to fight with the front and back sprites, which come from a
  * different set entirely — Showdown's animations where there are any, and the
  * modern three-dimensional renders where there are not. Those renders are lit,
  * shaded and posed like models rather than drawn like sprites, so a battle
- * looked like a different game from the walk that led into it, and which of
- * the two a player got depended on nothing more meaningful than how new the
- * species was. One set of art for the whole game is worth more than the best
- * picture of each Pokémon taken separately.
+ * looked like a different game from the walk that led into it. One picture
+ * for the whole game is worth more than the best picture of each Pokémon
+ * taken separately — and a forme, which a battle is where a shape changes,
+ * has a picture of its own.
  *
- * A forme the walking art never drew is the exception: a battle is where a
- * shape changes, and a Calyrex that mounted its steed or a Cramorant with a
- * catch in its mouth has to look it, so it is fought in its battle sprite.
- *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
  */
-export function battlerArt(pokemon) {
-  return undrawnFormeArt(pokemon) ?? walkerArt(pokemon, 'idle');
-}
+export const battlerArt = (pokemon) => artOf(pokemon);
 
 /**
  * Whether a battler's art has to be mirrored to look the way its side faces.
@@ -101,32 +94,18 @@ export function battlerScale(sprite, pokemon, room, depth = 1) {
   return fitScale(sprite, room, actorScale(sprite, pokemon) * BATTLE_ZOOM * depth);
 }
 
-/**
- * The bob a battler with a single standing picture makes while it waits, in
- * art pixels and milliseconds.
- *
- * Most standing art is an animated strip, but some is one picture — the
- * formes only a battle puts a Pokémon in, drawn by the Smogon Sprite
- * Project, and the species whose walking sets have no idle animation — and
- * a Pokémon that holds perfectly still through a whole fight reads as the
- * game having frozen. They rise and fall on the spot the way a companion
- * gathering berries does: up only, since it cannot sink into the ground, and
- * by whole art pixels, so the bob never leaves it made of pixels of two
- * sizes.
- */
-const IDLE_BOB_PX = 2;
-const IDLE_BOB_MS = 460;
-
-/**
- * How far off the ground a single-picture battler is this far into waiting.
- *
- * @param {number} elapsed milliseconds
- * @returns {number} art pixels
- */
-export const idleBob = (elapsed) => Math.round(Math.abs(Math.sin((elapsed / IDLE_BOB_MS) * Math.PI)) * IDLE_BOB_PX);
-
 /** How long each pose runs before falling back to idle. */
-const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700, emerge: 340 };
+const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: 340 };
+
+/** How far one push carries a battler, in field pixels: forward to attack, back when hit. */
+const PUSH_PX = 12;
+
+/**
+ * Out fast and back slow, as one push: 0 at rest, 1 at the far end.
+ *
+ * @param {number} progress 0 to 1 through the pose
+ */
+const push = (progress) => (progress < 0.3 ? progress / 0.3 : 1 - (progress - 0.3) / 0.7);
 
 /**
  * The arrows over a stat change: how long they run, how many there are, and
@@ -399,25 +378,19 @@ export class Battler {
    */
   transform() {
     const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0, glow: 0 };
-    if (this.pose === 'idle') {
-      // A strip animates itself; a single picture is given the bob.
-      return this.sprite?.frames === 1 ? { ...still, dy: -idleBob(this.elapsed) * this.scale } : still;
-    }
+    if (this.pose === 'idle') return { ...still, dy: -idleBob(this.elapsed) * this.scale };
 
     const duration = POSE_DURATION[this.pose];
     const progress = duration > 0 ? Math.min(1, this.poseElapsed / duration) : 1;
 
     switch (this.pose) {
-      case 'attack': {
-        // Out fast, back slow — a lunge rather than a drift.
-        const swing = progress < 0.35 ? progress / 0.35 : 1 - (progress - 0.35) / 0.65;
-        return { ...still, dx: swing * 16, dy: -swing * 3, scale: 1 + swing * 0.06 };
-      }
-      case 'hit': {
-        // Three quick shakes, with the tint fading out across them.
-        const shake = Math.sin(progress * Math.PI * 6) * (1 - progress) * 5;
-        return { ...still, dx: -shake, flash: (1 - progress) * 0.6 };
-      }
+      case 'attack':
+        // One push towards the opponent and back, level along the ground and
+        // at its own size, so it stays made of the pixels it stood in.
+        return { ...still, dx: Math.round(push(progress) * PUSH_PX) };
+      case 'hit':
+        // One push back the other way, washed red and fading as it settles.
+        return { ...still, dx: -Math.round(push(progress) * PUSH_PX), flash: (1 - progress) * 0.6 };
       case 'win': {
         const hop = Math.abs(Math.sin(progress * Math.PI * 2)) * (1 - progress * 0.4);
         return { ...still, dy: -hop * 9, scale: 1 + hop * 0.04 };

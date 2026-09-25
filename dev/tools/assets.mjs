@@ -54,6 +54,9 @@ async function main() {
 
   const context = {
     assetDir: join(ROOT, 'assets'),
+    // The sprite sheets every source publishes, gathered and cleaned up before
+    // each Pokémon is cut down to the one picture the game ships.
+    sheetDir: join(ROOT, '.cache', 'sheets'),
     dataDir: join(ROOT, 'data', 'generated'),
     docsDir: join(ROOT, 'dev', 'docs'),
     sample,
