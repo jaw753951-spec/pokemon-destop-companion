@@ -101,6 +101,30 @@ export function battlerScale(sprite, pokemon, room, depth = 1) {
   return fitScale(sprite, room, actorScale(sprite, pokemon) * BATTLE_ZOOM * depth);
 }
 
+/**
+ * The bob a battler with a single standing picture makes while it waits, in
+ * art pixels and milliseconds.
+ *
+ * Most standing art is an animated strip, but some is one picture — the
+ * formes only a battle puts a Pokémon in, drawn by the Smogon Sprite
+ * Project, and the species whose walking sets have no idle animation — and
+ * a Pokémon that holds perfectly still through a whole fight reads as the
+ * game having frozen. They rise and fall on the spot the way a companion
+ * gathering berries does: up only, since it cannot sink into the ground, and
+ * by whole art pixels, so the bob never leaves it made of pixels of two
+ * sizes.
+ */
+const IDLE_BOB_PX = 2;
+const IDLE_BOB_MS = 460;
+
+/**
+ * How far off the ground a single-picture battler is this far into waiting.
+ *
+ * @param {number} elapsed milliseconds
+ * @returns {number} art pixels
+ */
+export const idleBob = (elapsed) => Math.round(Math.abs(Math.sin((elapsed / IDLE_BOB_MS) * Math.PI)) * IDLE_BOB_PX);
+
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 420, hit: 380, win: 900, lose: 700, emerge: 340 };
 
@@ -375,7 +399,10 @@ export class Battler {
    */
   transform() {
     const still = { dx: 0, dy: 0, scale: 1, rotate: 0, alpha: 1, flash: 0, glow: 0 };
-    if (this.pose === 'idle') return still;
+    if (this.pose === 'idle') {
+      // A strip animates itself; a single picture is given the bob.
+      return this.sprite?.frames === 1 ? { ...still, dy: -idleBob(this.elapsed) * this.scale } : still;
+    }
 
     const duration = POSE_DURATION[this.pose];
     const progress = duration > 0 ? Math.min(1, this.poseElapsed / duration) : 1;
