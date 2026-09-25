@@ -1096,8 +1096,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (finished) return;
     finished = true;
 
-    // Whatever shape the battle put anyone in — a Primal Kyogre, a Terastal
-    // Terapagos, a Zen Mode — is let go of; a held mask or a chosen Sky Forme
+    // Whatever shape the battle put anyone in — a Primal Kyogre, a Crowned
+    // Zacian, a Zen Mode — is let go of; a held mask or a chosen Sky Forme
     // stays on.
     for (const pokemon of [session.active, ...defeated]) settleForme(pokemon);
 

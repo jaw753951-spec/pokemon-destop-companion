@@ -152,7 +152,7 @@
   "credits.followers": "Walking sprites (not in the Collab)",
   "credits.followersNote": "The species and formes the Sprite Collab has not drawn walk in the follower sprites of the {source}, at half size. They are shared for fan projects with credit, with thanks to every artist below.",
   "credits.battle": "Battle-only forme sprites",
-  "credits.battleNote": "The shapes only a battle brings out — Cramorant with its catch, Galarian Darmanitan in Zen Mode, Stellar Terapagos — are the {source}’s DS-style sprites at half size, with thanks to every contributor.",
+  "credits.battleNote": "The shapes only a battle brings out — Cramorant with its catch, Galarian Darmanitan in Zen Mode — are the {source}’s DS-style sprites at half size, with thanks to every contributor.",
   "credits.none": "Nothing to credit.",
   "items.afterBattle": "After a battle",
   "items.afterBattleNote": "After a win, healing items from the bag top the companion up to this much health, the smallest that closes the gap first.",

@@ -21,7 +21,7 @@ import {
 } from '../../app/renderer/engine/forms.mjs';
 import { itemActions, signatureFind, SIGNATURE_FIND_CHANCE, useItem } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
-import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import { defaultAutoBattle, Session } from '../../app/renderer/engine/session.mjs';
 
 const ready = await useRealGameData();
 const options = { skip: ready ? false : NEEDS_ASSETS };
@@ -64,49 +64,38 @@ function fakeSession(bag, active) {
   });
 }
 
-test('Terapagos Terastallizes by Tera Shift, and into its Stellar Form on the Tera Orb', options, () => {
-  const plain = make('terapagos', 60, ['tera-starstorm']);
-  const shifted = fight(plain);
-  assert.equal(shifted.player.marks.forme, 'terapagos-terastal');
-  assert.equal(abilityName(plain), 'tera-shell');
-  assert.equal(
-    shifted.effectiveMove(shifted.player, shifted.foe, moveOf('tera-starstorm')).type,
-    'normal',
-    'only the Stellar Form makes it Stellar',
-  );
+test('Terapagos has no Terastal formes, and the Tera Orb is not in the game', options, () => {
+  const terapagos = make('terapagos', 60, ['tera-starstorm']);
+  assert.deepEqual(gameData().species[String(terapagos.speciesId)].forms ?? [], []);
+  assert.equal(gameData().items['tera-orb'], undefined);
 
-  const orbed = make('terapagos', 60, ['tera-starstorm']);
-  orbed.heldItem = 'tera-orb';
-  const stellar = fight(orbed, { weather: WEATHER.RAIN });
-  assert.equal(stellar.player.marks.forme, 'terapagos-stellar');
-  assert.equal(abilityName(orbed), 'teraform-zero');
-  assert.equal(stellar.field.weather, null, 'Teraform Zero clears the sky on the way in');
-  assert.ok(orbed.hp > maxHp(make('terapagos')), 'the Stellar Form is far sturdier');
-  const starstorm = stellar.effectiveMove(stellar.player, stellar.foe, moveOf('tera-starstorm'));
-  assert.equal(starstorm.type, 'stellar');
+  const battle = fight(terapagos, { weather: WEATHER.RAIN });
+  assert.equal(battle.player.marks.forme ?? null, null, 'Tera Shift changes nothing');
+  assert.equal(abilityName(terapagos), 'tera-shift');
+  assert.equal(battle.field.weather, WEATHER.RAIN);
+  assert.equal(battle.effectiveMove(battle.player, battle.foe, moveOf('tera-starstorm')).type, 'normal');
 
-  // The battle over, it is itself again, and no healthier than it can be.
-  settleForme(orbed);
-  assert.equal(orbed.forme, undefined);
-  assert.ok(orbed.hp <= maxHp(orbed));
+  // A save from before they went takes the forme off on the way in.
+  const worn = make('terapagos');
+  worn.forme = 'terapagos-stellar';
+  settleForme(worn);
+  assert.equal('forme' in worn, false);
 });
 
-test('Tera Shell turns every hit to not very effective at full health', options, () => {
+test('a save carrying a Tera Orb loses it, from the bag and from the Terapagos holding it', options, () => {
   const terapagos = make('terapagos');
-  const battle = fight(terapagos);
-  const taken = (hp) => {
-    terapagos.hp = hp;
-    return battle.computeDamage(battle.foe, battle.player, moveOf('close-combat'));
-  };
-  const full = taken(maxHp(terapagos)).damage;
-  // The Rng is reseeded so the two rolls match.
-  battle.rng = new Rng(5);
-  const shellOn = battle.computeDamage(battle.foe, battle.player, moveOf('close-combat')).damage;
-  terapagos.hp = maxHp(terapagos) - 1;
-  battle.rng = new Rng(5);
-  const shellOff = battle.computeDamage(battle.foe, battle.player, moveOf('close-combat')).damage;
-  assert.ok(full > 0);
-  assert.ok(shellOn * 3 < shellOff, `a super-effective hit at full health is quartered: ${shellOn} vs ${shellOff}`);
+  terapagos.heldItem = 'tera-orb';
+  terapagos.forme = 'terapagos-terastal';
+  const kyogre = make('kyogre');
+  kyogre.heldItem = 'blue-orb';
+  const session = new Session({
+    slot: 0,
+    save: { seed: 1, party: { active: terapagos, box: [kyogre] }, bag: { 'tera-orb': 1, potion: 2 } },
+  });
+  assert.equal(session.active.heldItem, null);
+  assert.equal('forme' in session.active, false);
+  assert.equal(/** @type {any} */ (session.box[0]).heldItem, 'blue-orb', 'an item the game carries stays held');
+  assert.deepEqual(session.bag, { potion: 2 });
 });
 
 test('a Primal orb, a rusted sword, a Z crystal take hold only in battle', options, () => {

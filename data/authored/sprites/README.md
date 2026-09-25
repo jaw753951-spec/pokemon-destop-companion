@@ -10,7 +10,7 @@ Sprite Collab이나 Essentials에서 받은 그림보다 항상 우선합니다.
 | 그린 것 | 폴더 이름 예 |
 | --- | --- |
 | 종·변종 | `urshifu-rapid-strike`, `oinkologne-female`, `diglett-shiny`, `dugtrio-alola-shiny` |
-| 폼 | `cramorant-gulping`, `darmanitan-galar-zen`, `terapagos-stellar`, `ogerpon-hearthflame-mask-shiny` |
+| 폼 | `cramorant-gulping`, `darmanitan-galar-zen`, `ogerpon-hearthflame-mask-shiny` |
 | 종의 암컷 모습 | `jellicent-female`, `pikachu-female-shiny` |
 
 이름은 `data/generated/species.json` 의 `slug`(폼은 `forms[].slug`)와 같아야 합니다.

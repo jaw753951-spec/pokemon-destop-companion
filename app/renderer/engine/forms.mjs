@@ -105,9 +105,8 @@ export const SIGNATURE_MOVES = new Map([
  * Kyogre and Groudon undergo Primal Reversion with their orbs; Zacian and
  * Zamazenta are crowned by their rusted sword and shield; a Necrozma that has
  * fused with Solgaleo or Lunala bursts into Ultra Necrozma on its Z crystal.
- * Terapagos Terastallizes by its own Tera Shift — into its Terastal Form, or
- * into its Stellar Form if it holds the Tera Orb this game gives it in place
- * of the Terastal phenomenon it does not have.
+ * Terapagos has none: its Terastal and Stellar Forms belong to the Terastal
+ * phenomenon, which this game does not have, and are not built.
  *
  * `from` names the standing formes a battle forme can only be reached from.
  *
@@ -122,11 +121,7 @@ export const START_FORMES = new Map([
     'necrozma',
     new Map([['ultranecrozium-z--held', { forme: 'necrozma-ultra', from: ['necrozma-dusk', 'necrozma-dawn'] }]]),
   ],
-  ['terapagos', new Map([['tera-orb', { forme: 'terapagos-stellar' }]])],
 ]);
-
-/** What Tera Shift turns a Terapagos into when it holds no Tera Orb. */
-const TERA_SHIFT_FORME = 'terapagos-terastal';
 
 /**
  * The key items that change a Pokémon's shape when used on it from the bag,
@@ -309,9 +304,6 @@ export function startForme(pokemon) {
   if (entry && hasForme(species, entry.forme)) {
     if (!entry.from || entry.from.includes(standingForme(pokemon) ?? '')) return entry.forme;
   }
-  if (slug === 'terapagos' && pokemon.ability === 'tera-shift' && hasForme(species, TERA_SHIFT_FORME)) {
-    return TERA_SHIFT_FORME;
-  }
   return null;
 }
 
@@ -327,7 +319,12 @@ export function startForme(pokemon) {
  */
 export function settleForme(pokemon) {
   const species = speciesOf(pokemon?.speciesId);
-  if (!species?.forms?.length) return;
+  // A species with no formes left — a Terapagos, whose Terastal ones are no
+  // longer built — takes off whatever an older save has it wearing.
+  if (!species?.forms?.length) {
+    if (pokemon && 'forme' in pokemon) delete pokemon.forme;
+    return;
+  }
   const wanted = standingForme(pokemon);
   if ((pokemon.forme ?? null) === wanted) return;
   const hp = (forme) => statsOf(pokemon, forme ?? null).hp;

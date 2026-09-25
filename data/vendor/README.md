@@ -6,7 +6,7 @@
 | 폴더 | 원본 | 고정한 커밋 | 쓰는 곳 |
 | --- | --- | --- | --- |
 | `essentials/` | Pokémon Essentials Gen 8/9 리소스 팩 (Manurocker95/Pokemon-Essentials-21-With-Unofficial-EBDX에 담긴 사본) | `ebf87d8d` | Sprite Collab에 없는 55종·8개 폼·암컷 2종의 걷기 도트(평범·이로치), 크레딧 파일 |
-| `smogon/` | Smogon Sprite Project (smogon/sprites) | `bad55c7b` | 전투에서만 나오는 4개 폼(윽우지 두 모습, 가라르 달마모드, 스텔라폼)의 DS 스타일 도트(평범·이로치) |
+| `smogon/` | Smogon Sprite Project (smogon/sprites) | `bad55c7b` | 전투에서만 나오는 3개 폼(윽우지 두 모습, 가라르 달마모드)의 DS 스타일 도트(평범·이로치) |
 
 파일은 원본 저장소에서의 경로 그대로 들어 있습니다.
 

@@ -619,13 +619,11 @@ const SMOGON_BATTLE_FORMES = {
   'cramorant-gulping': 'scramorant-ogulping',
   'cramorant-gorging': 'scramorant-ogorging',
   'darmanitan-galar-zen': 'sdarmanitan-ogalar_zen',
-  'terapagos-stellar': 'sterapagos-ostellar',
 };
 
 /**
  * Standing art for the formes a battle alone puts a Pokémon in and no walking
- * set draws — a Cramorant with its catch, a Stellar Terapagos, a Galarian
- * Zen Mode.
+ * set draws — a Cramorant with its catch, a Galarian Zen Mode.
  *
  * They are the Smogon Sprite Project's DS-style battlers, shrunk to half as
  * pixel art — about the walking art's size, with every pixel the size of
