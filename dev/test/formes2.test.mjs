@@ -303,3 +303,23 @@ test('a hand-drawn sheet directory is named for what it draws', options, async (
   assert.equal(authoredTarget('oinkologne-female', species)?.key, '');
   assert.equal(authoredTarget('not-a-pokemon', species), null);
 });
+
+test('a shiny is a recolour of the drawing its Pokémon walks in, not of an older one', options, async () => {
+  const { sameSilhouette } = await import('../tools/build/walkers.mjs');
+  const { decodePng } = await import('../tools/lib/png.mjs');
+  const sprites = gameData().sprites;
+  const png = (id, file) => decodePng(readFileSync(new URL(`../../assets/pokemon/${id}/${file}.png`, import.meta.url)));
+  // Dewott, Archen, Minior and Marshadow: the collab's shinies are of other drawings.
+  for (const slug of ['dewott', 'archen', 'minior', 'marshadow']) {
+    const id = /** @type {number} */ (speciesIdBySlug(slug));
+    for (const key of ['walk', 'idle']) {
+      assert.ok(sprites[id].shiny?.[key], `${slug} has a shiny ${key}`);
+      assert.ok(
+        sameSilhouette(png(id, key), sprites[id][key], png(id, `${key}-shiny`), sprites[id].shiny[key]),
+        `${slug}'s shiny ${key} is another drawing`,
+      );
+    }
+  }
+  // And every species has a shiny to walk in.
+  for (const species of Object.values(gameData().species)) assert.ok(sprites[species.id]?.shiny?.walk, `${species.slug}: no shiny walk`);
+});

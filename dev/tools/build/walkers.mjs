@@ -724,6 +724,10 @@ async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
   const first = (sheet, meta) => crop(sheet, 0, 0, meta.width, meta.height);
   const digest = (buffer) => createHash('sha1').update(buffer).digest('hex');
   const painted = [];
+  /** @type {string[]} */
+  const redrawn = [];
+  /** @type {string[]} */
+  const unpainted = [];
   for (const id of ids) {
     const entry = manifest[id];
     if (!entry?.walk) continue;
@@ -736,12 +740,16 @@ async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
       const plain = entry[front];
       const shiny = entry.shiny[front];
       const file = front === 'front' ? 'front' : `front-${front}`;
-      if (plain && shiny && plain.width === shiny.width && plain.height === shiny.height) {
+      // The two palettes are trimmed apart, so the same drawing can come out
+      // a pixel or two apart in size; they are lined up where they overlap
+      // best before the colours are read off one against the other.
+      if (plain && shiny && Math.abs(plain.width - shiny.width) <= 4 && Math.abs(plain.height - shiny.height) <= 4) {
         const [a, b] = await Promise.all([
           readFile(join(dir(id), `${file}.png`)),
           readFile(join(dir(id), `${file}-shiny.png`)),
         ]);
-        shift = paletteShift(first(decodePng(a), plain), first(decodePng(b), shiny));
+        const [left, right] = alignedPair(first(decodePng(a), plain), first(decodePng(b), shiny));
+        shift = paletteShift(left, right);
       }
       shifts.set(front, shift);
       return shift;
@@ -752,17 +760,31 @@ async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
       // Only an icon this step drew; the icon sets' own have theirs painted
       // by the sprites step.
       if (key === 'icon' && entry.iconFrom !== 'walker' && entry.iconFrom !== 'followers') continue;
+      let stale = false;
       const plainFile = join(dir(id), `${key}.png`);
       const shinyFile = join(dir(id), `${key}-shiny.png`);
       const plain = await readFile(plainFile);
       if (entry.shiny[key]) {
-        if (drawnShinies.has(`${id}:${key}`)) continue;
         const shiny = await readFile(shinyFile).catch(() => null);
-        if (shiny && digest(shiny) !== digest(plain)) continue;
+        // A shiny drawn for another drawing — the collab redrew Dewott,
+        // Archen and Marshadow and left their shinies in the old poses, and
+        // files a Minior core as the shiny of its meteor — is no shiny of
+        // this one, and is painted over like a missing one.
+        const ofThisDrawing = shiny && sameSilhouette(decodePng(plain), entry[key], decodePng(shiny), entry.shiny[key]);
+        if (!ofThisDrawing) {
+          stale = true;
+        } else {
+          if (drawnShinies.has(`${id}:${key}`)) continue;
+          if (digest(shiny) !== digest(plain)) continue;
+        }
       }
       const forme = key.match(/-form-(.+)$/)?.[1];
       const shift = await shiftFor(forme ? `form-${forme}` : 'front');
-      if (shift.size === 0) continue;
+      if (shift.size === 0) {
+        if (stale) unpainted.push(`${id}:${key}`);
+        continue;
+      }
+      if (stale) redrawn.push(`${id}:${key}`);
       const recoloured = recolour(decodePng(plain), shift);
       await writeOut(shinyFile, encodePng(recoloured.width, recoloured.height, recoloured.data));
       entry.shiny[key] = entry[key];
@@ -770,6 +792,8 @@ async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
     }
   }
   if (painted.length) log(`shiny walking art painted from the battle sprites: ${painted.length}`);
+  if (redrawn.length) log(`  of which a shiny drawn for another drawing: ${redrawn.join(', ')}`);
+  if (unpainted.length) log(`  a shiny drawn for another drawing, with no palette to paint a new one from: ${unpainted.join(', ')}`);
 }
 
 /**
@@ -870,4 +894,73 @@ async function shinyDrawn(plainBase, shinyBase) {
     if (plain && shiny && !plain.equals(shiny)) return true;
   }
   return false;
+}
+
+/**
+ * Whether two strips draw the same shapes: frame for frame, their silhouettes
+ * overlap by nine tenths or more once the better of a few pixels' shift has
+ * lined them up — which a shiny drawn as a recolour of a sheet does, and a
+ * shiny of an older drawing does not.
+ *
+ * @param {import('../lib/image.mjs').Raster} plain
+ * @param {{width: number, height: number, frames?: number}} plainMeta
+ * @param {import('../lib/image.mjs').Raster} shiny
+ * @param {{width: number, height: number, frames?: number}} shinyMeta
+ */
+export function sameSilhouette(plain, plainMeta, shiny, shinyMeta) {
+  const SHIFT = 4;
+  const frames = Math.min(plainMeta.frames ?? 1, shinyMeta.frames ?? 1);
+  const solid = (image, meta, frame, x, y) =>
+    x >= 0 && y >= 0 && x < meta.width && y < meta.height && image.data[(y * image.width + frame * meta.width + x) * 4 + 3] > 127;
+  let total = 0;
+  for (let frame = 0; frame < frames; frame++) {
+    let area = 0;
+    for (let y = 0; y < plainMeta.height; y++) for (let x = 0; x < plainMeta.width; x++) if (solid(plain, plainMeta, frame, x, y)) area++;
+    let shinyArea = 0;
+    for (let y = 0; y < shinyMeta.height; y++) for (let x = 0; x < shinyMeta.width; x++) if (solid(shiny, shinyMeta, frame, x, y)) shinyArea++;
+    let best = 0;
+    for (let dy = -SHIFT; dy <= SHIFT; dy++) {
+      for (let dx = -SHIFT; dx <= SHIFT; dx++) {
+        let both = 0;
+        for (let y = 0; y < shinyMeta.height; y++) {
+          for (let x = 0; x < shinyMeta.width; x++) {
+            if (solid(shiny, shinyMeta, frame, x, y) && solid(plain, plainMeta, frame, x + dx, y + dy)) both++;
+          }
+        }
+        best = Math.max(best, both / (area + shinyArea - both || 1));
+      }
+    }
+    total += best;
+  }
+  return total / (frames || 1) >= 0.9;
+}
+
+/**
+ * Two drawings of one size cut from two of nearly one size, lined up where
+ * their silhouettes overlap most.
+ *
+ * @param {import('../lib/image.mjs').Raster} a
+ * @param {import('../lib/image.mjs').Raster} b
+ * @returns {[import('../lib/image.mjs').Raster, import('../lib/image.mjs').Raster]}
+ */
+function alignedPair(a, b) {
+  const width = Math.min(a.width, b.width);
+  const height = Math.min(a.height, b.height);
+  let best = { ax: 0, ay: 0, bx: 0, by: 0, overlap: -1 };
+  for (let ax = 0; ax <= a.width - width; ax++) {
+    for (let ay = 0; ay <= a.height - height; ay++) {
+      for (let bx = 0; bx <= b.width - width; bx++) {
+        for (let by = 0; by <= b.height - height; by++) {
+          let overlap = 0;
+          for (let y = 0; y < height; y++) {
+            for (let x = 0; x < width; x++) {
+              if (a.data[((y + ay) * a.width + x + ax) * 4 + 3] > 127 && b.data[((y + by) * b.width + x + bx) * 4 + 3] > 127) overlap++;
+            }
+          }
+          if (overlap > best.overlap) best = { ax, ay, bx, by, overlap };
+        }
+      }
+    }
+  }
+  return [crop(a, best.ax, best.ay, width, height), crop(b, best.bx, best.by, width, height)];
 }
