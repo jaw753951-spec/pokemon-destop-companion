@@ -69,11 +69,12 @@ export const essentialsName = (slug) => ESSENTIALS_NAMES[slug] ?? slug.toUpperCa
  *   lastBoxIcon: number,
  *   pool: <T>(task: () => Promise<T>) => Promise<T>,
  *   log: (message: string) => void,
+ *   drawnShinies?: Set<string>,
  * }} context
  * @returns {Promise<{source: string, url: string, license: string, artists: string[]}|null>} the credit
  *   for the sheets used, or null when none were
  */
-export async function buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon, pool, log }) {
+export async function buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon, pool, log, drawnShinies }) {
   /** @type {Array<{id: number, slug: string, key: string, icon: boolean, female?: boolean}>} */
   const wanted = [];
   for (const id of ids) {
@@ -133,6 +134,8 @@ export async function buildFollowers({ assetDir, species, manifest, ids, lastBox
           for (const [pose, art] of /** @type {const} */ ([['walk', walk], ['idle', idle]])) {
             await writeOut(join(assetDir, 'pokemon', String(want.id), `${pose}${want.key}${variant.suffix}.png`), art.png);
             variant.into[`${pose}${want.key}`] = art.meta;
+            // The packs draw every shiny as a shiny.
+            if (variant.suffix) drawnShinies?.add(`${want.id}:${pose}${want.key}`);
           }
           if (want.icon) {
             const icon = still(sheet, FACING_DOWN, width, height);

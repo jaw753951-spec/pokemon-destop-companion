@@ -190,6 +190,19 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   const missing = [];
   /** The formes the collab has not drawn, which walk in the species' own art. @type {string[]} */
   const missingFormes = [];
+  /**
+   * The sheets whose shiny was drawn as a shiny — `id:walk`, `id:idle-female`
+   * — which are never painted over, even where the row this game draws looks
+   * the same in both: a Diglett walks underground, and only its standing
+   * art shows the palette.
+   *
+   * @type {Set<string>}
+   */
+  const drawnShinies = new Set();
+  /** @param {number} id @param {string} suffix */
+  const markDrawn = (id, suffix) => {
+    for (const pose of POSES) drawnShinies.add(`${id}:${pose.key}${suffix}`);
+  };
 
   // The regional Pokémon the dex step files under their variety ids walk in
   // the collab's form sheets, under the species' own number.
@@ -264,6 +277,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
             }
           }
           if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
+          if (built && variant.suffix && (await shinyDrawn(`${SPRITE_COLLAB}/sprite/${path}`, variant.base))) markDrawn(id, '');
         }
         // A shiny icon left over from the render would be the one picture in
         // the box at another density; the ordinary colours in the right art
@@ -298,6 +312,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
                 built = true;
               }
               if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
+              if (built && variant.suffix && (await shinyDrawn(`${SPRITE_COLLAB}/sprite/${key}/0000/0000/0002`, variant.base))) markDrawn(id, '-female');
             }
           }
         }
@@ -332,6 +347,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
               built = true;
             }
             if (built) for (const name of creditsOf(variant.record, names)) artists.add(name);
+            if (built && variant.suffix && (await shinyDrawn(`${SPRITE_COLLAB}/sprite/${key}/${group}`, variant.base))) markDrawn(id, `-form-${forme.slug}`);
           }
           if (!entry[`walk-form-${forme.slug}`]) missingFormes.push(forme.slug);
         }
@@ -340,7 +356,7 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   );
 
   // What the collab has not drawn walks in the Essentials packs' followers.
-  const followers = await buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log });
+  const followers = await buildFollowers({ assetDir, species, manifest, ids, lastBoxIcon: LAST_BOX_ICON, pool, log, drawnShinies });
 
   // A variety neither set draws — a small or a large Gourgeist — walks in its
   // species' art rather than its box icon: the same Pokémon, a size off.
@@ -366,11 +382,11 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   await shrinkBattleFormes({ assetDir, species, manifest, ids, log });
 
   // What someone drew by hand for this game goes over whatever the sets had.
-  const authored = await applyAuthored({ assetDir, species, manifest, log });
+  const authored = await applyAuthored({ assetDir, species, manifest, log, drawnShinies });
 
   // And a shiny the sets never drew — or drew as a copy of the ordinary
   // sheet — is painted from the battle sprites' two palettes.
-  await paintShinies({ assetDir, manifest, ids, log });
+  await paintShinies({ assetDir, manifest, ids, log, drawnShinies });
 
   await writeOut(manifestPath, JSON.stringify(manifest));
   await writeOut(
@@ -643,9 +659,9 @@ function mirror(frame) {
  * same one: the species' battle sprites for its own art and its female's,
  * a forme's for the forme's.
  *
- * @param {{assetDir: string, manifest: Record<string, any>, ids: number[], log: (message: string) => void}} context
+ * @param {{assetDir: string, manifest: Record<string, any>, ids: number[], log: (message: string) => void, drawnShinies: Set<string>}} context
  */
-async function paintShinies({ assetDir, manifest, ids, log }) {
+async function paintShinies({ assetDir, manifest, ids, log, drawnShinies }) {
   const dir = (id) => join(assetDir, 'pokemon', String(id));
   const first = (sheet, meta) => crop(sheet, 0, 0, meta.width, meta.height);
   const digest = (buffer) => createHash('sha1').update(buffer).digest('hex');
@@ -682,6 +698,7 @@ async function paintShinies({ assetDir, manifest, ids, log }) {
       const shinyFile = join(dir(id), `${key}-shiny.png`);
       const plain = await readFile(plainFile);
       if (entry.shiny[key]) {
+        if (drawnShinies.has(`${id}:${key}`)) continue;
         const shiny = await readFile(shinyFile).catch(() => null);
         if (shiny && digest(shiny) !== digest(plain)) continue;
       }
@@ -725,10 +742,10 @@ export const AUTHORED_SPRITES = fileURLToPath(new URL('../../../data/authored/sp
  * a forme by the forme's (`cramorant-gulping`), a species' female by its
  * slug and `-female` (`jellicent-female`).
  *
- * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, log: (message: string) => void}} context
+ * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, log: (message: string) => void, drawnShinies: Set<string>}} context
  * @returns {Promise<string[]>} the directories used
  */
-async function applyAuthored({ assetDir, species, manifest, log }) {
+async function applyAuthored({ assetDir, species, manifest, log, drawnShinies }) {
   const names = await readdir(AUTHORED_SPRITES).catch(() => []);
   const used = [];
   const unknown = [];
@@ -751,6 +768,7 @@ async function applyAuthored({ assetDir, species, manifest, log }) {
       into[`${pose.key}${target.key}`] = strip.meta;
       built = true;
     }
+    if (built && target.shiny) for (const pose of POSES) drawnShinies.add(`${target.id}:${pose.key}${target.key}`);
     if (built) used.push(name);
     else unknown.push(`${name} (no Walk or Idle in its AnimData.xml)`);
   }
@@ -779,4 +797,19 @@ export function authoredTarget(name, species) {
     if (base) return { id: base.id, key: '-female', shiny };
   }
   return null;
+}
+
+/**
+ * Whether a shiny sheet set was drawn as a shiny rather than filed as a copy
+ * of the ordinary one: either of its sheets differs anywhere, in any row.
+ *
+ * @param {string} plainBase
+ * @param {string} shinyBase
+ */
+async function shinyDrawn(plainBase, shinyBase) {
+  for (const file of ['Walk-Anim.png', 'Idle-Anim.png']) {
+    const [plain, shiny] = await Promise.all([readSheet(plainBase, file), readSheet(shinyBase, file)]);
+    if (plain && shiny && !plain.equals(shiny)) return true;
+  }
+  return false;
 }
