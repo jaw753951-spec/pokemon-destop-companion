@@ -166,6 +166,7 @@ test('every evolution the dex carries has a way here', options, () => {
               evolution.knownMove ||
               evolution.knownMoveType ||
               evolution.heldItem ||
+              evolution.heldItems?.length ||
               evolution.steps ||
               evolution.recoil ||
               evolution.partySpecies,

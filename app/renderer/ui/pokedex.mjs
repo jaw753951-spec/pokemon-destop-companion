@@ -123,3 +123,4 @@ function showDetail(session, detail, id) {
       : el('span.meta', { text: t('dex.notCaught') }),
   ]);
 }
+

@@ -99,6 +99,8 @@ const STEPS = [
   // and these two shots are about the screens, not the fight.
   { name: '27-tray-menu', script: 'closeAll() && seedTray() && await wait(500) && clickTray() && await wait(600)' },
   { name: '28-capture', script: 'clickText("button", ["포획", "Catch"]) && await wait(1500)' },
+  // A catching berry given: the odds under the balls go up at once.
+  { name: '28b-capture-berry', script: 'clickImageAlt(["황금 라즈열매", "Golden Razz Berry"]) && await wait(400)' },
   // Last of the events, because it deliberately leaves one mid-approach:
   // `forceEvent` cannot preempt an event that is already running, so anything
   // after it would get this trainer's battle instead of what it asked for.
@@ -263,7 +265,7 @@ const saveAndShowTitle = async () => {
 const seedBag = () => {
   const session = app().session;
   for (const [item, count] of [['potion', 5], ['super-potion', 2], ['revive', 1], ['poke-ball', 10],
-    ['great-ball', 3], ['oran-berry', 4], ['sitrus-berry', 2], ['tm01', 1], ['fire-stone', 1]]) {
+    ['great-ball', 3], ['oran-berry', 4], ['sitrus-berry', 2], ['tm01', 1], ['fire-stone', 1], ['golden-razz-berry', 2], ['silver-razz-berry', 1]]) {
     session.addItem(item, count);
   }
   return true;

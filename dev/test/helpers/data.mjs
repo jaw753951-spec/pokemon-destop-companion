@@ -7,7 +7,7 @@ import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import { mendItems, setGameData } from '../../../app/renderer/core/data.mjs';
+import { mendItems, mendSpecies, setGameData } from '../../../app/renderer/core/data.mjs';
 
 const GENERATED = fileURLToPath(new URL('../../../data/generated/', import.meta.url));
 const AUTHORED = fileURLToPath(new URL('../../../data/authored/', import.meta.url));
@@ -33,6 +33,8 @@ export async function useRealGameData() {
     // The same authored descriptions the game lays over the generated items.
     mendItems(items, JSON.parse(await readFile(join(AUTHORED, 'item-texts.json'), 'utf8')).items);
     mendItems(moves, JSON.parse(await readFile(join(AUTHORED, 'move-texts.json'), 'utf8')).moves);
+    mendItems(abilities, JSON.parse(await readFile(join(AUTHORED, 'ability-texts.json'), 'utf8')).abilities);
+    mendSpecies(species, JSON.parse(await readFile(join(AUTHORED, 'species-texts.json'), 'utf8')).species);
     setGameData(
       /** @type {any} */ ({
         species,

@@ -28,6 +28,7 @@ import {
  * @property {Array<{move: string, pp: number, ppUp?: number}>} moves
  * @property {number} hp remaining hit points
  * @property {string|null} status `brn`, `psn`, `par`, `slp`, `frz` or null
+ * @property {boolean} [toxic] whether a poison is the bad kind a Toxic gives
  * @property {number} statusTurns
  * @property {string|null} heldItem
  * @property {string} ability
@@ -120,6 +121,17 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     ball: options.ball ?? null,
   });
 
+  // A female Meowstic, Indeedee, Basculegion or Oinkologne is a species of
+  // its own in the dex, with its own stats, abilities and moves.
+  const gendered = genderedSpecies(speciesId, pokemon.gender);
+  if (gendered !== speciesId) {
+    const slot = abilitySlot(pokemon);
+    pokemon.speciesId = gendered;
+    const variant = speciesOf(gendered);
+    pokemon.ability = (variant.abilities[slot] ?? variant.abilities[0])?.name ?? pokemon.ability;
+    pokemon.experience = experienceForLevel(variant.growthRate, Math.max(1, level));
+  }
+
   // An Ogerpon is met in one of its four masks: the Teal it wears bare, or
   // holding one of the other three — and it keeps the mask it came in.
   const masks = HELD_FORMES.get(species.slug);
@@ -131,6 +143,23 @@ export function createPokemon(rng, speciesId, level, options = {}) {
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
   pokemon.hp = maxHp(pokemon);
   return pokemon;
+}
+
+/**
+ * The dex entry a Pokémon of this gender belongs under: the female variant a
+ * species keeps separately for its females, and the species itself for its
+ * males.
+ *
+ * @param {number} speciesId
+ * @param {'male'|'female'|null|undefined} gender
+ * @returns {number}
+ */
+export function genderedSpecies(speciesId, gender) {
+  const species = speciesOf(speciesId);
+  if (!species) return speciesId;
+  if (gender === 'female' && species.femaleVariant && speciesOf(species.femaleVariant)) return species.femaleVariant;
+  if (gender === 'male' && species.gender === 'female' && species.dex) return species.dex;
+  return speciesId;
 }
 
 /**
@@ -378,7 +407,7 @@ export function experienceProgress(pokemon) {
  *
  * @param {Pokemon} pokemon
  * @param {{baseStats: Record<string, number>, baseExp: number, level: number}} defeated
- * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number}} [options]
+ * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number, effortBonus?: {stat: string, amount: number}|null}} [options]
  * @returns {{experience: number, levelsGained: number, newLevel: number, learnable: string[]}}
  */
 export function gainFromDefeat(pokemon, defeated, options = {}) {
@@ -396,19 +425,23 @@ export function gainFromDefeat(pokemon, defeated, options = {}) {
 
   const effort = effortYield(defeated.baseStats);
   const effortMultiplier = options.effortMultiplier ?? 1;
-  pokemon.evs = addEffort(
-    pokemon.evs,
+  const earned =
     effortMultiplier === 1
-      ? effort
-      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier])),
-  );
+      ? { ...effort }
+      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier]));
+  // A Power item adds its own stat's worth on top of whatever the defeat
+  // paid, eight points a time.
+  const bonus = options.effortBonus;
+  if (bonus?.stat) earned[bonus.stat] = (earned[bonus.stat] ?? 0) + bonus.amount;
+  pokemon.evs = addEffort(pokemon.evs, earned);
 
   const after = levelOf(pokemon);
   // A level-up tops up the extra hit points immediately, as the games do.
   if (after > before) pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + (after - before) * 2);
 
   return {
-    experience: amount,
+    // What was actually added, a Lucky Egg's share included.
+    experience: gained,
     levelsGained: after - before,
     newLevel: after,
     learnable: movesLearnedBetween(pokemon, before, after),
@@ -444,9 +477,42 @@ export function movesLearnedBetween(pokemon, fromLevel, toLevel) {
 export function availableMoves(pokemon, unlockedMachines = []) {
   const species = speciesOf(pokemon.speciesId);
   const level = levelOf(pokemon);
-  const fromLevels = species.learnset.level.filter(([at]) => at <= level).map(([, move]) => move);
-  const fromMachines = unlockedMachines.filter((move) => species.learnset.machine.includes(move));
-  return [...new Set([...fromLevels, ...fromMachines])].filter((move) => moveOf(move));
+  // A forme with moves of its own — a Calyrex riding its steed — adds them to
+  // the species'.
+  const forme = pokemon.forme ? species.forms?.find((form) => form.slug === pokemon.forme)?.learnset : null;
+  const sets = [species.learnset, ...(forme ? [forme] : [])];
+  const fromLevels = sets.flatMap((set) => (set.level ?? []).filter(([at]) => at <= level).map(([, move]) => move));
+  const fromMachines = unlockedMachines.filter((move) => sets.some((set) => set.machine?.includes(move)));
+  // A tutor teaches whenever asked; there is no level to wait for.
+  const fromTutors = sets.flatMap((set) => set.tutor ?? []);
+  return [...new Set([...fromLevels, ...fromMachines, ...fromTutors])].filter((move) => moveOf(move));
+}
+
+/**
+ * The moves a species learns the moment something evolves into it — a
+ * Charizard's Air Slash — taught straight into a free slot, as a level-up
+ * move is. Those that do not fit are left in the move list to swap in.
+ *
+ * @param {Pokemon} pokemon just evolved
+ * @returns {{learned: string[], waiting: string[]}}
+ */
+export function learnOnEvolution(pokemon) {
+  const species = speciesOf(pokemon.speciesId);
+  const known = new Set(pokemon.moves.map((slot) => slot.move));
+  const fresh = (species?.learnset.level ?? [])
+    .filter(([at, move]) => at === 0 && !known.has(move) && moveOf(move))
+    .map(([, move]) => move);
+  /** @type {{learned: string[], waiting: string[]}} */
+  const out = { learned: [], waiting: [] };
+  for (const move of new Set(fresh)) {
+    if (pokemon.moves.length < 4) {
+      setMove(pokemon, pokemon.moves.length, move);
+      out.learned.push(move);
+    } else {
+      out.waiting.push(move);
+    }
+  }
+  return out;
 }
 
 /**
@@ -463,6 +529,8 @@ export function setMove(pokemon, slot, move) {
   if (slot < pokemon.moves.length) pokemon.moves[slot] = entry;
   else pokemon.moves.push(entry);
   pokemon.moves = pokemon.moves.slice(0, 4);
+  // A Keldeo's shape follows whether it knows Secret Sword.
+  settleForme(pokemon);
 }
 
 /**
@@ -511,6 +579,7 @@ export const TRADE_ITEM = 'linking-cord';
  *   crits?: number,
  *   box?: Array<Pokemon|null>,
  *   raining?: boolean,
+ *   areaTags?: string[],
  * }} [context] `crits` is how many critical hits it landed in the battle it
  *   has just finished; `box` the Pokémon that count as its party
  * @returns {{to: number, trigger: string}|null}
@@ -545,6 +614,7 @@ export function pendingEvolution(pokemon, context = {}) {
         evolution.knownMove ||
         evolution.knownMoveType ||
         evolution.heldItem ||
+        evolution.heldItems?.length ||
         evolution.steps ||
         evolution.recoil ||
         evolution.partySpecies;
@@ -555,6 +625,13 @@ export function pendingEvolution(pokemon, context = {}) {
       if (evolution.knownMoveType && !knowsType(evolution.knownMoveType)) continue;
       if (evolution.timeOfDay && context.timeOfDay && !matchesTime(evolution.timeOfDay, context.timeOfDay)) continue;
       if (evolution.heldItem && pokemon.heldItem !== evolution.heldItem) continue;
+      // Any one of several: a Milcery holding whichever Sweet.
+      if (evolution.heldItems?.length && !evolution.heldItems.includes(pokemon.heldItem ?? '')) continue;
+      // A Rockruff with Own Tempo, a Toxel of the right nature, a Burmy on
+      // the ground its cloak is made of.
+      if (evolution.ability && pokemon.ability !== evolution.ability) continue;
+      if (evolution.natures?.length && !evolution.natures.includes(pokemon.nature)) continue;
+      if (evolution.areaTags?.length && !(context.areaTags ?? []).some((tag) => evolution.areaTags.includes(tag))) continue;
       if (evolution.gender && !matchesGender(evolution.gender, pokemon.gender)) continue;
       if (evolution.steps && (pokemon.steps ?? 0) < evolution.steps) continue;
       if (evolution.recoil && (pokemon.recoilTaken ?? 0) < evolution.recoil) continue;
@@ -570,7 +647,7 @@ export function pendingEvolution(pokemon, context = {}) {
       // The more particular rule wins: an Eevee that knows a Fairy move
       // becomes a Sylveon however fond of its trainer it is.
       const weight =
-        2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem].filter(Boolean).length +
+        2 * [evolution.knownMove, evolution.knownMoveType, evolution.heldItem, evolution.heldItems?.length, evolution.ability, evolution.areaTags?.length].filter(Boolean).length +
         [evolution.minLevel, evolution.happiness, evolution.timeOfDay, evolution.gender].filter(Boolean).length;
       levelled.push({ to: evolution.to, weight });
       continue;
@@ -651,6 +728,8 @@ function matchesTime(required, current) {
 export function evolveInto(pokemon, speciesId) {
   const ratio = pokemon.hp / maxHp(pokemon);
   const slot = abilitySlot(pokemon);
+  // A female Lechonk grows into the female Oinkologne.
+  speciesId = genderedSpecies(speciesId, pokemon.gender);
   pokemon.speciesId = speciesId;
   const species = speciesOf(speciesId);
   if (!species.abilities.some((entry) => entry.name === pokemon.ability)) {

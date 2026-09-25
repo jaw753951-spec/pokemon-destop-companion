@@ -293,8 +293,10 @@ test('a two-turn move charges, and a recharging one costs the turn after', optio
   const player = fixed(1, 60, ['solar-beam']);
   const battle = fight(player, punchbag());
 
+  // A Solar Beam charges with its own line: "빛을 흡수했다!".
+  const charging = (entry) => entry.kind === 'charging' || String(entry.data?.key ?? '').startsWith('move.charge.');
   const first = battle.takeTurn();
-  assert.ok(first.some((entry) => entry.kind === 'charging' && entry.side === 'player'));
+  assert.ok(first.some((entry) => charging(entry) && entry.side === 'player'));
   assert.equal(battle.player.charging, 'solar-beam');
 
   const second = battle.takeTurn();
@@ -306,13 +308,13 @@ test('a two-turn move charges, and a recharging one costs the turn after', optio
   quick.heldItem = 'power-herb';
   const rushed = fight(quick, punchbag());
   const log = rushed.takeTurn();
-  assert.ok(!log.some((entry) => entry.kind === 'charging'));
+  assert.ok(!log.some(charging));
   assert.equal(quick.heldItem, null);
 
   // And the sun makes the charge unnecessary in the first place.
   const sunny = fight(fixed(1, 60, ['solar-beam']), punchbag());
   sunny.field.setWeather(WEATHER.SUN, 5);
-  assert.ok(!sunny.takeTurn().some((entry) => entry.kind === 'charging'));
+  assert.ok(!sunny.takeTurn().some(charging));
 });
 
 // ----------------------------------------------------------- field effects

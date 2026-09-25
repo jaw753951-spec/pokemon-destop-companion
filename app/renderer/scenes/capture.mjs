@@ -5,13 +5,14 @@
  * hold along the bottom with their real odds printed underneath, and the
  * throws you have left counted in the corner. Three throws, then it flees.
  */
-import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
+import { abilityName } from '../engine/abilities.mjs';
 import { fullyHeal } from '../engine/pokemon.mjs';
 import { Battler, battlerArt, battlerScale, mirrorFor } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -38,6 +39,10 @@ const BALL_DRAWN = 14;
  */
 export function captureScene({ session, target, onFinish }) {
   let attempts = CAPTURE_ATTEMPTS;
+  // Whether a Ball Fetch has already brought one back.
+  let fetched = false;
+  /** The catching berry given for the next throw, if any. @type {string|null} */
+  let fed = null;
   let busy = false;
   let settled = false;
 
@@ -129,6 +134,7 @@ export function captureScene({ session, target, onFinish }) {
     text: target.shiny ? `${t('capture.title')}  ${t('battle.shiny')}` : t('capture.title'),
   });
   const balls = el('div.capture-balls');
+  const berries = el('div.capture-balls.capture-berries');
 
   return {
     keepBelow: true,
@@ -160,11 +166,12 @@ export function captureScene({ session, target, onFinish }) {
 
       renderCounter();
       renderBalls(app);
+      renderBerries(app);
 
       return el('div.screen.capture-screen', {}, [
         counter,
         el('div.capture-name', { text: `${label()}` }),
-        balls,
+        el('div.capture-tray', {}, [berries, balls]),
         message,
         el('div.capture-close', {}, [
           button(t('common.cancel'), () => finish(app, false), { className: 'small ghost' }),
@@ -237,6 +244,61 @@ export function captureScene({ session, target, onFinish }) {
     ]);
   }
 
+  /**
+   * What the balls that care about the moment need to know about it.
+   *
+   * @returns {import('../engine/capture.mjs').CaptureContext}
+   */
+  function throwContext() {
+    return {
+      throws: CAPTURE_ATTEMPTS - attempts,
+      active: session.active,
+      caught: session.caught,
+      areaTags: session.area?.tags ?? [],
+      time: timeOfDay(),
+      berry: fed,
+    };
+  }
+
+  /**
+   * The catching berries in the bag, to give before a throw: one at a time,
+   * and gone with the next ball.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function renderBerries(app) {
+    const held = Object.keys(session.bag ?? {})
+      .filter((slug) => itemOf(slug)?.capture && session.countOf(slug) > 0);
+    if (!held.length) {
+      berries.replaceChildren();
+      return;
+    }
+    setChildren(berries, held.map((slug) => el('button.capture-ball', {
+      type: 'button',
+      disabled: busy || settled || Boolean(fed),
+      title: localized(itemOf(slug)?.name, slug),
+      onClick: () => feed(app, slug),
+    }, [
+      el('img', { src: url('assets', `items/${slug}.png`), alt: localized(itemOf(slug)?.name, slug) }),
+      el('span.count', { text: t('items.count', { count: session.countOf(slug) }) }),
+    ])));
+  }
+
+  /**
+   * Give a catching berry before the next throw.
+   *
+   * @param {import('../core/app.mjs').App} app
+   * @param {string} slug
+   */
+  function feed(app, slug) {
+    if (busy || settled || fed || !session.removeItem(slug)) return;
+    fed = slug;
+    app.audio.blip('confirm');
+    message.textContent = t('capture.fed', { name: label(), item: localized(itemOf(slug)?.name, slug) });
+    renderBalls(app);
+    renderBerries(app);
+  }
+
   /** @param {import('../core/app.mjs').App} app */
   function renderBalls(app) {
     const held = session.balls();
@@ -247,7 +309,7 @@ export function captureScene({ session, target, onFinish }) {
 
     setChildren(balls, [
       ...held.map(({ slug, count, item }) => {
-        const chance = Math.round(captureChance(target, slug) * 100);
+        const chance = Math.round(captureChance(target, slug, throwContext()) * 100);
         return el('button.capture-ball', {
           type: 'button',
           disabled: busy,
@@ -270,13 +332,18 @@ export function captureScene({ session, target, onFinish }) {
     if (busy || settled || attempts <= 0) return;
     if (!session.removeItem(ball)) return;
 
+    // The context is read before this throw is counted: a Quick Ball's
+    // first throw is the one with none before it.
+    const context = throwContext();
     busy = true;
     attempts--;
     renderCounter();
     renderBalls(app);
     app.audio.blip('select');
 
-    const result = attemptCapture(session.rng, target, ball);
+    const result = attemptCapture(session.rng, target, ball, context);
+    // The berry is spent on this throw, whatever it comes to.
+    fed = null;
     // The ball goes up, the Pokémon goes in, and it rocks once per shake the
     // roll passed. Nothing is said until that has played out.
     throwAt(ball, Math.max(1, result.shakes), result.caught);
@@ -317,6 +384,13 @@ export function captureScene({ session, target, onFinish }) {
     thrown = null;
     if (battler) battler.visible = true;
 
+    // A Ball Fetch goes and gets the first ball that missed.
+    if (!fetched && abilityName(session.active) === 'ball-fetch' && ball !== 'master-ball') {
+      fetched = true;
+      session.addItem(ball);
+      app.toast(t('battle.pickup', { name: (session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '')), item: localized(gameData().items[ball]?.name, ball) }), 2600);
+    }
+
     if (attempts <= 0) {
       settled = true;
       message.textContent = t('capture.fled', { name: label() });
@@ -328,6 +402,7 @@ export function captureScene({ session, target, onFinish }) {
 
     message.textContent = t('capture.failed');
     renderBalls(app);
+    renderBerries(app);
   }
 
   /**

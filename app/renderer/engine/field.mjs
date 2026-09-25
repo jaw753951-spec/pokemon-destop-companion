@@ -135,6 +135,45 @@ export class Field {
      * @type {Record<'player'|'foe', number>}
      */
     this.tailwind = { player: 0, foe: 0 };
+    /** The pseudo-weathers: turns left on each. */
+    this.gravity = 0;
+    /** The turn an Ion Deluge charged, or -1. */
+    this.ionDeluge = -1;
+    this.wonderRoom = 0;
+    this.magicRoom = 0;
+    this.waterSport = 0;
+    this.mudSport = 0;
+    /** How many turns running an Echoed Voice has gone off. */
+    this.echoes = 0;
+    /** Whether one went off this turn, which keeps the count going. */
+    this.echoedThisTurn = false;
+    /** What each side has put up over itself: a Mist, a Safeguard, the guards of one turn. */
+    this.sides = { player: freshSide(), foe: freshSide() };
+    /**
+     * A Wish waiting to come true, and a Future Sight waiting to land, on each
+     * side.
+     * @type {{player: any, foe: any}}
+     */
+    this.wish = { player: null, foe: null };
+    /** @type {{player: any, foe: any}} */
+    this.futureSight = { player: null, foe: null };
+  }
+
+  /**
+   * Swap everything each side has put up with the other's, which is what a
+   * Court Change does: screens, hazards, tailwinds and veils change sides.
+   */
+  swapSides() {
+    /** @param {any} record */
+    const swap = (record) => {
+      const player = record.player;
+      record.player = record.foe;
+      record.foe = player;
+    };
+    swap(this.screens);
+    swap(this.hazards);
+    swap(this.tailwind);
+    swap(this.sides);
   }
 
   /**
@@ -233,12 +272,21 @@ export class Field {
   }
 
   /**
-   * Count everything down a turn and report what ran out.
-   * @returns {Array<{kind: 'weather'|'terrain'|'screen'|'trickRoom'|'tailwind', value: string, side?: string}>}
+   * Count every clock down one turn and report what ran out.
+   *
+   * @returns {Array<{kind: string, value: string, side?: string}>}
    */
   tick() {
-    /** @type {Array<{kind: 'weather'|'terrain'|'screen'|'trickRoom'|'tailwind', value: string, side?: string}>} */
+    /** @type {Array<{kind: string, value: string, side?: string}>} */
     const expired = [];
+    for (const key of /** @type {const} */ (['gravity', 'wonderRoom', 'magicRoom', 'waterSport', 'mudSport'])) {
+      if (this[key] > 0 && --this[key] <= 0) expired.push({ kind: key, value: key });
+    }
+    for (const side of /** @type {const} */ (['player', 'foe'])) {
+      for (const key of /** @type {const} */ (['mist', 'safeguard', 'luckyChant'])) {
+        if (this.sides[side][key] > 0 && --this.sides[side][key] <= 0) expired.push({ kind: key, value: key, side });
+      }
+    }
     if (this.trickRoom > 0 && --this.trickRoom <= 0) expired.push({ kind: 'trickRoom', value: 'trick' });
     for (const side of /** @type {const} */ (['player', 'foe'])) {
       if (this.tailwind[side] > 0 && --this.tailwind[side] <= 0) expired.push({ kind: 'tailwind', value: 'tailwind', side });
@@ -383,6 +431,8 @@ export function terrainBlocksPriority(terrain, priority, defenderGrounded) {
 }
 
 /** A side with nothing on the ground. */
+const freshSide = () => ({ mist: 0, safeguard: 0, luckyChant: 0, wideGuard: -1, quickGuard: -1, craftyShield: -1 });
+
 const freshHazards = () => ({ spikes: 0, toxicSpikes: 0, stealthRock: 0, stickyWeb: 0 });
 
 /**

@@ -28,6 +28,7 @@ import { statsOf } from './pokemon.mjs';
 export const FORM_ABILITY = new Map([
   ['castform', 'forecast'],
   ['darmanitan', 'zen-mode'],
+  ['darmanitan-galar-standard', 'zen-mode'],
   ['wishiwashi', 'schooling'],
   ['minior', 'shields-down'],
   ['mimikyu', 'disguise'],
@@ -150,6 +151,36 @@ export const USE_FORMES = new Map([
   ['reins-of-unity', new Map([['calyrex', ['calyrex-ice', 'calyrex-shadow']]])],
   ['meteorite', new Map([['deoxys', ['deoxys-attack', 'deoxys-defense', 'deoxys-speed']]])],
   ['zygarde-cube', new Map([['zygarde', ['zygarde-10']]])],
+  // A Rotom Catalog steps through the five appliances and back out of them.
+  ['rotom-catalog', new Map([['rotom', ['rotom-heat', 'rotom-wash', 'rotom-frost', 'rotom-fan', 'rotom-mow']]])],
+]);
+
+/**
+ * The items that put a Pokémon in one particular shape rather than stepping
+ * it through several: an Oricorio drinks a nectar and dances in that
+ * nectar's style. `null` is the species' own shape.
+ *
+ * @type {Map<string, Map<string, string|null>>}
+ */
+export const SET_FORMES = new Map([
+  ['red-nectar', new Map([['oricorio', null]])],
+  ['yellow-nectar', new Map([['oricorio', 'oricorio-pom-pom']])],
+  ['pink-nectar', new Map([['oricorio', 'oricorio-pau']])],
+  ['purple-nectar', new Map([['oricorio', 'oricorio-sensu']])],
+]);
+
+/**
+ * The move each of Rotom's shapes brings with it, which the games swap in for
+ * the last shape's when the appliance changes — the species' own shape
+ * included, whose move is a Thunder Shock.
+ */
+export const FORME_MOVES = new Map([
+  ['rotom', 'thunder-shock'],
+  ['rotom-heat', 'overheat'],
+  ['rotom-wash', 'hydro-pump'],
+  ['rotom-frost', 'blizzard'],
+  ['rotom-fan', 'air-slash'],
+  ['rotom-mow', 'leaf-storm'],
 ]);
 
 /**
@@ -167,7 +198,7 @@ export function signatureItems() {
   for (const [species, byItem] of [...HELD_FORMES, ...START_FORMES]) {
     for (const item of byItem.keys()) add(item, species);
   }
-  for (const [item, bySpecies] of USE_FORMES) {
+  for (const [item, bySpecies] of [...USE_FORMES, ...SET_FORMES]) {
     for (const species of bySpecies.keys()) add(item, species);
   }
   return out;
@@ -193,13 +224,17 @@ export function heldForme(pokemon) {
  * The shape a Pokémon is in outside a battle: the one its held item gives it,
  * or the one a key item left it in.
  *
- * @param {{speciesId: number, heldItem?: string|null, standing?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, heldItem?: string|null, standing?: string|null, moves?: Array<{move: string}>}|null|undefined} pokemon
  * @returns {string|null}
  */
 export function standingForme(pokemon) {
   const held = heldForme(pokemon);
   if (held) return held.forme;
   const species = speciesOf(pokemon?.speciesId);
+  // A Keldeo that knows Secret Sword stands in its Resolute Form.
+  if (species?.slug === 'keldeo' && hasForme(species, 'keldeo-resolute')) {
+    return pokemon?.moves?.some((slot) => slot.move === 'secret-sword') ? 'keldeo-resolute' : null;
+  }
   return hasForme(species, pokemon?.standing) ? /** @type {string} */ (pokemon?.standing) : null;
 }
 
@@ -262,6 +297,16 @@ export const settleHeldForme = settleForme;
  */
 export function useFormeItem(pokemon, item) {
   const species = speciesOf(pokemon?.speciesId);
+  const set = SET_FORMES.get(item);
+  if (set?.has(species?.slug ?? '')) {
+    const wanted = set.get(species?.slug ?? '') ?? null;
+    if (wanted && !hasForme(species, wanted)) return false;
+    if ((pokemon.standing ?? null) === wanted) return false;
+    if (wanted) pokemon.standing = wanted;
+    else delete pokemon.standing;
+    settleForme(pokemon);
+    return wanted;
+  }
   const cycle = USE_FORMES.get(item)?.get(species?.slug ?? '')?.filter((slug) => hasForme(species, slug));
   if (!cycle?.length) return false;
   const at = cycle.indexOf(pokemon.standing ?? '');
@@ -317,7 +362,7 @@ export function standingTypes(pokemon) {
 }
 
 /** The species a key item changes. */
-const USE_SPECIES = new Set([...USE_FORMES.values()].flatMap((bySpecies) => [...bySpecies.keys()]));
+const USE_SPECIES = new Set([...USE_FORMES.values(), ...SET_FORMES.values()].flatMap((bySpecies) => [...bySpecies.keys()]));
 
 /** Weather a Forecast turns into, and the forme that weather means. */
 const FORECAST_FORMS = new Map([
@@ -351,6 +396,7 @@ const FORECAST_FORMS = new Map([
  *   relicSongs?: number,
  *   stance?: string|null,
  *   hangry?: boolean,
+ *   gulp?: 'gulping'|'gorging'|null,
  * }} state
  * @returns {string|null} the forme slug to take, or null to keep the current one
  */
@@ -395,8 +441,9 @@ export function formeFor(pokemon, state) {
     }
 
     // Below half the fire takes hold; above it, back to normal.
+    // A Galarian Darmanitan has a Zen Mode of its own.
     case 'zen-mode':
-      return half ? find('darmanitan-zen') : plain;
+      return half ? find('darmanitan-zen') ?? find('darmanitan-galar-zen') : plain;
 
     // Together above a quarter, scattered below it.
     case 'schooling':
@@ -416,10 +463,11 @@ export function formeFor(pokemon, state) {
     case 'ice-face':
       return state.broken ? find('eiscue-noice') : plain;
 
-    // Whatever Surf or Dive caught, it keeps — until the throw is made.
+    // Whatever Surf or Dive caught, it keeps until the throw is made: an
+    // Arrokuda above half health, a Pikachu at half or below.
     case 'gulp-missile':
-      return state.usedMove === 'surf' ? find('cramorant-gulping')
-        : state.usedMove === 'dive' ? find('cramorant-gorging')
+      return state.gulp === 'gulping' ? find('cramorant-gulping')
+        : state.gulp === 'gorging' ? find('cramorant-gorging')
         : plain;
 
     // Blade to strike, Shield to guard; it walks in guarding.

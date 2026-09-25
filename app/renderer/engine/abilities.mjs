@@ -45,7 +45,8 @@ export const ABILITIES = {
 
   'huge-power': { stat: (ctx, stat) => (stat === 'atk' ? 2 : 1) },
   'pure-power': { stat: (ctx, stat) => (stat === 'atk' ? 2 : 1) },
-  'gorilla-tactics': { stat: (ctx, stat) => (stat === 'atk' ? 1.5 : 1) },
+  // Half again on the Attack, for the price a Choice Band charges: one move.
+  'gorilla-tactics': { stat: (ctx, stat) => (stat === 'atk' ? 1.5 : 1), choiceLock: true },
   'fur-coat': { stat: (ctx, stat) => (stat === 'def' ? 2 : 1) },
   hustle: {
     stat: (ctx, stat) => (stat === 'atk' ? 1.5 : 1),
@@ -125,13 +126,15 @@ export const ABILITIES = {
   pixilate: { moveType: (ctx, move) => (move.type === 'normal' ? 'fairy' : null), power: platePower },
   refrigerate: { moveType: (ctx, move) => (move.type === 'normal' ? 'ice' : null), power: platePower },
   galvanize: { moveType: (ctx, move) => (move.type === 'normal' ? 'electric' : null), power: platePower },
-  normalize: { moveType: (ctx, move) => (move.type === 'normal' ? null : 'normal'), power: platePower },
+  // Everything turns Normal, and everything — Normal to begin with or not —
+  // is a fifth stronger for it.
+  normalize: { moveType: (ctx, move) => (move.type === 'normal' ? null : 'normal'), power: () => 1.2 },
   'liquid-voice': { moveType: (ctx, move) => (hasFlag(move, 'sound') ? 'water' : null) },
 
   // ---- What the holder takes.
 
   'thick-fat': { taken: (ctx, move) => (move.type === 'fire' || move.type === 'ice' ? 0.5 : 1) },
-  heatproof: { taken: (ctx, move) => (move.type === 'fire' ? 0.5 : 1) },
+  heatproof: { taken: (ctx, move) => (move.type === 'fire' ? 0.5 : 1), burnHalved: true },
   'ice-scales': { taken: (ctx, move) => (move.damageClass === 'special' ? 0.5 : 1) },
   fluffy: {
     taken: (ctx, move) => (move.type === 'fire' ? 2 : hasFlag(move, 'contact') ? 0.5 : 1),
@@ -154,7 +157,6 @@ export const ABILITIES = {
   // ---- Types the holder is simply not hit by, and the ones it drinks.
 
   levitate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
-  eelevate: { absorb: (ctx, move) => (move.type === 'ground' ? {} : null), floats: true },
   'volt-absorb': { absorb: (ctx, move) => (move.type === 'electric' ? { heal: ABSORB_HEAL } : null) },
   'water-absorb': { absorb: (ctx, move) => (move.type === 'water' ? { heal: ABSORB_HEAL } : null) },
   'earth-eater': { absorb: (ctx, move) => (move.type === 'ground' ? { heal: ABSORB_HEAL } : null) },
@@ -209,6 +211,8 @@ export const ABILITIES = {
     hit: (ctx, move) => {
       if (['bug', 'ghost', 'dark'].includes(move.type)) ctx.raise(ctx.self, 'spe', 1);
     },
+    // And an Intimidate frightens it into running faster.
+    onIntimidated: (ctx) => ctx.raise(ctx.self, 'spe', 1),
   },
   'water-compaction': { hit: (ctx, move) => { if (move.type === 'water') ctx.raise(ctx.self, 'def', 2); } },
   'steam-engine': {
@@ -278,7 +282,9 @@ export const ABILITIES = {
   'rks-system': {},
   'zen-mode': {},
   schooling: {},
-  'shields-down': {},
+  // Its meteor shell — the species' own shape, above half — keeps every
+  // condition off.
+  'shields-down': { blockStatus: (ctx) => !ctx.self.marks.forme },
   // Blade to strike, Shield to guard: the battle turns it before each move.
   'stance-change': { stanceChange: true },
   // Full, then hungry, a turn at a time; its Aura Wheel follows (see
@@ -330,12 +336,14 @@ export const ABILITIES = {
   'natural-cure': {},
   regenerator: {},
   pickup: {},
+  // Honey now and then after a battle; the first ball that misses, fetched
+  // back (see the battle and capture screens).
+  'honey-gather': {},
+  'ball-fetch': {},
 
-  // The Cramorant that dived after something: the forme it wears is the
-  // engine's business (a forme read off the move it just used), so this
-  // entry exists so the Pokémon screen can say the ability is known rather
-  // than leave a player to wonder what their bird is doing.
-  'gulp-missile': {},
+  // The Cramorant that dived after something: it catches on a Surf or a
+  // Dive and spits the catch at the next thing that hits it (see `answerHit`).
+  'gulp-missile': { gulpMissile: true },
 
   // A Mimikyu's head is not its face: the hit that lands on it breaks the
   // disguise and does nothing else, and the busted shape hangs about for
@@ -351,7 +359,7 @@ export const ABILITIES = {
 
   // ---- What the holder does on the way in.
 
-  intimidate: { start: (ctx) => ctx.raise(ctx.foe, 'atk', -1) },
+  intimidate: { start: (ctx) => ctx.intimidate() },
   'intrepid-sword': { start: (ctx) => ctx.raise(ctx.self, 'atk', 1) },
   'dauntless-shield': { start: (ctx) => ctx.raise(ctx.self, 'def', 1) },
   download: {
@@ -361,12 +369,15 @@ export const ABILITIES = {
       ctx.raise(ctx.self, stats.def <= stats.spd ? 'atk' : 'spa', 1);
     },
   },
+  // It copies the ability in front of it for the rest of the battle — never
+  // for good — and the copy acts on the way in, as it would have.
   trace: {
     start: (ctx) => {
-      const copied = abilityName(ctx.foe.pokemon);
-      if (!copied || copied === 'trace' || !ABILITIES[copied]) return;
-      ctx.self.pokemon.ability = copied;
+      const copied = ctx.abilitySlug(ctx.foe);
+      if (!copied || UNTRACEABLE.has(copied)) return;
+      ctx.self.marks.ability = copied;
       ctx.note('abilityTraced', { ability: copied });
+      ABILITIES[copied]?.start?.(ctx);
     },
   },
 
@@ -375,8 +386,8 @@ export const ABILITIES = {
   'compound-eyes': { accuracy: () => 1.3 },
   'victory-star': { accuracy: () => 1.1 },
   'no-guard': { neverMisses: true },
-  'keen-eye': { ignoresEvasion: true },
-  illuminate: { ignoresEvasion: true },
+  'keen-eye': { ignoresEvasion: true, statDrop: (ctx, stat) => stat === 'acc' },
+  illuminate: { ignoresEvasion: true, statDrop: (ctx, stat) => stat === 'acc' },
   'sand-veil': { evasion: (ctx) => (ctx.weather === WEATHER.SANDSTORM ? 0.8 : 1), weatherImmune: true },
   'snow-cloak': { evasion: (ctx) => (snowing(ctx.weather) ? 0.8 : 1), weatherImmune: true },
   'wonder-skin': { evasion: (ctx, move) => (move.damageClass === 'status' ? 0.5 : 1) },
@@ -390,7 +401,7 @@ export const ABILITIES = {
   'serene-grace': { secondary: 2 },
   'skill-link': { maxHits: true },
   sturdy: { sturdy: true },
-  'inner-focus': { flinchImmune: true },
+  'inner-focus': { flinchImmune: true, intimidateImmune: true },
   steadfast: { onFlinch: (ctx) => ctx.raise(ctx.self, 'spe', 1) },
   stench: { flinch: 0.1 },
   'mold-breaker': { ignoresAbilities: true },
@@ -399,7 +410,9 @@ export const ABILITIES = {
 
   // ---- Who moves first.
 
-  prankster: { priority: (ctx, move) => (move.damageClass === 'status' ? 1 : 0) },
+  // A status move a Prankster hurried does nothing to a Dark type (see
+  // `resolveMove`).
+  prankster: { priority: (ctx, move) => (move.damageClass === 'status' ? 1 : 0), prankster: true },
   'gale-wings': { priority: (ctx, move) => (move.type === 'flying' && fullHealth(ctx.self) ? 1 : 0) },
   triage: { priority: (ctx, move) => (hasFlag(move, 'heal') ? 3 : 0) },
   'quick-draw': { movesFirst: 0.3 },
@@ -431,7 +444,9 @@ export const ABILITIES = {
   'bad-dreams': {
     turn: (ctx) => { if (ctx.foe.pokemon.status === 'slp') ctx.damage(ctx.foe, 1 / 8); },
   },
-  'ice-face': { sturdy: true, busted: true },
+  // An Ice Face takes one physical blow and melts; snow freezes it back
+  // (see `formeFor`).
+  'ice-face': { busted: 'physical', refreezes: true },
 
   // ---- Stats the other side is not allowed to touch.
 
@@ -446,7 +461,10 @@ export const ABILITIES = {
   defiant: { onStatDropped: (ctx) => ctx.raise(ctx.self, 'atk', 2) },
   competitive: { onStatDropped: (ctx) => ctx.raise(ctx.self, 'spa', 2) },
   'anger-point': { onCrit: (ctx) => ctx.raise(ctx.self, 'atk', 12) },
-  'guard-dog': { onStatDropped: (ctx, stat) => { if (stat === 'atk') ctx.raise(ctx.self, 'atk', 2); } },
+  // An Intimidate raises its Attack instead, and nothing drags it out.
+  'guard-dog': { intimidateBoost: true, suctionCups: true },
+  // Nothing drags it out either: a Roar, a Whirlwind, a Dragon Tail.
+  'suction-cups': { suctionCups: true },
 
   // The three that read the whole table differently.
   contrary: { invertStages: true },
@@ -479,14 +497,9 @@ export const ABILITIES = {
   'color-change': { retypes: 'hit' },
   // It takes the type of the terrain it stands on (see `typesOf`).
   mimicry: { mimicry: true },
-  scrappy: { hitsGhosts: true },
-  'minds-eye': { hitsGhosts: true, ignoresEvasion: true },
+  scrappy: { hitsGhosts: true, intimidateImmune: true },
+  'minds-eye': { hitsGhosts: true, ignoresEvasion: true, statDrop: (ctx, stat) => stat === 'acc' },
   corrosion: { corrodes: true },
-  dragonize: { moveType: (ctx, move) => (move.type === 'normal' ? 'dragon' : null), power: platePower },
-  'fire-mane': { power: (ctx, move) => (move.type === 'fire' ? 1.5 : 1) },
-  // "Its moves behave as though the sun were out", which is the whole of it.
-  'mega-sol': { actsSunny: true },
-  'aura-guard': { taken: (ctx, move) => (hasFlag(move, 'contact') ? 0.5 : 1) },
   'wonder-guard': { taken: (ctx, move, effectiveness) => (effectiveness > 1 ? 1 : 0) },
 
   // ---- Conditions turned to advantage, and conditions refused.
@@ -496,8 +509,8 @@ export const ABILITIES = {
   'early-bird': { wakesTwiceAsFast: true },
   synchronize: { reflectsStatus: true },
   'shield-dust': { noSecondaryTaken: true },
-  oblivious: { blockVolatile: (ctx, state) => state === 'infatuation' || state === 'taunt' },
-  'own-tempo': { blockVolatile: (ctx, state) => state === 'confusion' },
+  oblivious: { blockVolatile: (ctx, state) => state === 'infatuation' || state === 'taunt', intimidateImmune: true },
+  'own-tempo': { blockVolatile: (ctx, state) => state === 'confusion', intimidateImmune: true },
   'aroma-veil': { blockVolatile: (ctx, state) => LOCKED_STATES.has(state) },
   'tangled-feet': { evasion: (ctx) => (ctx.self.volatile.confusion > 0 ? 0.5 : 1) },
   'cute-charm': { contact: (ctx) => ctx.infatuate(ctx.foe, 0.3) },
@@ -516,7 +529,6 @@ export const ABILITIES = {
 
   'poison-touch': { contact: (ctx) => ctx.inflict(ctx.foe, 'psn', 0.3) },
   'cursed-body': { hit: (ctx) => ctx.disable(ctx.foe, 0.3) },
-  'spicy-spray': { hit: (ctx) => ctx.inflict(ctx.foe, 'brn', 1) },
   'perish-body': { contact: (ctx) => ctx.perish() },
   'toxic-debris': {
     hit: (ctx, move) => { if (move.damageClass === 'physical') ctx.layHazard('toxicSpikes'); },
@@ -553,7 +565,6 @@ export const ABILITIES = {
   'armor-tail': { blocksPriority: true },
   'long-reach': { noContact: true },
   'unseen-fist': { unseenFist: true },
-  'piercing-drill': { piercing: true },
   'mycelium-might': { movesLastWithStatus: true, ignoresAbilities: true },
   infiltrator: { infiltrates: true },
   pressure: { pressures: true },
@@ -572,7 +583,8 @@ export const ABILITIES = {
   gluttony: { berryEarly: true },
   ripen: { berryDouble: true },
   'cheek-pouch': { onBerry: (ctx) => ctx.heal(ctx.self, 1 / 3) },
-  harvest: { regrowsBerry: 0.5 },
+  // Half the time, and every time under the sun.
+  harvest: { regrowsBerry: 0.5, regrowsInSun: true },
   'cud-chew': { regrowsBerry: 1 },
 
   // ---- The four that weigh on everything but their holder.
@@ -591,7 +603,64 @@ export const ABILITIES = {
       if (ctx.foe.pokemon.status === 'psn') ctx.confuse(ctx.foe);
     },
   },
+
+  // ---- Keeping the other side from leaving (see `canEscape`), and leaving
+  // regardless.
+  'shadow-tag': { trapsAll: true },
+  'arena-trap': { trapsGrounded: true },
+  'magnet-pull': { trapsSteel: true },
+  'run-away': { runAway: true },
+
+  // ---- Reading the other side on the way in.
+  anticipation: { start: (ctx) => ctx.anticipate() },
+  // It dances along to any dance the other side finishes (see `afterMove`).
+  dancer: { dancer: true },
+  forewarn: { start: (ctx) => ctx.forewarn() },
+
+  // Twice as hard on something that only just came out.
+  stakeout: {
+    power: (ctx) => (ctx.foe.enteredTurn === ctx.battle.turn && ctx.battle.turn > 0 ? 2 : 1),
+  },
+  // Out of the battle the moment a hit takes it under half (see
+  // `applyDamagingMove`).
+  'wimp-out': { emergencyExit: true },
+  'emergency-exit': { emergencyExit: true },
+
+  // ---- The ones that only ever act on a partner, redirect a move between
+  // several targets, or wait on a Terastallization — none of which a one-on-
+  // one battle without Tera has. They are here so the Pokémon screen can say
+  // why they never do anything, rather than that the engine has not learned
+  // them.
+  plus: { inert: true },
+  minus: { inert: true },
+  healer: { inert: true },
+  'friend-guard': { inert: true },
+  telepathy: { inert: true },
+  'flower-veil': { inert: true },
+  symbiosis: { inert: true },
+  battery: { inert: true },
+  receiver: { inert: true },
+  'power-of-alchemy': { inert: true },
+  'propeller-tail': { inert: true },
+  stalwart: { inert: true },
+  'power-spot': { inert: true },
+  'curious-medicine': { inert: true },
+  commander: { inert: true },
+  costar: { inert: true },
+  hospitality: { inert: true },
 };
+
+/**
+ * The abilities a Trace cannot copy: its own, the forme changers, and the
+ * ones that only mean something to the Pokémon born with them.
+ */
+const UNTRACEABLE = new Set([
+  'trace', 'forecast', 'flower-gift', 'illusion', 'imposter', 'multitype', 'stance-change', 'schooling', 'comatose',
+  'shields-down', 'disguise', 'rks-system', 'battle-bond', 'power-construct', 'ice-face', 'gulp-missile', 'zen-mode',
+  'receiver', 'power-of-alchemy', 'neutralizing-gas', 'hunger-switch', 'as-one-glastrier', 'as-one-spectrier',
+  'zero-to-hero', 'commander', 'protosynthesis', 'quark-drive', 'tera-shift', 'poison-puppeteer',
+  'embody-aspect-teal', 'embody-aspect-hearthflame', 'embody-aspect-wellspring', 'embody-aspect-cornerstone',
+]);
 
 /** The states a move can take away, which an Aroma Veil refuses on its own. */
 const LOCKED_STATES = new Set(['taunt', 'encore', 'disable', 'torment']);
@@ -620,6 +689,9 @@ export function abilityName(pokemon) {
 
 /** Whether the engine has been taught this ability. @param {string} slug */
 export const abilityWorks = (slug) => Boolean(ABILITIES[slug]);
+
+/** Whether the ability is one a one-on-one battle never gives a chance to act. @param {string} slug */
+export const abilityInert = (slug) => Boolean(ABILITIES[slug]?.inert);
 
 /** How many of the dex's abilities the engine reads, for the screens to say. */
 export const abilityCount = () => Object.keys(ABILITIES).length;
@@ -713,7 +785,7 @@ const snowing = (weather) => weather === WEATHER.HAIL || weather === WEATHER.SNO
 const stab = (combatant, move) => speciesOf(combatant.pokemon.speciesId)?.types.includes(move.type);
 
 /** Whether a move carries a secondary effect for Sheer Force to trade away. */
-function hasSecondary(move) {
+export function hasSecondary(move) {
   const meta = move?.meta;
   if (!meta) return false;
   return (

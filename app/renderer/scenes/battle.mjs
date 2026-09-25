@@ -6,7 +6,7 @@
  * even though it was decided instantly.
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
-import { weatherForArea } from '../../shared/area-tags.mjs';
+import { environmentType, weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
@@ -19,6 +19,7 @@ import {
   evolveInto,
   friendshipForLevels,
   gainFriendship,
+  learnOnEvolution,
   levelOf,
   maxHp,
   pendingEvolution,
@@ -141,7 +142,7 @@ const PLAYER_ROOM = {
  *   backdrop?: string|null,
  *   music?: string|null,
  *   weather?: string|null,
- *   onFinish: (result: {outcome: 'won'|'lost', defeated: import('../engine/pokemon.mjs').Pokemon[]}) => void,
+ *   onFinish: (result: {outcome: 'won'|'lost'|'fled', defeated: import('../engine/pokemon.mjs').Pokemon[]}) => void,
  * }} options
  * @returns {import('../core/app.mjs').Scene}
  */
@@ -159,6 +160,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     trainerBattle: Boolean(trainer),
     // The sky the place is under, unless the caller names one of its own.
     weather: weather === undefined ? weatherForArea(session.area) : weather,
+    // And the ground, for a Camouflage.
+    environment: environmentType(session.area?.tags ?? []),
   });
 
   /** @type {import('../engine/battle.mjs').LogEntry[]} */
@@ -631,7 +634,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         // A null status is one that has just lifted: woken, thawed, or cured
         // by an ability. Each says so in its own words rather than leaving
         // whatever was on the screen before it standing.
-        if (status) say(t(`status.${status}.gained`, { name }));
+        if (status) say(t(entry.data?.toxic ? 'status.psn.toxic' : `status.${status}.gained`, { name }));
         else if (entry.data?.woke) say(t('status.slp.ended', { name }));
         else if (entry.data?.thawed) say(t('status.frz.ended', { name }));
         else say(t('status.cured', { name }));
@@ -678,9 +681,32 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
 
       case 'heal':
-        say(t('battle.healed', { name: nameOf(entry.side === 'player' ? player : foe) }));
+        // A heal a move line has already announced moves the bar and nothing
+        // else.
+        if (!entry.data?.quiet) say(t('battle.healed', { name: nameOf(entry.side === 'player' ? player : foe) }));
         updateBars();
         break;
+
+      // One of the move lines: who it is about is the entry's side, and the
+      // rest is what the line names.
+      case 'message': {
+        const self = entry.side === 'player' ? player : foe;
+        const other = entry.side === 'player' ? foe : player;
+        const data = entry.data ?? {};
+        say(t(data.key, {
+          name: nameOf(self),
+          target: nameOf(other),
+          team: t(entry.side === 'foe' ? 'battle.team.foe' : 'battle.team.player'),
+          move: data.move ? localized(moveOf(data.move)?.name, data.move) : '',
+          item: data.item ? localized(gameData().items[data.item]?.name, data.item) : '',
+          ability: data.ability ? localized(abilityOf(data.ability)?.name, data.ability) : '',
+          type: data.type ? localized(gameData().types[data.type]?.name, data.type) : '',
+          count: data.count ?? '',
+          stat: data.stat ? t(`stat.${data.stat}`) : '',
+        }));
+        updateBars();
+        break;
+      }
 
       case 'volatile':
         say(t(`volatile.${entry.data?.state}.start`, {
@@ -1050,6 +1076,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         if (battle.outcome === 'won') {
           say(t('battle.won'));
           playerBattler?.setPose('win');
+        } else if (battle.outcome === 'fled' || battle.outcome === 'escaped') {
+          // Nobody was beaten: the line that sent it away has already been
+          // said, and the battle simply ends.
+          foeBattler?.setPose('lose');
         } else {
           say(t('battle.lost'));
         }
@@ -1082,6 +1112,13 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         app.toast(t('battle.pickup', { name: nameOf(session.active), item: localized(gameData().items[found]?.name, found) }), 3200);
       }
     }
+    // A Honey Gather comes back with Honey now and then, likelier the higher
+    // its level: five percent for every ten levels begun.
+    const honeyChance = Math.ceil(levelOf(session.active) / 10) * 0.05;
+    if (abilityName(session.active) === 'honey-gather' && gameData().items.honey && session.rng.chance(honeyChance)) {
+      session.addItem('honey');
+      app.toast(t('battle.pickup', { name: nameOf(session.active), item: localized(gameData().items.honey?.name, 'honey') }), 3200);
+    }
 
     // Friendship: levelling up earns it, fainting costs a little.
     const levels = levelOf(session.active) - startLevel;
@@ -1094,6 +1131,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         crits: battle.player.marks.crits ?? 0,
         box: session.box,
         raining: weatherForArea(session.area) === 'rain',
+        areaTags: session.area?.tags ?? [],
       });
       if (evolution) {
         const from = nameOf(session.active);
@@ -1102,13 +1140,25 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         session.markCaught(evolution.to);
         app.toast(t('battle.evolving', { name: from, target: nameOf(session.active) }));
         app.audio.playCry(session.active.speciesId);
+        // And what evolving teaches.
+        const taught = learnOnEvolution(session.active);
+        for (const move of taught.learned) {
+          app.toast(t('battle.learned', { name: nameOf(session.active), move: localized(moveOf(move)?.name, move) }), 3200);
+        }
+        for (const move of taught.waiting) {
+          app.toast(t('battle.cannotLearnMore', { name: nameOf(session.active), move: localized(moveOf(move)?.name, move) }), 3200);
+        }
         // And a Nincada leaves a Shedinja behind.
         const shell = shedAfterEvolving(session, fromSpecies, session.active);
         if (shell) app.toast(t('battle.shed', { name: nameOf(shell) }), 3200);
       }
     }
 
-    onFinish({ outcome: battle.outcome === 'lost' ? 'lost' : 'won', defeated });
+    battle.release();
+    onFinish({
+      outcome: battle.outcome === 'lost' ? 'lost' : battle.outcome === 'fled' || battle.outcome === 'escaped' ? 'fled' : 'won',
+      defeated,
+    });
   }
 
   /** @param {'player'|'foe'|undefined} side */
