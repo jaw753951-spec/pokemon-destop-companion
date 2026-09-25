@@ -22,7 +22,8 @@
  * box icon, which the renderer falls back to on its own.
  */
 import { join } from 'node:path';
-import { readFile, rm } from 'node:fs/promises';
+import { readdir, readFile, rm } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { createHash } from 'node:crypto';
 
 import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
@@ -364,6 +365,9 @@ export async function buildWalkers({ assetDir, dataDir, sample, log, pool }) {
   // down to the walking art's size.
   await shrinkBattleFormes({ assetDir, species, manifest, ids, log });
 
+  // What someone drew by hand for this game goes over whatever the sets had.
+  const authored = await applyAuthored({ assetDir, species, manifest, log });
+
   // And a shiny the sets never drew — or drew as a copy of the ordinary
   // sheet — is painted from the battle sprites' two palettes.
   await paintShinies({ assetDir, manifest, ids, log });
@@ -440,7 +444,7 @@ async function buildStrip(base, anims, name) {
   }
   if (!anim || !anim.width || !anim.height) return null;
 
-  const source = await fetchBuffer(`${base}/${file}-Anim.png`, { allowMissing: true });
+  const source = await readSheet(base, `${file}-Anim.png`);
   if (!source) return null;
   const sheet = decodePng(source);
   const count = Math.floor(sheet.width / anim.width);
@@ -691,4 +695,88 @@ async function paintShinies({ assetDir, manifest, ids, log }) {
     }
   }
   if (painted.length) log(`shiny walking art painted from the battle sprites: ${painted.length}`);
+}
+
+/**
+ * A file of a sheet set, from the collab or from a directory on disk.
+ *
+ * @param {string} base a URL or a local directory
+ * @param {string} file
+ * @returns {Promise<Buffer|null>}
+ */
+async function readSheet(base, file) {
+  if (/^https?:/.test(base)) return fetchBuffer(`${base}/${file}`, { allowMissing: true });
+  return readFile(join(base, file)).catch(() => null);
+}
+
+/** Where sprites drawn for this game are kept, one sheet set per directory. */
+export const AUTHORED_SPRITES = fileURLToPath(new URL('../../../data/authored/sprites/', import.meta.url));
+
+/**
+ * Walking and standing art drawn by hand for this game, over whatever the
+ * collab and the Essentials packs gave.
+ *
+ * Each directory under `data/authored/sprites/` is a sheet set in the
+ * collab's own layout — `AnimData.xml`, `Walk-Anim.png`, `Idle-Anim.png`,
+ * eight rows a direction, of which the one facing right (the third) is the
+ * one this game draws — so a collab sheet can be copied in and drawn over.
+ * The directory's name says what it draws, with `-shiny` on the end for the
+ * shiny palette: a species or variety by its slug (`urshifu-rapid-strike`),
+ * a forme by the forme's (`cramorant-gulping`), a species' female by its
+ * slug and `-female` (`jellicent-female`).
+ *
+ * @param {{assetDir: string, species: Record<string, any>, manifest: Record<string, any>, log: (message: string) => void}} context
+ * @returns {Promise<string[]>} the directories used
+ */
+async function applyAuthored({ assetDir, species, manifest, log }) {
+  const names = await readdir(AUTHORED_SPRITES).catch(() => []);
+  const used = [];
+  const unknown = [];
+  for (const name of names.sort()) {
+    const target = authoredTarget(name, species);
+    if (!target) {
+      if (!name.startsWith('.') && !/\.(md|txt)$/i.test(name)) unknown.push(name);
+      continue;
+    }
+    const base = join(AUTHORED_SPRITES, name);
+    const anims = parseAnimData((await readSheet(base, 'AnimData.xml'))?.toString('utf8'));
+    const entry = (manifest[target.id] ??= { shiny: {} });
+    entry.shiny ??= {};
+    const into = target.shiny ? entry.shiny : entry;
+    let built = false;
+    for (const pose of POSES) {
+      const strip = await buildStrip(base, anims, pose.anim);
+      if (!strip) continue;
+      await writeOut(join(assetDir, 'pokemon', String(target.id), `${pose.key}${target.key}${target.shiny ? '-shiny' : ''}.png`), strip.png);
+      into[`${pose.key}${target.key}`] = strip.meta;
+      built = true;
+    }
+    if (built) used.push(name);
+    else unknown.push(`${name} (no Walk or Idle in its AnimData.xml)`);
+  }
+  if (used.length) log(`drawn for this game: ${used.join(', ')}`);
+  if (unknown.length) log(`  not used from data/authored/sprites: ${unknown.join(', ')}`);
+  return used;
+}
+
+/**
+ * What an authored sheet directory's name draws.
+ *
+ * @param {string} name
+ * @param {Record<string, any>} species
+ * @returns {{id: number, key: string, shiny: boolean}|null}
+ */
+export function authoredTarget(name, species) {
+  const shiny = name.endsWith('-shiny');
+  const slug = shiny ? name.slice(0, -'-shiny'.length) : name;
+  const all = Object.values(species);
+  const own = all.find((entry) => entry.slug === slug);
+  if (own) return { id: own.id, key: '', shiny };
+  const withForme = all.find((entry) => (entry.forms ?? []).some((form) => form.slug === slug));
+  if (withForme) return { id: withForme.id, key: `-form-${slug}`, shiny };
+  if (slug.endsWith('-female')) {
+    const base = all.find((entry) => entry.slug === slug.slice(0, -'-female'.length) && !entry.regional);
+    if (base) return { id: base.id, key: '-female', shiny };
+  }
+  return null;
 }

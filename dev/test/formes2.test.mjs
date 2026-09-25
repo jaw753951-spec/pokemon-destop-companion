@@ -282,3 +282,21 @@ test('a variety walks in its own art, and a female in hers where her species dra
   const geodude = /** @type {number} */ (speciesIdBySlug('geodude'));
   assert.equal(spriteKey({ speciesId: geodude, gender: 'female' }), spriteKey({ speciesId: geodude, gender: 'male' }));
 });
+
+test('a hand-drawn sheet directory is named for what it draws', options, async () => {
+  const { authoredTarget } = await import('../tools/build/walkers.mjs');
+  const species = gameData().species;
+  const id = (slug) => /** @type {number} */ (speciesIdBySlug(slug));
+  assert.deepEqual(authoredTarget('urshifu-rapid-strike', species), { id: id('urshifu-rapid-strike'), key: '', shiny: false });
+  assert.deepEqual(authoredTarget('diglett-shiny', species), { id: id('diglett'), key: '', shiny: true });
+  assert.deepEqual(authoredTarget('cramorant-gulping', species), { id: id('cramorant'), key: '-form-cramorant-gulping', shiny: false });
+  assert.deepEqual(authoredTarget('darmanitan-galar-zen', species), {
+    id: id('darmanitan-galar-standard'),
+    key: '-form-darmanitan-galar-zen',
+    shiny: false,
+  });
+  assert.deepEqual(authoredTarget('jellicent-female-shiny', species), { id: id('jellicent'), key: '-female', shiny: true });
+  // A variety that is a Pokémon of its own is itself, not its species' female.
+  assert.equal(authoredTarget('oinkologne-female', species)?.key, '');
+  assert.equal(authoredTarget('not-a-pokemon', species), null);
+});
