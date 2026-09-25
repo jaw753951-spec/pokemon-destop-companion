@@ -170,38 +170,75 @@ export const SET_FORMES = new Map([
 ]);
 
 /**
- * The moves a shape a key item gives brings with it, which the games swap in
- * for the last shape's when the item is used — place for place, so the first
- * of one shape's moves becomes the first of the next's.
+ * What changing shape with a key item does to a Pokémon's moves, by species,
+ * the way the games do it.
  *
- * Each of Rotom's appliances has its move, and the species' own shape has a
- * Thunder Shock. A fused Kyurem trades its Scary Face and Glaciate for the
- * fused moves of Zekrom or Reshiram, and an unbound Hoopa its Hyperspace Hole
- * for a Hyperspace Fury. A Calyrex on its steed and a Necrozma that has taken
- * in the light learn the move of the one they joined, and forget it again
- * when the two part.
+ * `moves` names the moves each shape brings, place for place: the first of
+ * one shape's becomes the first of the next's wherever it is known. Past
+ * that, the species decides.
  *
- * @type {Map<string, string[]>}
+ * - `learns`: a shape whose move was not known is learned into a free slot,
+ *   or over one the player picks; without `learns` (Kyurem, Hoopa) a move is
+ *   only ever traded for the one standing in its place, and nothing is added.
+ * - `required`: the shape cannot be taken without its move — a Rotom that
+ *   will not make room for Overheat stays out of the oven. Otherwise the
+ *   player may give the move up and change anyway.
+ * - `fallback`: what a Pokémon left with no moves remembers — Thunder Shock
+ *   for a Rotom out of its appliance, Confusion for a Calyrex or a Necrozma
+ *   that has parted from its partner.
+ * - `unlearnable`: going back to its own shape, it also forgets every move its
+ *   own shape cannot learn, as a Calyrex off its steed does.
+ *
+ * @type {Map<string, {moves: Record<string, string[]>, learns?: boolean, required?: boolean, fallback?: string, unlearnable?: boolean}>}
  */
-export const FORME_MOVES = new Map([
-  ['rotom', ['thunder-shock']],
-  ['rotom-heat', ['overheat']],
-  ['rotom-wash', ['hydro-pump']],
-  ['rotom-frost', ['blizzard']],
-  ['rotom-fan', ['air-slash']],
-  ['rotom-mow', ['leaf-storm']],
-  ['kyurem', ['scary-face', 'glaciate']],
-  ['kyurem-black', ['fusion-bolt', 'freeze-shock']],
-  ['kyurem-white', ['fusion-flare', 'ice-burn']],
-  ['hoopa', ['hyperspace-hole']],
-  ['hoopa-unbound', ['hyperspace-fury']],
-  ['calyrex', []],
-  ['calyrex-ice', ['glacial-lance']],
-  ['calyrex-shadow', ['astral-barrage']],
-  ['necrozma', []],
-  ['necrozma-dusk', ['sunsteel-strike']],
-  ['necrozma-dawn', ['moongeist-beam']],
+export const FORME_MOVE_RULES = new Map([
+  [
+    'rotom',
+    {
+      learns: true,
+      required: true,
+      fallback: 'thunder-shock',
+      moves: {
+        'rotom-heat': ['overheat'],
+        'rotom-wash': ['hydro-pump'],
+        'rotom-frost': ['blizzard'],
+        'rotom-fan': ['air-slash'],
+        'rotom-mow': ['leaf-storm'],
+      },
+    },
+  ],
+  [
+    'kyurem',
+    {
+      moves: {
+        kyurem: ['scary-face', 'glaciate'],
+        'kyurem-black': ['fusion-bolt', 'freeze-shock'],
+        'kyurem-white': ['fusion-flare', 'ice-burn'],
+      },
+    },
+  ],
+  ['hoopa', { moves: { hoopa: ['hyperspace-hole'], 'hoopa-unbound': ['hyperspace-fury'] } }],
+  [
+    'calyrex',
+    {
+      learns: true,
+      fallback: 'confusion',
+      unlearnable: true,
+      moves: { 'calyrex-ice': ['glacial-lance'], 'calyrex-shadow': ['astral-barrage'] },
+    },
+  ],
+  [
+    'necrozma',
+    {
+      learns: true,
+      fallback: 'confusion',
+      moves: { 'necrozma-dusk': ['sunsteel-strike'], 'necrozma-dawn': ['moongeist-beam'] },
+    },
+  ],
 ]);
+
+/** Every shape's own moves, by the shape. @type {Map<string, string[]>} */
+export const FORME_MOVES = new Map([...FORME_MOVE_RULES.values()].flatMap((rule) => Object.entries(rule.moves)));
 
 /**
  * Every item that exists for one species' sake, with the species it is for —
@@ -316,25 +353,36 @@ export const settleHeldForme = settleForme;
  *   false when the item does nothing for it
  */
 export function useFormeItem(pokemon, item) {
+  const next = nextForme(pokemon, item);
+  if (next === false) return false;
+  if (next) pokemon.standing = next;
+  else delete pokemon.standing;
+  settleForme(pokemon);
+  return next;
+}
+
+/**
+ * The shape a key item would put a Pokémon in, without putting it there — so
+ * what the change costs can be asked about first.
+ *
+ * @param {{speciesId: number, standing?: string|null}|null|undefined} pokemon
+ * @param {string} item
+ * @returns {string|null|false} the forme (null for its own), or false when the
+ *   item does nothing for it
+ */
+export function nextForme(pokemon, item) {
   const species = speciesOf(pokemon?.speciesId);
   const set = SET_FORMES.get(item);
   if (set?.has(species?.slug ?? '')) {
     const wanted = set.get(species?.slug ?? '') ?? null;
     if (wanted && !hasForme(species, wanted)) return false;
-    if ((pokemon.standing ?? null) === wanted) return false;
-    if (wanted) pokemon.standing = wanted;
-    else delete pokemon.standing;
-    settleForme(pokemon);
+    if ((pokemon?.standing ?? null) === wanted) return false;
     return wanted;
   }
   const cycle = USE_FORMES.get(item)?.get(species?.slug ?? '')?.filter((slug) => hasForme(species, slug));
   if (!cycle?.length) return false;
-  const at = cycle.indexOf(pokemon.standing ?? '');
-  const next = at < 0 ? cycle[0] : cycle[at + 1] ?? null;
-  if (next) pokemon.standing = next;
-  else delete pokemon.standing;
-  settleForme(pokemon);
-  return next;
+  const at = cycle.indexOf(pokemon?.standing ?? '');
+  return at < 0 ? cycle[0] : cycle[at + 1] ?? null;
 }
 
 /**

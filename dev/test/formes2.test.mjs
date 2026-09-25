@@ -13,7 +13,7 @@ import { artOf, gameData, speciesIdBySlug } from '../../app/renderer/core/data.m
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { WEATHER } from '../../app/renderer/engine/field.mjs';
 import { HELD_FORMES, SCHOOLING_LEVEL, settleForme, standingTypes } from '../../app/renderer/engine/forms.mjs';
-import { itemActions, useItem } from '../../app/renderer/engine/items.mjs';
+import { formeMoveNeed, itemActions, useItem } from '../../app/renderer/engine/items.mjs';
 import { availableMoves, createPokemon, evolveInto, maxHp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { battlerArt } from '../../app/renderer/render/battler.mjs';
@@ -156,12 +156,20 @@ test('a fusion trades its moves, and parting forgets what the fusion brought', o
   assert.equal(kyurem.forme ?? null, null);
   assert.deepEqual(kyurem.moves.map((slot) => slot.move), ['scary-face', 'glaciate', 'dragon-pulse']);
 
+  // A Kyurem only trades: one that knows neither move gains nothing.
+  const plain = make('kyurem', 70, ['dragon-pulse']);
+  useItem(bag({ 'dna-splicers': 1 }, plain), 'dna-splicers');
+  assert.deepEqual(plain.moves.map((slot) => slot.move), ['dragon-pulse']);
+
+  // A Calyrex learns its steed's move, and off the steed forgets it along
+  // with whatever only the rider could learn.
   const calyrex = make('calyrex', 70, ['psychic', 'giga-drain']);
   const reins = bag({ 'reins-of-unity': 1 }, calyrex);
   useItem(reins, 'reins-of-unity');
   assert.deepEqual(calyrex.moves.map((slot) => slot.move), ['psychic', 'giga-drain', 'glacial-lance']);
+  setMove(calyrex, 3, 'icicle-crash');
   useItem(reins, 'reins-of-unity');
-  assert.deepEqual(calyrex.moves.map((slot) => slot.move), ['psychic', 'giga-drain', 'astral-barrage']);
+  assert.deepEqual(calyrex.moves.map((slot) => slot.move), ['psychic', 'giga-drain', 'astral-barrage', 'icicle-crash']);
   useItem(reins, 'reins-of-unity');
   assert.deepEqual(calyrex.moves.map((slot) => slot.move), ['psychic', 'giga-drain']);
 
@@ -176,8 +184,52 @@ test('a fusion trades its moves, and parting forgets what the fusion brought', o
 
   // A Necrozma's Sunsteel Strike is in no learnset; the fusion is where it
   // comes from, and the move list offers it while the fusion lasts.
-  const necrozma = make('necrozma', 70, ['psychic', 'x-scissor', 'rock-slide', 'swords-dance']);
+  const necrozma = make('necrozma', 70, ['psychic', 'x-scissor', 'rock-slide']);
   useItem(bag({ 'n-solarizer--merge': 1 }, necrozma), 'n-solarizer--merge');
   assert.equal(necrozma.forme, 'necrozma-dusk');
+  assert.equal(necrozma.moves[3].move, 'sunsteel-strike');
   assert.ok(availableMoves(necrozma).includes('sunsteel-strike'));
+});
+
+test('a full moveset asks what the new move goes over, and a Rotom cannot skip it', options, () => {
+  // A Calyrex with four moves may give Glacial Lance up and ride anyway…
+  const calyrex = make('calyrex', 70, ['psychic', 'giga-drain', 'energy-ball', 'solar-beam']);
+  const reins = bag({ 'reins-of-unity': 1 }, calyrex);
+  assert.deepEqual(formeMoveNeed(reins, 'reins-of-unity'), {
+    move: 'glacial-lance',
+    required: false,
+    moves: ['psychic', 'giga-drain', 'energy-ball', 'solar-beam'],
+  });
+  const gaveUp = useItem(reins, 'reins-of-unity');
+  assert.equal(gaveUp.ok, true);
+  assert.equal(calyrex.forme, 'calyrex-ice');
+  assert.ok(!calyrex.moves.some((slot) => slot.move === 'glacial-lance'));
+
+  // …or learn it over the move the player picked.
+  const picked = make('calyrex', 70, ['psychic', 'giga-drain', 'energy-ball', 'solar-beam']);
+  useItem(bag({ 'reins-of-unity': 1 }, picked), 'reins-of-unity', { forget: 1 });
+  assert.deepEqual(picked.moves.map((slot) => slot.move), ['psychic', 'glacial-lance', 'energy-ball', 'solar-beam']);
+
+  // A Rotom that will not make room stays out of the appliance.
+  const rotom = make('rotom', 40, ['thunder-shock', 'thunderbolt', 'shadow-ball', 'discharge']);
+  const catalog = bag({ 'rotom-catalog': 1 }, rotom);
+  assert.equal(formeMoveNeed(catalog, 'rotom-catalog')?.required, true);
+  assert.equal(useItem(catalog, 'rotom-catalog').ok, false);
+  assert.equal(rotom.forme ?? null, null);
+  assert.equal(useItem(catalog, 'rotom-catalog', { forget: 3 }).ok, true);
+  assert.equal(rotom.forme, 'rotom-heat');
+  assert.deepEqual(rotom.moves.map((slot) => slot.move), ['thunder-shock', 'thunderbolt', 'shadow-ball', 'overheat']);
+  // The next appliance's move takes the last one's place, with no question.
+  assert.equal(formeMoveNeed(catalog, 'rotom-catalog'), null);
+  useItem(catalog, 'rotom-catalog');
+  assert.equal(rotom.moves[3].move, 'hydro-pump');
+
+  // Back in its own shape it forgets the appliance's move, and one that knew
+  // nothing else remembers a Thunder Shock.
+  rotom.standing = 'rotom-mow';
+  settleForme(rotom);
+  rotom.moves = [{ move: 'leaf-storm', pp: 5, ppUp: 0 }];
+  useItem(catalog, 'rotom-catalog');
+  assert.equal(rotom.forme ?? null, null);
+  assert.deepEqual(rotom.moves.map((slot) => slot.move), ['thunder-shock']);
 });

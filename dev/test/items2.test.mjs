@@ -131,11 +131,13 @@ test('a nectar sets an Oricorio’s style and is drunk; a catalog turns Rotom an
   assert.equal(oricorio.forme, 'oricorio-pom-pom');
   assert.equal(session.bag['yellow-nectar'], undefined);
 
+  // Out of its own shape, a Rotom keeps its Thunder Shock and learns the
+  // appliance's move beside it.
   const rotom = make('rotom', 30, ['thunder-shock', 'thunderbolt']);
   session.active = rotom;
   assert.equal(useItem(session, 'rotom-catalog').ok, true);
   assert.equal(rotom.forme, 'rotom-heat');
-  assert.equal(rotom.moves[0].move, 'overheat');
+  assert.deepEqual(rotom.moves.map((slot) => slot.move), ['thunder-shock', 'thunderbolt', 'overheat']);
   assert.equal(session.bag['rotom-catalog'], 1);
 });
 

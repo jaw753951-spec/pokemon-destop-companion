@@ -9,7 +9,7 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { AFTER_BATTLE_TARGETS, equipItem, itemActions, itemNeedsChoice, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, useItem } from '../engine/items.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
@@ -368,6 +368,27 @@ function itemButtons(app, session, slug, refresh) {
       })));
       if (picked === null) return;
       choice = { stat: picked };
+    }
+    // A new shape whose move has no room: the player picks what it goes over,
+    // or — where the games allow it — lets the move go. Backing out of the
+    // question is backing out of using the item.
+    const forme = kind === 'use' ? formeMoveNeed(session, slug) : null;
+    if (forme) {
+      const pokemon = session.active;
+      const moveName = (move) => localized(moveOf(move)?.name, move);
+      const picked = await chooseAction(
+        app,
+        t('items.formeForgetWhich', {
+          name: pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, ''),
+          move: moveName(forme.move),
+        }),
+        [
+          ...forme.moves.map((move, index) => ({ label: moveName(move), value: String(index) })),
+          ...(forme.required ? [] : [{ label: t('items.formeGiveUp'), value: 'none', danger: true }]),
+        ],
+      );
+      if (picked === null) return;
+      if (picked !== 'none') choice = { forget: Number(picked) };
     }
     const result = kind === 'equip' ? equipItem(session, slug) : useItem(session, slug, choice);
     app.toast(result.message ?? t('items.cannotUse'));
