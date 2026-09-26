@@ -269,9 +269,6 @@ export function weightPower(move, userWeight, targetWeight) {
   return ratio >= 5 ? 120 : ratio >= 4 ? 100 : ratio >= 3 ? 80 : ratio >= 2 ? 60 : 40;
 }
 
-/** The forme whose Tera Starstorm is Stellar. */
-const STELLAR_FORME = 'terapagos-stellar';
-
 /** The two-turn moves that need no charging when the sun is out. */
 const SUN_CHARGED = new Set(['solar-beam', 'solar-blade']);
 
@@ -1254,25 +1251,6 @@ export class Battle {
         if (!item) return;
         log.push({ kind: 'berry', side: target.side, data: { item } });
         target.pokemon.heldItem = null;
-      },
-
-      /** Weather and terrain both gone, whoever laid them. */
-      clearField: () => {
-        const cleared = [];
-        if (this.field.weather) {
-          log.push({ kind: 'weatherEnded', data: { value: this.field.weather } });
-          this.field.weather = null;
-          this.field.weatherTurns = 0;
-          cleared.push('weather');
-        }
-        if (this.field.terrain) {
-          log.push({ kind: 'terrainEnded', data: { value: this.field.terrain } });
-          this.field.terrain = null;
-          this.field.terrainTurns = 0;
-          cleared.push('terrain');
-        }
-        if (cleared.includes('weather')) this.evaluateFormes(log);
-        return cleared.length > 0;
       },
 
       /** @param {Combatant} target @param {number} chance */
@@ -2872,15 +2850,9 @@ export class Battle {
     if (attacker.marks.forme === 'morpeko-hangry' && moveOf('aura-wheel')?.id === move.id) {
       move = { ...move, type: 'dark' };
     }
-    // A Stellar Terapagos's Tera Starstorm is Stellar — neutral on everything
-    // — and hits from whichever of its two attacking stats is higher.
     // A Photon Geyser strikes from whichever attacking stat is higher.
     if (moveOf('photon-geyser')?.id === move.id) {
       move = { ...move, damageClass: this.stat(attacker, 'atk') > this.stat(attacker, 'spa') ? 'physical' : 'special' };
-    }
-    if (attacker.marks.forme === STELLAR_FORME && moveOf('tera-starstorm')?.id === move.id) {
-      const physical = this.stat(attacker, 'atk') > this.stat(attacker, 'spa');
-      move = { ...move, type: 'stellar', damageClass: physical ? 'physical' : 'special' };
     }
     // A Weather Ball, a Terrain Pulse, a Natural Gift: the type the field or
     // the berry gives it.
@@ -3723,6 +3695,9 @@ export class Battle {
    */
   bustForme(attacker, defender, move) {
     if (defender.marks.formeBroken) return false;
+    // The disguise and the ice are the Pokémon's own body: a Ditto that
+    // copied the ability has neither, and takes the hit as anything would.
+    if (defender.transform || !this.bustedFormeOf(defender.pokemon)) return false;
     const busted = this.abilityOf(defender, attacker)?.busted;
     // An Ice Face only stops a physical blow; a Disguise stops anything.
     if (busted === 'physical') return move?.damageClass === 'physical';
@@ -3951,8 +3926,8 @@ export class Battle {
       Math.floor((Math.floor((2 * level) / 5 + 2) * (move.power ?? 0) * attack) / defence) / 50,
     ) + 2;
 
-    // Stellar and typeless moves have no type to match.
-    const stab = move.type !== 'stellar' && this.typesOf(attacker).includes(move.type) ? 1.5 : 1;
+    // Typeless moves have no type to match.
+    const stab = move.type !== 'typeless' && this.typesOf(attacker).includes(move.type) ? 1.5 : 1;
 
     // Burn halves physical damage, unless the ability holding it is the sort
     // that thrives on a condition, or the move is a Facade.
@@ -4028,7 +4003,7 @@ export class Battle {
    * @param {Combatant} defender
    */
   effectivenessOf(attacker, move, defender) {
-    if (move.type === 'stellar' || move.type === 'typeless') return 1;
+    if (move.type === 'typeless') return 1;
     const slug = this.slugOf(move);
     let types = this.typesOf(defender);
 

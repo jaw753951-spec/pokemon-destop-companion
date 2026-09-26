@@ -495,3 +495,120 @@ function toHsv(red, green, blue) {
   }
   return [hue, max > 0 ? chroma / max : 0, max];
 }
+
+/**
+ * A pixel-art drawing at half its size, drawn the way a person shrinking it
+ * by hand would keep it: its outline unbroken and its shapes in their own
+ * colours.
+ *
+ * Keeping one pixel of every two by two — whichever sits at a fixed corner —
+ * is what breaks a sprite up: a one-pixel outline survives on one parity and
+ * vanishes on the other, and the colours inside come out as a scatter of
+ * whichever happened to fall on the corner. Here each two-by-two block is
+ * read whole instead. The outline colour is the darkest colour the drawing
+ * uses to any extent (three hundredths of its pixels or more); a block on the
+ * drawing's edge that holds any of it keeps the line, a block with a single
+ * pixel keeps it only if it is line, and every other block takes its most
+ * common colour, the darker on a tie.
+ *
+ * @param {Raster} source
+ * @returns {Raster}
+ */
+export function shrinkPixelArt(source) {
+  const width = Math.floor(source.width / 2);
+  const height = Math.floor(source.height / 2);
+  const key = (index) => (source.data[index] << 16) | (source.data[index + 1] << 8) | source.data[index + 2];
+  const light = (colour) => 0.299 * (colour >> 16) + 0.587 * ((colour >> 8) & 255) + 0.114 * (colour & 255);
+
+  /** @type {Map<number, number>} */
+  const counts = new Map();
+  let opaque = 0;
+  for (let index = 0; index < source.data.length; index += 4) {
+    if (source.data[index + 3] < 128) continue;
+    opaque++;
+    counts.set(key(index), (counts.get(key(index)) ?? 0) + 1);
+  }
+  const outline = [...counts]
+    .filter(([, count]) => count >= opaque * 0.03)
+    .map(([colour]) => colour)
+    .sort((a, b) => light(a) - light(b))[0];
+
+  const out = createRaster(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const solid = [];
+      for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+        const index = ((y * 2 + dy) * source.width + x * 2 + dx) * 4;
+        if (source.data[index + 3] >= 128) solid.push(index);
+      }
+      if (!solid.length) continue;
+      const line = solid.find((index) => key(index) === outline);
+      let pick;
+      if (solid.length === 1) {
+        if (line === undefined) continue;
+        pick = line;
+      } else if (line !== undefined && solid.length < 4) {
+        pick = line;
+      } else {
+        /** @type {Map<number, number[]>} */
+        const tally = new Map();
+        for (const index of solid) tally.set(key(index), [...(tally.get(key(index)) ?? []), index]);
+        pick = [...tally.values()].sort((a, b) => b.length - a.length || light(key(a[0])) - light(key(b[0])))[0][0];
+      }
+      out.data.set(source.data.subarray(pick, pick + 4), (y * width + x) * 4);
+    }
+  }
+  return out;
+}
+
+/**
+ * Whether a drawing is pixel art blown up to twice its size — every pixel a
+ * two-by-two block of one colour — and on which parity the blocks sit.
+ *
+ * @param {Raster} source
+ * @returns {{share: number, dx: number, dy: number}} the share of the drawn
+ *   blocks that are one colour, at the parity where it is highest
+ */
+export function doubledPixels(source) {
+  const colour = (x, y) => {
+    const index = (y * source.width + x) * 4;
+    return source.data[index + 3] < 128 ? -1 : (source.data[index] << 16) | (source.data[index + 1] << 8) | source.data[index + 2];
+  };
+  let best = { share: 0, dx: 0, dy: 0 };
+  for (const [dx, dy] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
+    let blocks = 0;
+    let whole = 0;
+    for (let y = dy; y + 1 < source.height; y += 2) {
+      for (let x = dx; x + 1 < source.width; x += 2) {
+        const first = colour(x, y);
+        if (first < 0) continue;
+        blocks++;
+        if (first === colour(x + 1, y) && first === colour(x, y + 1) && first === colour(x + 1, y + 1)) whole++;
+      }
+    }
+    const share = blocks ? whole / blocks : 0;
+    if (share > best.share) best = { share, dx, dy };
+  }
+  return best;
+}
+
+/**
+ * A drawing blown up to twice its size, back at its own: one pixel of each
+ * two-by-two block, on the parity the blocks sit on. Nothing is lost.
+ *
+ * @param {Raster} source
+ * @param {{dx: number, dy: number}} parity from {@link doubledPixels}
+ * @returns {Raster}
+ */
+export function undouble(source, { dx, dy }) {
+  const width = Math.floor((source.width - dx) / 2);
+  const height = Math.floor((source.height - dy) / 2);
+  const out = createRaster(width, height);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const from = ((y * 2 + dy) * source.width + x * 2 + dx) * 4;
+      out.data.set(source.data.subarray(from, from + 4), (y * width + x) * 4);
+    }
+  }
+  return out;
+}

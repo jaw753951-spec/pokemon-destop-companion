@@ -8,7 +8,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Battler, fitScale } from '../../app/renderer/render/battler.mjs';
+import { Battler } from '../../app/renderer/render/battler.mjs';
+import { idleBob } from '../../app/renderer/render/field.mjs';
 
 /** A canvas context that remembers where the pen went. */
 function recorder() {
@@ -95,11 +96,6 @@ test('the arrows stay on the sprite they belong to', () => {
   }
 });
 
-test('a battler too big for its corner is scaled to fit it', () => {
-  assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 80, height: 120 }, 1), 1);
-  assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 40, height: 30 }, 1), 0.5);
-});
-
 test('a fainting Pokémon sinks straight down and is cut off at its feet', () => {
   const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
   battler.setPose('lose');
@@ -130,4 +126,83 @@ test('a fainted Pokémon stays down', () => {
   battler.setPose('lose');
   for (let step = 0; step < 30; step++) battler.update(100);
   assert.equal(battler.pose, 'lose');
+});
+
+test('a battler bobs while it waits', () => {
+  const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1, scale: 1.5 });
+
+  const lifts = new Set();
+  for (let step = 0; step < 24; step++) {
+    const { dx, dy, scale } = battler.transform();
+    // Up only, and by whole art pixels at the scale it is drawn.
+    assert.ok(dy <= 0, `a bob should never sink into the ground, saw ${dy}`);
+    assert.ok(Number.isInteger(-dy / 1.5), `a bob should move by whole art pixels, saw ${dy}`);
+    assert.equal(dx, 0);
+    assert.equal(scale, 1);
+    lifts.add(dy);
+    battler.update(40);
+  }
+  assert.ok(lifts.size > 1, 'it should rise and fall');
+  assert.equal(Math.min(...[...lifts]), -2 * 1.5);
+  assert.equal(idleBob(0), 0);
+});
+
+test('an attack is one push forward and a hit one push back, level and at its own size', () => {
+  /** @param {'attack'|'hit'} pose @param {1|-1} facing */
+  const track = (pose, facing) => {
+    const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing, scale: 2 });
+    battler.setPose(pose);
+    const moves = [];
+    while (!battler.poseDone) {
+      const transform = battler.transform();
+      assert.equal(transform.dy, 0, 'a push stays on the ground');
+      assert.equal(transform.scale, 1, 'a push does not resize the picture');
+      assert.equal(transform.rotate, 0);
+      assert.ok(Number.isInteger(transform.dx), 'by whole field pixels');
+      moves.push(transform.dx);
+      battler.update(20);
+    }
+    assert.equal(battler.pose, 'idle', 'and it settles back to waiting');
+    return moves;
+  };
+
+  for (const facing of /** @type {const} */ ([1, -1])) {
+    const attack = track('attack', facing);
+    const hit = track('hit', facing);
+    // Forward (towards the side it faces, which `draw` multiplies in) and back.
+    assert.ok(attack.every((dx) => dx >= 0) && Math.max(...attack) > 8, `attack ${attack.join(',')}`);
+    assert.ok(hit.every((dx) => dx <= 0) && Math.min(...hit) < -8, `hit ${hit.join(',')}`);
+    // Once: out to the far end, then back, never out again.
+    const turn = attack.indexOf(Math.max(...attack));
+    for (let i = 1; i <= turn; i++) assert.ok(attack[i] >= attack[i - 1]);
+    for (let i = turn + 1; i < attack.length; i++) assert.ok(attack[i] <= attack[i - 1]);
+  }
+
+  // The hit is washed red, fading as it settles.
+  const hit = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  hit.setPose('hit');
+  const first = hit.transform().flash;
+  hit.update(200);
+  assert.ok(first > hit.transform().flash && hit.transform().flash > 0);
+});
+
+test('the far platform moves down the backdrop and the bands close up behind it', async () => {
+  const { lowerFoePlatform } = await import('../tools/build/battle.mjs');
+  // Two bands of one colour a row, and a "platform" of another on the right.
+  const width = 160;
+  const height = 60;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) data.set(y % 2 ? [10, 10, 10, 255] : [20, 20, 20, 255], (y * width + x) * 4);
+  }
+  for (let y = 10; y < 14; y++) for (let x = 120; x < 150; x++) data.set([200, 0, 0, 255], (y * width + x) * 4);
+  const moved = lowerFoePlatform({ width, height, data }, 5);
+  const at = (x, y) => [...moved.data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3)];
+  assert.deepEqual(at(130, 15), [200, 0, 0]);
+  assert.deepEqual(at(130, 18), [200, 0, 0]);
+  // Where it stood is its rows' own bands again.
+  assert.deepEqual(at(130, 10), [20, 20, 20]);
+  assert.deepEqual(at(130, 11), [10, 10, 10]);
+  // And nothing on the left moves.
+  assert.deepEqual(at(50, 12), [20, 20, 20]);
 });

@@ -17,16 +17,6 @@ export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/maste
 export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
 
 /**
- * The PMD Sprite Collab: the field art every Pokémon walks the road in.
- *
- * One density of pixel art for the whole dex, walking and standing in all
- * eight directions — which the box icons the field used before are not. It is
- * published under CC BY-NC 4.0, credit given per sprite, and the build keeps
- * the list of artists the game ships so the credits screen can name them.
- */
-export const SPRITE_COLLAB = 'https://raw.githubusercontent.com/PMDCollab/SpriteCollab/master';
-
-/**
  * How a move is classified — contact, sound, powder, punch and the rest.
  *
  * PokeAPI has no field for it, and the decompilations only carry the flags
@@ -211,5 +201,3 @@ export const HOENN_BADGE_TYPES = [
   'water',
 ];
 
-/** Cap on stored animation frames per sprite state. */
-export const MAX_SPRITE_FRAMES = 10;

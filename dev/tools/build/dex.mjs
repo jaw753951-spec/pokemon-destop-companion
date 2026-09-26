@@ -199,7 +199,6 @@ const KEPT_ITEMS = {
  * @type {Record<string, {held?: any, use?: any}>}
  */
 const FORM_ITEMS = {
-  'tera-orb': { held: { on: 'forme' } },
   'adamant-crystal': { held: { on: 'damage', species: ['dialga'], moveTypes: ['dragon', 'steel'], multiplier: 1.2 } },
   'lustrous-globe': { held: { on: 'damage', species: ['palkia'], moveTypes: ['dragon', 'water'], multiplier: 1.2 } },
   'griseous-orb': {},
@@ -286,9 +285,9 @@ async function buildTypes(pool, log) {
       pool(async () => {
         const type = await fetchJson(`${POKEAPI}${entry.url.replace('/api/v2', '')}index.json`);
         if (type.name === 'unknown' || type.name === 'shadow') return;
-        // Stellar is no type a Pokémon has — it is what a Stellar Terapagos's
-        // Tera Starstorm becomes, and it lands neutrally on everything. It is
-        // kept for its name and marked so the lists of types leave it out.
+        // Stellar is no type a Pokémon has — it is a Terastallization's, which
+        // this game does not have. It is kept for its name and marked so the
+        // lists of types leave it out.
         if (type.name === 'stellar') {
           const name = Object.fromEntries(
             Object.entries(nameBundle(type.names, type.name)).map(([code, text]) => [code, String(text).trim()]),
@@ -1874,8 +1873,8 @@ const FORM_FORME = new Map([
   // One forme per mask.
   ['ogerpon', null],
   // The legendaries' own: the ones a held item, a key item or a battle
-  // brings on (see `forms.mjs` for which is which).
-  ['terapagos', null],
+  // brings on (see `forms.mjs` for which is which). Terapagos's Terastal and
+  // Stellar Forms are left out with the Terastal phenomenon they belong to.
   ['necrozma', null],
   ['kyurem', null],
   ['hoopa', null],
@@ -1910,8 +1909,6 @@ const FORME_NAMES_KO = {
   'dialga-origin': '오리진폼',
   'palkia-origin': '오리진폼',
   'enamorus-therian': '영물폼',
-  'terapagos-terastal': '테라스탈폼',
-  'terapagos-stellar': '스텔라폼',
 };
 
 /** Arceus's formes are named by their type. @type {Record<string, string>} */
@@ -1988,8 +1985,7 @@ const FORM_TRIGGER = new Map([
   ['arceus', 'item'],
   ['silvally', 'item'],
   ['genesect', 'item'],
-  // Held items that only take hold once a battle opens, and Tera Shift.
-  ['terapagos', 'start'],
+  // Held items that only take hold once a battle opens.
   ['kyogre', 'start'],
   ['groudon', 'start'],
   ['zacian', 'start'],

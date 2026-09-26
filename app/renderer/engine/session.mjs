@@ -38,6 +38,9 @@ export class Session {
       // (a Zen Mode, a Primal Kyogre) is let go of, and a held or chosen one
       // put back on.
       if (pokemon) settleForme(pokemon);
+      // And holding nothing the game no longer carries, the way the bag below
+      // keeps nothing of it: a Tera Orb, from before the Terastal formes went.
+      if (pokemon?.heldItem && !gameData().items[pokemon.heldItem]) pokemon.heldItem = null;
     }
     /**
      * The bag, less anything the game no longer carries: a save written before

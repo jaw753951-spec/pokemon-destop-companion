@@ -8,8 +8,7 @@
  * unlocked.
  */
 import { MOVE_FLAG_SET } from '../../shared/move-flags.mjs';
-import { url } from '../core/bridge.mjs';
-import { abilityOf, artOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
+import { abilityOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilityName, abilityInert, abilityWorks } from '../engine/abilities.mjs';
@@ -40,16 +39,13 @@ export function pokemonTab(app, session, refresh, state = {}) {
   const level = levelOf(pokemon);
   const progress = experienceProgress(pokemon);
   const name = localized(species?.name, '');
-  // The companion as it walks the road, so the tab shows the Pokémon the
-  // player has been watching rather than its battle sprite; the battle art is
-  // only for a species with no field art at all.
+  // The companion as it walks the road, in the one picture it has everywhere.
   const walker = walkerPortrait(pokemon, { maxHeight: PORTRAIT_MAX_HEIGHT, label: name });
-  const portrait = walker ? null : artOf(pokemon, 'front');
 
   return el('div.tab-body.pokemon-tab', {}, [
     el('div.pokemon-left', {}, [
-      walker ?? (portrait ? animatedPortrait(portrait, name) : null),
-      statHexagon({ base: baselineStats(species, level), actual: stats }),
+      walker,
+      statHexagon({ base: baselineStats(pokemon, level), actual: stats }),
       statTable(stats, pokemon.evs),
     ]),
 
@@ -141,62 +137,26 @@ function heldLine(app, session, refresh) {
  *
  * Plotting that under the Pokémon's real stats makes the hexagon show what the
  * companion's own training has added, rather than just the species' shape.
+ * A forme with stats of its own is measured against those — a Speed Forme
+ * Deoxys has not trained its Defense away.
  *
- * @param {any} species
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  * @param {number} level
  * @returns {Record<string, number>}
  */
-function baselineStats(species, level) {
+function baselineStats(pokemon, level) {
+  const species = speciesOf(pokemon.speciesId);
+  const base = (pokemon.forme && species?.forms?.find((form) => form.slug === pokemon.forme)?.stats) || species?.stats;
   /** @type {Record<string, number>} */
   const out = {};
   for (const stat of STATS) {
-    out[stat] = computeStat(species?.stats?.[stat] ?? 1, 0, 0, level, 1, stat === 'hp');
+    out[stat] = computeStat(base?.[stat] ?? 1, 0, 0, level, 1, stat === 'hp');
   }
   return out;
 }
 
 /** The tallest the portrait may stand above the stat hexagon, in pixels. */
 const PORTRAIT_MAX_HEIGHT = 70;
-
-/**
- * A one-frame window onto the battle sprite's strip, animated by stepping the
- * background position — for a species the field has no art for.
- *
- * @param {{path: string, meta: {width: number, height: number, frames: number, delay: number}}} art
- * @param {string} label
- */
-function animatedPortrait(art, label) {
-  const meta = art.meta;
-  const node = el('div.pokemon-portrait', {
-    role: 'img',
-    'aria-label': label,
-    style: {
-      width: `${meta.width}px`,
-      height: `${meta.height}px`,
-      backgroundImage: `url("${url('assets', art.path)}")`,
-      backgroundRepeat: 'no-repeat',
-    },
-  });
-
-  let frame = 0;
-  const step = () => {
-    node.style.backgroundPosition = `-${frame * meta.width}px 0`;
-    frame = (frame + 1) % meta.frames;
-  };
-  step();
-
-  const timer = window.setInterval(() => {
-    // Stop once the tab has been replaced, which is the only way this node
-    // leaves the document.
-    if (!node.isConnected) {
-      window.clearInterval(timer);
-      return;
-    }
-    step();
-  }, Math.max(60, meta.delay));
-
-  return node;
-}
 
 /**
  * The panel under the four slots: what the chosen move does, and the way to

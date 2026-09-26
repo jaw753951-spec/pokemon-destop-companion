@@ -10,8 +10,8 @@ import assert from 'node:assert/strict';
 
 import { setGameData } from '../../app/renderer/core/data.mjs';
 import { Sprite } from '../../app/renderer/core/assets.mjs';
-import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE, strideFrame, WALK_SPEED } from '../../app/renderer/render/field.mjs';
-import { BATTLE_ZOOM, fitScale, FOE_DEPTH } from '../../app/renderer/render/battler.mjs';
+import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE } from '../../app/renderer/render/field.mjs';
+import { BATTLE_SCALE } from '../../app/renderer/render/battler.mjs';
 import { companionArmour } from '../../app/renderer/engine/battle.mjs';
 import { treeFor } from '../../app/renderer/scenes/fieldevents.mjs';
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS, FIELD_ZOOM } from '../../app/shared/constants.mjs';
@@ -51,20 +51,10 @@ test('a bigger Pokémon is bigger because its art is', () => {
   assert.equal(actorScale(null, { speciesId: 10 }), ACTOR_SCALE, 'no sprite falls back to the prop scale');
 });
 
-test('a battle draws both sides in whole screen pixels', () => {
-  assert.ok(Number.isInteger(BATTLE_ZOOM * FIELD_ZOOM), 'the near side');
-  assert.ok(Number.isInteger(BATTLE_ZOOM * FOE_DEPTH * FIELD_ZOOM), 'the far side');
+test('a battle draws both sides in whole screen pixels, and shrinks nothing to fit', () => {
+  // Both sides at the road's own size of pixel.
+  assert.equal(BATTLE_SCALE * FIELD_ZOOM, POKEMON_SCALE * FIELD_ZOOM);
 
-  const room = { width: 100, height: 60 };
-  // One that fits is drawn at the size asked for.
-  assert.equal(fitScale(/** @type {any} */ (sprite(20, 20)), room, 2), 2);
-  // One that does not is brought down to fit — in half steps, never to an
-  // arbitrary fraction that would make it of pixels of two sizes.
-  const shrunk = fitScale(/** @type {any} */ (sprite(88, 67)), room, 2);
-  assert.ok(shrunk * 67 <= 60 && shrunk * 88 <= 100, `still overruns at ${shrunk}`);
-  assert.ok(Number.isInteger(shrunk * FIELD_ZOOM), `scale ${shrunk}`);
-  // And never to nothing, however large.
-  assert.ok(fitScale(/** @type {any} */ (sprite(900, 900)), room, 2) > 0);
 });
 
 test('a strip that times its frames unequally plays them for their own lengths', () => {
@@ -78,16 +68,6 @@ test('a strip that times its frames unequally plays them for their own lengths',
   assert.equal(strip.frameAt(400), 0);
   // A strip with no timings of its own holds every frame for the one delay.
   assert.equal(new Sprite(/** @type {any} */ ({}), { width: 10, height: 10, frames: 3, delay: 100 }).frameAt(250), 2);
-});
-
-test('the walk steps with the road, not with the clock', () => {
-  const strip = new Sprite(/** @type {any} */ ({}), { width: 10, height: 10, frames: 4, delay: 100, durations: [100, 100, 100, 100] });
-  // Standing still, the same frame however long it stands.
-  assert.equal(strideFrame(strip, 0), strideFrame(strip, 0));
-  // Walking, the feet move as the road does.
-  const frames = new Set();
-  for (let distance = 0; distance < WALK_SPEED; distance += 2) frames.add(strideFrame(strip, distance));
-  assert.equal(frames.size, 4, 'a second of road is a whole walk cycle and then some');
 });
 
 test('the companion takes half of everything, and a weakness costs it half again', () => {

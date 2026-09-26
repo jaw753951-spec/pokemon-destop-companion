@@ -221,3 +221,56 @@ test('combineMetatiles places secondary metatiles after the primary block', () =
   assert.equal(combined[512 * 8], 0x0abc);
   assert.equal(combined.length, (512 + 1) * 8);
 });
+
+test('pixel art shrinks with its outline whole, and a blown-up drawing comes back exactly', async () => {
+  const { shrinkPixelArt, doubledPixels, undouble } = await import('../tools/lib/image.mjs');
+  const raster = (width, height, paint) => {
+    const data = new Uint8Array(width * height * 4);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) {
+        const colour = paint(x, y);
+        if (!colour) continue;
+        data.set([...colour, 255], (y * width + x) * 4);
+      }
+    }
+    return { width, height, data };
+  };
+  // A red square with a one-pixel black outline on the odd rows and columns:
+  // a fixed-corner sample would lose the outline on two sides.
+  const square = raster(8, 8, (x, y) =>
+    x < 1 || y < 1 || x > 6 || y > 6 ? null : x === 1 || y === 1 || x === 6 || y === 6 ? [0, 0, 0] : [200, 0, 0],
+  );
+  const small = shrinkPixelArt(square);
+  const at = (x, y) => [...small.data.subarray((y * small.width + x) * 4, (y * small.width + x) * 4 + 3)];
+  assert.deepEqual(at(0, 0), [0, 0, 0]);
+  assert.deepEqual(at(3, 3), [0, 0, 0]);
+  assert.deepEqual(at(3, 0), [0, 0, 0]);
+
+  // Every pixel doubled, on the odd parity.
+  const art = raster(3, 2, (x, y) => [x * 80, y * 80, 40]);
+  const blown = raster(7, 5, (x, y) => (x < 1 || y < 1 ? null : [((x - 1) >> 1) * 80, ((y - 1) >> 1) * 80, 40]));
+  const parity = doubledPixels(blown);
+  assert.equal(parity.share, 1);
+  assert.deepEqual([parity.dx, parity.dy], [1, 1]);
+  assert.deepEqual(undouble(blown, parity), art);
+});
+
+test('every sprite the vendored sources list is in the repository, and nothing unlisted is', async () => {
+  const { readdir, readFile: read } = await import('node:fs/promises');
+  const { join, relative } = await import('node:path');
+  const { VENDOR_DIR } = await import('../tools/lib/vendor.mjs');
+  const walk = async (dir) =>
+    (await readdir(dir, { withFileTypes: true })).flatMap((entry) => entry).reduce(async (acc, entry) => {
+      const list = await acc;
+      const path = join(dir, entry.name);
+      return entry.isDirectory() ? [...list, ...(await walk(path))] : [...list, path];
+    }, Promise.resolve(/** @type {string[]} */ ([])));
+  for (const source of ['pokeapi']) {
+    const root = join(VENDOR_DIR, source);
+    const index = JSON.parse(await read(join(root, 'index.json'), 'utf8'));
+    assert.match(index.commit, /^[0-9a-f]{40}$/, `${source} is pinned to a commit`);
+    const files = (await walk(root)).map((path) => relative(root, path)).filter((path) => path !== 'index.json');
+    assert.deepEqual([...files].sort(), [...index.present].sort(), `${source}: index and files disagree`);
+    assert.equal(index.present.filter((path) => index.absent.includes(path)).length, 0);
+  }
+});

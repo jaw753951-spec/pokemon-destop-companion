@@ -77,7 +77,7 @@ function space(app, session, index, refresh, state) {
       openMenu(app, session, index, refresh, state);
     },
   }, [
-    el('img', { src: url('assets', artPath(pokemon, 'icon') ?? ''), alt: '' }),
+    el('img', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
     shinyMark(pokemon, t('pokemon.shiny')),
   ]);
 }

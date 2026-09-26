@@ -83,7 +83,7 @@ test('every forme-changing species the engine knows is one the pipeline carried'
     );
     assert.ok(entry.forms.length, `${slug} ships no alternate forme`);
     for (const form of entry.forms) {
-      assert.ok(gameData().sprites[entry.id]?.[`form-${form.slug}`], `${slug} has no picture for ${form.slug}`);
+      assert.ok(gameData().sprites[entry.id]?.[`art-form-${form.slug}`], `${slug} has no picture for ${form.slug}`);
     }
   }
 });

@@ -24,7 +24,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
- * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}}} credits who
+ * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}, custom?: {source: string, url: string, license: string, artists: string[]}}} credits who
  *   drew what the game borrows, for the credits the licence asks for
  */
 
@@ -57,7 +57,7 @@ export async function loadGameData() {
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
-    // Written by the walkers step; a build from before it has nothing to credit.
+    // Written by the art step; a build from before it has nothing to credit.
     loadJson('data', 'credits.json').catch(() => ({})),
     loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
     loadJson('authored', 'move-texts.json').then((file) => file.moves ?? {}).catch(() => ({})),
@@ -158,49 +158,64 @@ export const abilityOf = (slug) => (slug ? gameData().abilities?.[slug] ?? null 
 export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
 
 /**
- * Where a Pokémon's art lives, and how big it is.
+ * The picture a Pokémon is shown in, and how big it is.
  *
- * A shiny Pokémon has art of its own rather than a filter over the ordinary
- * art, so the path and the measurements both move — the two palettes are
- * trimmed separately and need not leave the same margin. A species whose
- * alternate palette never built falls back to the ordinary one, which is worth
- * doing silently: a missing picture is worse than a missing sparkle.
+ * It is the front sprite Pokémon Black and White drew — official up to
+ * Genesect, drawn in the same style by the Smogon community past it — and
+ * every screen draws the same one, so which of its shapes it is in picks the
+ * file and nothing else does: the forme it is wearing, else the female of a
+ * species whose sexes look different, else the species. A shiny Pokémon has
+ * a picture of its own rather than a filter over the ordinary one; one whose
+ * shiny never built falls back on the ordinary colours, silently — a missing
+ * picture is worse than a missing sparkle.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
- * @returns {{path: string, meta: any}|null}
+ * The picture is still and faces left, as the sprites do; the screens move it
+ * rather than animating it, and mirror it to face right.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
  */
-export function artOf(pokemon, kind) {
+export const artOf = (pokemon) => pictureOf(pokemon, 'art');
+
+/**
+ * The same picture halved, as pixel art, for the road: a battle sprite at its
+ * own size stands half the field's height, where the overworld draws its
+ * people a tile or two tall.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ */
+export const fieldArtOf = (pokemon) => pictureOf(pokemon, 'field');
+
+/**
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {'art'|'field'} kind
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
+ */
+function pictureOf(pokemon, kind) {
   if (!pokemon) return null;
   const entry = gameData().sprites[pokemon.speciesId];
   if (!entry) return null;
-
-  // An alternate forme is a picture of its own beside the default's, which is
-  // why the forme is part of the path rather than a filter over it. A back is
-  // published for only some formes (a masked Ogerpon's) and no box icon for
-  // any, so those fall back to the default's — a Mimikyu that lost its
-  // disguise still walks on the same feet, and the player's own busted
-  // Mimikyu is drawn mirrored as ever.
-  const forme = pokemon.forme;
-  if (forme && (kind === 'front' || kind === 'back')) {
-    const key = `${kind === 'back' ? 'back-' : ''}form-${forme}`;
-    const formMeta = entry[key];
-    if (formMeta) {
-      const formShiny = pokemon.shiny ? entry.shiny?.[key] : null;
-      const form = formShiny ?? formMeta;
-      return {
-        path: `pokemon/${pokemon.speciesId}/${kind}-form-${forme}${form === formShiny ? '-shiny' : ''}.png`,
-        meta: form,
-      };
-    }
-  }
-
-  const shiny = pokemon.shiny ? entry.shiny?.[kind] : null;
-  const meta = shiny ?? entry[kind];
+  const key = `${kind}${shapeOf(pokemon, entry)}`;
+  const shiny = pokemon.shiny ? entry.shiny?.[key] : null;
+  const meta = shiny ?? entry[key];
   if (!meta) return null;
+  return {
+    path: `pokemon/${pokemon.speciesId}/${key}${shiny ? '-shiny' : ''}.png`,
+    meta: { width: meta.width, height: meta.height, frames: 1, delay: 1000, facing: 'left' },
+  };
+}
 
-  const suffix = shiny ? '-shiny' : '';
-  return { path: `pokemon/${pokemon.speciesId}/${kind}${suffix}.png`, meta };
+/**
+ * Which of a species' shapes a Pokémon is drawn in: `-form-<forme>`,
+ * `-female`, or nothing for the species' own.
+ *
+ * @param {{forme?: string|null, gender?: string|null}} pokemon
+ * @param {Record<string, any>} entry
+ */
+function shapeOf(pokemon, entry) {
+  if (pokemon.forme && entry[`art-form-${pokemon.forme}`]) return `-form-${pokemon.forme}`;
+  if (pokemon.gender === 'female' && entry['art-female']) return '-female';
+  return '';
 }
 
 /**
@@ -212,21 +227,29 @@ export function artOf(pokemon, kind) {
  * is exactly the moment a player is looking for the difference — and the same
  * trap again the moment a Castform walks out of the rain.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
  */
 export const spriteKey = (pokemon) =>
   pokemon
-    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}`
+    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}${
+        femaleArt(pokemon) ? ':female' : ''
+      }`
     : '';
 
 /**
- * The `pdc://` URL of a Pokémon's art, for the screens that set an `img` or a
- * CSS background rather than decoding a sprite strip.
+ * Whether a Pokémon is drawn as a female apart from its species' art.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null}|null|undefined} pokemon
- * @param {'front'|'back'|'icon'|'walk'|'idle'} kind
+ * @param {{speciesId: number, gender?: string|null}} pokemon
  */
-export const artPath = (pokemon, kind) => artOf(pokemon, kind)?.path ?? null;
+const femaleArt = (pokemon) => pokemon.gender === 'female' && Boolean(gameData().sprites?.[pokemon.speciesId]?.['art-female']);
+
+/**
+ * The `pdc://` URL of a Pokémon's picture, for the screens that set an `img`
+ * or a CSS background rather than drawing on a canvas.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ */
+export const artPath = (pokemon) => artOf(pokemon)?.path ?? null;
 
 /**
  * Damage multiplier of one attacking type against a defender's types.

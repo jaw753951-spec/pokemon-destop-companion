@@ -19,12 +19,14 @@ import {
   setMove,
 } from './pokemon.mjs';
 import { addEffort, experienceForLevel, STATS } from './stats.mjs';
-import { FORME_MOVES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
+import { FORME_MOVE_RULES, nextForme, SET_FORMES, settleForme, signatureItems, USE_FORMES, useFormeItem } from './forms.mjs';
 
 /**
- * What a player picks for an item that works on one move or one stat.
+ * What a player picks for an item that works on one move or one stat — or,
+ * for a key item whose shape brings a move with no room for it, the slot the
+ * new move goes over (`forget`). Without one, that move is given up.
  *
- * @typedef {{move?: number, stat?: string}} ItemChoice
+ * @typedef {{move?: number, stat?: string, forget?: number}} ItemChoice
  */
 
 /**
@@ -84,22 +86,37 @@ export function useItem(session, slug, choice = {}) {
 
   // A legendary's key item changes its shape and stays in the bag.
   if (item.use?.forme) {
-    const before = pokemon.standing ?? speciesOf(pokemon.speciesId)?.slug ?? '';
-    const forme = useFormeItem(pokemon, slug);
+    const own = speciesOf(pokemon.speciesId)?.slug ?? '';
+    const forme = nextForme(pokemon, slug);
     if (forme === false) {
       return { used: false, ok: false, message: t('items.formeNothing', { name: nameOf(pokemon), item: label }) };
     }
-    swapFormeMove(pokemon, before, forme ?? speciesOf(pokemon.speciesId)?.slug ?? '');
+    const plan = reshapeMoves(pokemon, pokemon.standing ?? own, forme ?? own, choice);
+    // A Rotom that will not make room for its appliance's move stays out of
+    // the appliance, and the item is not spent. A Calyrex or a Necrozma may
+    // give its partner's move up and fuse anyway.
+    if (plan.waiting && plan.required) {
+      return {
+        used: false,
+        ok: false,
+        message: t('items.formeNoRoom', { name: nameOf(pokemon), move: localized(moveOf(plan.waiting)?.name, plan.waiting) }),
+      };
+    }
+    useFormeItem(pokemon, slug);
+    pokemon.moves = plan.moves;
     // A nectar is drunk; a catalog or a meteorite stays in the bag.
     if (item.use.consumed) session.removeItem(slug);
     const form = speciesOf(pokemon.speciesId)?.forms?.find((entry) => entry.slug === forme);
-    return {
-      used: true,
-      ok: true,
-      message: form
-        ? t('items.formeChanged', { name: nameOf(pokemon), form: localized(form.name, forme ?? '') })
-        : t('items.formeReverted', { name: nameOf(pokemon) }),
-    };
+    const changed = form
+      ? t('items.formeChanged', { name: nameOf(pokemon), form: localized(form.name, forme ?? '') })
+      : t('items.formeReverted', { name: nameOf(pokemon) });
+    // What it forgot, then what it learned, in the order the games say it.
+    const moves = [
+      ...plan.forgot.map((move) => t('items.formeForgot', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) })),
+      ...plan.learned.map((move) => t('items.formeLearned', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) })),
+      ...(plan.waiting ? [t('items.formeGaveUp', { name: nameOf(pokemon), move: localized(moveOf(plan.waiting)?.name, plan.waiting) })] : []),
+    ];
+    return { used: true, ok: true, message: [changed, ...moves].join(' ') };
   }
 
   // Honey's scent calls a wild Pokémon over as the next thing to happen.
@@ -267,7 +284,9 @@ export function itemActions(session, slug) {
   // to the species it is for.
   if (item.use?.forme) {
     const species = speciesOf(session.active?.speciesId)?.slug ?? '';
-    return { use: Boolean(USE_FORMES.get(slug)?.has(species)), equip: false };
+    // A nectar sets one style rather than stepping through them, so it is
+    // filed apart from the key items — but it is used from the bag the same.
+    return { use: Boolean(USE_FORMES.get(slug)?.has(species) || SET_FORMES.get(slug)?.has(species)), equip: false };
   }
 
   return {
@@ -389,23 +408,101 @@ export function eventModifiers(session) {
 }
 
 /**
- * Swap the move one shape brought for the one the next shape brings, the
- * way a Rotom forgets its Overheat on the way out of the oven. The old move's
- * slot takes the new one; a Rotom that had forgotten the old move learns the
- * new one in a free slot if it has one, and otherwise goes without.
+ * The move a key item's new shape brings that has no room to go, if using the
+ * item would bring one — which is what the bag asks the player about first:
+ * the moves it would be learned over, and whether giving it up is allowed.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {string} slug
+ * @returns {{move: string, required: boolean, moves: string[]}|null}
+ */
+export function formeMoveNeed(session, slug) {
+  const pokemon = session.active;
+  if (!pokemon || !itemOf(slug)?.use?.forme) return null;
+  const forme = nextForme(pokemon, slug);
+  if (forme === false) return null;
+  const own = speciesOf(pokemon.speciesId)?.slug ?? '';
+  const plan = reshapeMoves(pokemon, pokemon.standing ?? own, forme ?? own);
+  return plan.waiting ? { move: plan.waiting, required: plan.required, moves: plan.moves.map((slot) => slot.move) } : null;
+}
+
+/**
+ * What a change of shape does to a Pokémon's moves, worked out on a copy so it
+ * can be asked about before anything happens (see `FORME_MOVE_RULES`).
+ *
+ * Each move the old shape brought gives way to the one the new shape brings
+ * in its place; one with nothing in its place is forgotten, and a Kyurem that
+ * learns Scary Face while fused forgets it again rather than know it twice. A
+ * new move with no old one to take the place of is learned into a free slot,
+ * or over the slot the player picked; with no slot and no pick it is left
+ * `waiting`. Back in its own shape, a Calyrex forgets whatever its own shape
+ * cannot learn, and anything left with no moves remembers its fallback.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
- * @param {string} from the shape it was in
- * @param {string} to the shape it is in now
+ * @param {string} from the shape it is in (its species' slug for its own)
+ * @param {string} to the shape it is going to
+ * @param {ItemChoice} [choice]
+ * @returns {{moves: Array<{move: string, pp: number, ppUp?: number}>, learned: string[], forgot: string[], waiting: string|null, required: boolean}}
  */
-function swapFormeMove(pokemon, from, to) {
-  const old = FORME_MOVES.get(from);
-  const next = FORME_MOVES.get(to);
-  if (!next || old === next || !moveOf(next)) return;
-  if (pokemon.moves.some((slot) => slot.move === next)) return;
-  const at = pokemon.moves.findIndex((slot) => slot.move === old);
-  if (at >= 0) setMove(pokemon, at, next);
-  else if (pokemon.moves.length < 4) setMove(pokemon, pokemon.moves.length, next);
+export function reshapeMoves(pokemon, from, to, choice = {}) {
+  const species = speciesOf(pokemon.speciesId);
+  const rule = FORME_MOVE_RULES.get(species?.slug ?? '');
+  const moves = pokemon.moves.map((slot) => ({ ...slot }));
+  /** @type {string[]} */
+  const learned = [];
+  /** @type {string[]} */
+  const forgot = [];
+  /** @type {string|null} */
+  let waiting = null;
+  const out = () => ({ moves, learned, forgot, waiting, required: Boolean(rule?.required) });
+  if (!rule) return out();
+
+  const fresh = (move) => ({ move, pp: moveOf(move)?.pp ?? 5, ppUp: 0 });
+  const knows = (move) => moves.findIndex((slot) => slot.move === move);
+  const forget = (at) => forgot.push(moves.splice(at, 1)[0].move);
+
+  const old = rule.moves[from] ?? [];
+  const next = rule.moves[to] ?? [];
+  for (let place = 0; place < Math.max(old.length, next.length); place++) {
+    const was = old[place];
+    const now = next[place] && moveOf(next[place]) ? next[place] : null;
+    const at = was && was !== now ? knows(was) : -1;
+    if (now && knows(now) >= 0) {
+      if (at >= 0) forget(at);
+    } else if (now && at >= 0) {
+      forgot.push(was);
+      moves[at] = fresh(now);
+      learned.push(now);
+    } else if (now && rule.learns) {
+      if (moves.length < 4) {
+        moves.push(fresh(now));
+        learned.push(now);
+      } else if (Number.isInteger(choice.forget) && moves[/** @type {number} */ (choice.forget)]) {
+        forgot.push(moves[/** @type {number} */ (choice.forget)].move);
+        moves[/** @type {number} */ (choice.forget)] = fresh(now);
+        learned.push(now);
+      } else {
+        waiting = now;
+      }
+    } else if (!now && at >= 0) {
+      forget(at);
+    }
+  }
+
+  // Off its steed, a Calyrex keeps only what a Calyrex can learn.
+  if (rule.unlearnable && to === species.slug) {
+    const own = new Set([
+      ...(species.learnset.level ?? []).map(([, move]) => move),
+      ...(species.learnset.machine ?? []),
+      ...(species.learnset.tutor ?? []),
+    ]);
+    for (let at = moves.length - 1; at >= 0; at--) if (!own.has(moves[at].move)) forget(at);
+  }
+  if (!moves.length && rule.fallback && moveOf(rule.fallback)) {
+    moves.push(fresh(rule.fallback));
+    learned.push(rule.fallback);
+  }
+  return out();
 }
 
 /**

@@ -6,7 +6,7 @@
  * opens the entry proper — which is how the games have always staged it.
  */
 import { url } from '../core/bridge.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { artPath, gameData, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { typeChip } from './typechip.mjs';
@@ -74,7 +74,7 @@ function entryButton(app, session, id, detail) {
       if (session.caught.has(id)) app.audio.playCry(id);
     },
   }, [
-    el('img', { src: url('assets', `pokemon/${id}/icon.png`), alt: '' }),
+    el('img', { src: url('assets', artPath({ speciesId: id }) ?? ''), alt: '' }),
     el('span.dex-number', { text: String(species?.dex ?? id).padStart(4, '0') }),
     session.champions.has(id) ? el('span.dex-champion', { text: '★' }) : null,
   ]);
@@ -105,7 +105,7 @@ function showDetail(session, detail, id) {
   }
 
   setChildren(detail, [
-    el('img.dex-detail-sprite', { src: url('assets', `pokemon/${id}/icon.png`), alt: '' }),
+    el('img.dex-detail-sprite', { src: url('assets', artPath({ speciesId: id }) ?? ''), alt: '' }),
     el('span.dex-detail-number', { text: `No.${String(species?.dex ?? id).padStart(4, '0')}` }),
     el('span.dex-detail-name', { text: localized(species?.name, '') }),
     session.champions.has(id) ? el('span.dex-champion-mark', { text: t('dex.championBadge') }) : null,

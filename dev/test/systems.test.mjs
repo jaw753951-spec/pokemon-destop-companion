@@ -105,9 +105,8 @@ test('a shiny is drawn from its own art', options, () => {
   const plain = { speciesId: CHARIZARD, shiny: false };
   const shiny = { speciesId: CHARIZARD, shiny: true };
 
-  assert.equal(artOf(plain, 'front')?.path, 'pokemon/6/front.png');
-  assert.equal(artOf(shiny, 'front')?.path, 'pokemon/6/front-shiny.png');
-  assert.equal(artOf(shiny, 'icon')?.path, 'pokemon/6/icon-shiny.png');
+  assert.equal(artOf(plain)?.path, 'pokemon/6/art.png');
+  assert.equal(artOf(shiny)?.path, 'pokemon/6/art-shiny.png');
 
   // A screen that caches a decoded sprite has to be able to tell them apart.
   assert.notEqual(spriteKey(plain), spriteKey(shiny));

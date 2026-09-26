@@ -80,7 +80,7 @@ function slotRow(app, slot, mode, rebuild) {
     [
       el('img', {
         src: active
-          ? url('assets', artPath(active, 'icon') ?? '')
+          ? url('assets', artPath(active) ?? '')
           : url('assets', 'props/item-ball.png'),
         alt: '',
       }),

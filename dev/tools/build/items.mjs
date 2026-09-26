@@ -53,7 +53,7 @@ export async function buildItems({ assetDir, dataDir, docsDir, log, pool }) {
   await Promise.all(
     Object.keys(items).map((name) =>
       pool(async () => {
-        const found = DRAWN_ICONS[name]?.() ?? (await firstAvailable(iconCandidates(name, items[name], machines, moves)));
+        const found = await firstAvailable(iconCandidates(name, items[name], machines, moves));
         const icon = found && ICON_TINTS[name] ? tinted(found, ICON_TINTS[name]) : found;
         if (icon) {
           await writeOut(join(assetDir, 'items', `${name}.png`), icon);
@@ -144,46 +144,6 @@ const ICON_STAND_INS = {
   'gimmighoul-coin': 'amulet-coin',
   'scroll-of-waters': 'splash-plate',
 };
-
-/**
- * A Tera Orb, drawn here because no item set has one: a faceted crystal ball,
- * teal at the top and rose at the bottom, fourteen pixels across.
- *
- * @returns {Buffer}
- */
-function drawTeraOrb() {
-  const size = 14;
-  const data = new Uint8Array(size * size * 4);
-  const centre = (size - 1) / 2;
-  const radius = size / 2 - 0.5;
-  const top = [104, 214, 222];
-  const bottom = [236, 118, 184];
-  for (let y = 0; y < size; y++) {
-    for (let x = 0; x < size; x++) {
-      const dx = x - centre;
-      const dy = y - centre;
-      const distance = Math.hypot(dx, dy);
-      if (distance > radius) continue;
-      const offset = (y * size + x) * 4;
-      if (distance > radius - 1) {
-        data.set([40, 44, 70, 255], offset);
-        continue;
-      }
-      // Facets: the sphere cut into six wedges, alternately lit, over a fade
-      // from the top colour to the bottom one.
-      const mix = y / (size - 1);
-      const facet = Math.floor(((Math.atan2(dy, dx) + Math.PI) / (2 * Math.PI)) * 6) % 2 ? 1 : 0.84;
-      const shade = [0, 1, 2].map((i) => Math.round((top[i] * (1 - mix) + bottom[i] * mix) * facet));
-      data.set([...shade, 255], offset);
-    }
-  }
-  // The glint.
-  for (const [x, y] of [[4, 3], [5, 3], [4, 4]]) data.set([255, 255, 255, 255], (y * size + x) * 4);
-  return encodePng(size, size, data);
-}
-
-/** Icons this step draws itself. @type {Record<string, () => Buffer>} */
-const DRAWN_ICONS = { 'tera-orb': drawTeraOrb };
 
 /**
  * The icons that borrow another's picture and need telling apart from it: a

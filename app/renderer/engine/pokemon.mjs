@@ -6,7 +6,7 @@
  * from it on demand rather than stored twice.
  */
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { HELD_FORMES, settleForme } from './forms.mjs';
+import { FORME_MOVES, HELD_FORMES, settleForme } from './forms.mjs';
 import {
   addEffort,
   computeStats,
@@ -133,8 +133,10 @@ export function createPokemon(rng, speciesId, level, options = {}) {
   }
 
   // An Ogerpon is met in one of its four masks: the Teal it wears bare, or
-  // holding one of the other three — and it keeps the mask it came in.
-  const masks = HELD_FORMES.get(species.slug);
+  // holding one of the other three — and it keeps the mask it came in. The
+  // other species a held item shapes are met holding nothing: a plate, a
+  // memory, a drive or a crystal is found only while its Pokémon travels.
+  const masks = species.slug === 'ogerpon' ? HELD_FORMES.get(species.slug) : null;
   if (masks) {
     pokemon.heldItem = rng.pick([null, ...masks.keys()]) ?? null;
     settleForme(pokemon);
@@ -485,7 +487,10 @@ export function availableMoves(pokemon, unlockedMachines = []) {
   const fromMachines = unlockedMachines.filter((move) => sets.some((set) => set.machine?.includes(move)));
   // A tutor teaches whenever asked; there is no level to wait for.
   const fromTutors = sets.flatMap((set) => set.tutor ?? []);
-  return [...new Set([...fromLevels, ...fromMachines, ...fromTutors])].filter((move) => moveOf(move));
+  // And a shape a key item gave brings its own move, which a Necrozma in its
+  // Dusk Mane has in no learnset at all.
+  const fromForme = FORME_MOVES.get(pokemon.forme ?? '') ?? [];
+  return [...new Set([...fromLevels, ...fromMachines, ...fromTutors, ...fromForme])].filter((move) => moveOf(move));
 }
 
 /**
@@ -739,6 +744,9 @@ export function evolveInto(pokemon, speciesId) {
     const kept = species.abilities[slot] ?? species.abilities[0];
     pokemon.ability = kept?.name ?? pokemon.ability;
   }
+  // A Type: Null that was already holding a memory is a Silvally of that
+  // type the moment it becomes one.
+  settleForme(pokemon);
   pokemon.hp = Math.max(1, Math.round(maxHp(pokemon) * ratio));
   return pokemon;
 }

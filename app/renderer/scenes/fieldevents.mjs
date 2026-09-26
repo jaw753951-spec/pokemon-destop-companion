@@ -8,14 +8,14 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { fieldArtOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, walkerArt } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY } from '../render/field.mjs';
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -647,7 +647,7 @@ function startWild(session, spawnAt) {
   };
 
   // Standing its ground in the road, in the same art the companion walks in.
-  const art = walkerArt(wild, 'idle');
+  const art = fieldArtOf(wild);
   if (art) {
     loadSprite(art.path, art.meta).then((sprite) => {
       state.prop.sprite = sprite;
