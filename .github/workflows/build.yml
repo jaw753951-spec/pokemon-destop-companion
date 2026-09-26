@@ -31,7 +31,78 @@ permissions:
   contents: write
 
 jobs:
+  # A release is put together as a draft first: every platform's build adds
+  # its packages to it straight from its own job, and it is published only
+  # once all three have. The packages used to pass through the Actions
+  # artifact store on their way, which counts against the account's storage
+  # and stopped a release outright the day it was full.
+  prepare:
+    if: startsWith(github.ref, 'refs/tags/v') || (inputs.release_tag != '' && inputs.platforms == 'all')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: softprops/action-gh-release@v2
+        with:
+          # The dispatched tag is created at this commit if it does not exist.
+          tag_name: ${{ inputs.release_tag || github.ref_name }}
+          target_commitish: ${{ github.sha }}
+          draft: true
+          generate_release_notes: true
+          body: |
+            화면 위에 항상 떠 있는 작은 창 안에서 포켓몬이 혼자 여행하고, 싸우고,
+            파밍하며 자라는 데스크탑 다마고치입니다. 받아서 실행하면 바로 시작합니다 —
+            에셋이 패키지에 들어 있어서 추가로 내려받을 것이 없습니다.
+
+            ## 받기
+
+            | OS | 파일 |
+            | --- | --- |
+            | Windows | `*-win-x64.zip` — 압축을 풀고 `Pokemon Desktop Companion.exe` 실행 |
+            | macOS | `*-mac-universal.dmg` — 애플 실리콘·인텔 공용 |
+            | Linux | `*-linux-x86_64.AppImage` |
+
+            ## 처음 실행할 때
+
+            서명 인증서가 없는 개인 팬 프로젝트라 OS가 한 번 막습니다. 한 번만 넘기면 됩니다.
+
+            - **Windows** — 설치 과정 없이 압축만 풀면 됩니다. "Windows의 PC 보호" 창이
+              뜨면 **추가 정보 → 실행**
+            - **macOS** — 앱을 **우클릭 → 열기 → 열기**. 그래도 막히면 터미널에서
+              `xattr -dr com.apple.quarantine "/Applications/Pokemon Desktop Companion.app"`
+            - **Linux** — `chmod +x *.AppImage` 후 실행
+
+            ## 알아두면 좋은 것
+
+            - 창은 화면의 약 1/16 크기로 항상 위에 뜹니다. 창 위쪽에 마우스를 올리면
+              드래그 바가 나오고, 위치와 크기는 기억됩니다.
+            - 세이브 3슬롯과 설정은 앱 바깥(`userData`)에 저장되므로 버전을 올려도 남습니다.
+            - 5분마다 자동 저장되고, 설정에서 **저장 후 종료**로 끌 수 있습니다.
+
+            ---
+
+            비상업 팬 프로젝트입니다. Pokémon 및 관련 명칭·이미지·음악의 모든 권리는
+            Nintendo / Creatures Inc. / GAME FREAK inc. 에 있습니다.
+
+
+      # A release outlives the build that made it: drop a target and its last
+      # package would sit on the release forever, since an upload only ever
+      # adds and replaces. Whatever an earlier build left is cleared, so the
+      # release holds exactly what this build uploads.
+      - name: Clear packages an earlier build left
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag='${{ inputs.release_tag || github.ref_name }}'
+          gh release view "$tag" --repo '${{ github.repository }}' --json assets --jq '.assets[].name' |
+          while read -r asset; do
+            [ -n "$asset" ] || continue
+            echo "removing old asset: $asset"
+            gh release delete-asset "$tag" "$asset" --repo '${{ github.repository }}' --yes
+          done
+
   package:
+    needs: prepare
+    # A build-only dispatch has no release to prepare, and builds all the same.
+    if: ${{ !failure() && !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -85,15 +156,24 @@ jobs:
           CSC_IDENTITY_AUTO_DISCOVERY: false
         run: npx electron-builder --${{ matrix.platform }} --publish never
 
-      # The packages only have to live long enough for the release job below
-      # to pick them up, which happens within minutes. Kept for the default 90 days, the three platforms come to
-      # ~750 MB a build and fill the account's Actions storage on their own.
-      # A build-only dispatch has no release to download from, so its packages
-      # stay a few days for someone to fetch them from the run page.
+      - name: Add the packages to the release
+        if: startsWith(github.ref, 'refs/tags/v') || inputs.release_tag != ''
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          shopt -s nullglob
+          files=(dist/*.zip dist/*.dmg dist/*.AppImage)
+          if [ ${#files[@]} -eq 0 ]; then echo "::error::No packages were built"; exit 1; fi
+          gh release upload '${{ inputs.release_tag || github.ref_name }}' "${files[@]}" --clobber --repo '${{ github.repository }}'
+
+      # A build-only dispatch has no release to add to, so its packages stay a
+      # few days on the run page for someone to fetch.
       - uses: actions/upload-artifact@v4
+        if: github.event_name == 'workflow_dispatch' && inputs.release_tag == ''
         with:
           name: ${{ matrix.platform }}
-          retention-days: ${{ (github.event_name == 'workflow_dispatch' && inputs.release_tag == '') && 3 || 1 }}
+          retention-days: 3
           path: |
             dist/*.zip
             dist/*.dmg
@@ -105,72 +185,10 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v') || (inputs.release_tag != '' && inputs.platforms == 'all')
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
-        with:
-          path: dist
-          merge-multiple: true
-
-      # Published rather than drafted: the job only runs when all three
+      # Published rather than left a draft: this only runs when all three
       # platform builds succeeded, and a draft nobody can download is not a
-      # release. The notes carry the unsigned-build workarounds, without which
-      # Windows and macOS simply refuse to open it.
-      - uses: softprops/action-gh-release@v2
-        with:
-          # The dispatched tag is created at this commit if it does not exist.
-          tag_name: ${{ inputs.release_tag || github.ref_name }}
-          files: dist/*
-          draft: false
-          generate_release_notes: true
-          body: |
-            화면 위에 항상 떠 있는 작은 창 안에서 포켓몬이 혼자 여행하고, 싸우고,
-            파밍하며 자라는 데스크탑 다마고치입니다. 받아서 실행하면 바로 시작합니다 —
-            에셋이 패키지에 들어 있어서 추가로 내려받을 것이 없습니다.
-
-            ## 받기
-
-            | OS | 파일 |
-            | --- | --- |
-            | Windows | `*-win-x64.zip` — 압축을 풀고 `Pokemon Desktop Companion.exe` 실행 |
-            | macOS | `*-mac-universal.dmg` — 애플 실리콘·인텔 공용 |
-            | Linux | `*-linux-x86_64.AppImage` |
-
-            ## 처음 실행할 때
-
-            서명 인증서가 없는 개인 팬 프로젝트라 OS가 한 번 막습니다. 한 번만 넘기면 됩니다.
-
-            - **Windows** — 설치 과정 없이 압축만 풀면 됩니다. "Windows의 PC 보호" 창이
-              뜨면 **추가 정보 → 실행**
-            - **macOS** — 앱을 **우클릭 → 열기 → 열기**. 그래도 막히면 터미널에서
-              `xattr -dr com.apple.quarantine "/Applications/Pokemon Desktop Companion.app"`
-            - **Linux** — `chmod +x *.AppImage` 후 실행
-
-            ## 알아두면 좋은 것
-
-            - 창은 화면의 약 1/16 크기로 항상 위에 뜹니다. 창 위쪽에 마우스를 올리면
-              드래그 바가 나오고, 위치와 크기는 기억됩니다.
-            - 세이브 3슬롯과 설정은 앱 바깥(`userData`)에 저장되므로 버전을 올려도 남습니다.
-            - 5분마다 자동 저장되고, 설정에서 **저장 후 종료**로 끌 수 있습니다.
-
-            ---
-
-            비상업 팬 프로젝트입니다. Pokémon 및 관련 명칭·이미지·음악의 모든 권리는
-            Nintendo / Creatures Inc. / GAME FREAK inc. 에 있습니다.
-
-      # A release outlives the build that made it: drop a target and its last
-      # artifact would sit on the release forever, since the upload above only
-      # ever adds and replaces. This keeps the release to exactly what this
-      # build produced.
-      - name: Drop assets this build no longer produces
+      # release.
+      - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          tag='${{ inputs.release_tag || github.ref_name }}'
-          built="$(ls dist)"
-          gh release view "$tag" --repo '${{ github.repository }}' \
-            --json assets --jq '.assets[].name' |
-          while read -r asset; do
-            if ! grep -qxF "$asset" <<< "$built"; then
-              echo "removing stale asset: $asset"
-              gh release delete-asset "$tag" "$asset" --repo '${{ github.repository }}' --yes
-            fi
-          done
+        run: gh release edit '${{ inputs.release_tag || github.ref_name }}' --draft=false --latest --repo '${{ github.repository }}'
