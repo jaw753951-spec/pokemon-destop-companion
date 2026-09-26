@@ -30,7 +30,7 @@ import { abilityName, afterBattle } from '../engine/abilities.mjs';
 
 /** How often a Pickup finds something after a win, as Emerald's one in ten does. */
 const PICKUP_CHANCE = 0.1;
-import { Battler, battlerArt, battlerScale, FOE_DEPTH, mirrorFor } from '../render/battler.mjs';
+import { Battler, battlerArt, battlerScale, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
@@ -303,7 +303,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   for (const foe of foes) session.markSeen(foe.speciesId);
 
   /**
-   * Put a battle sprite on a side, from the standing art both sides fight in.
+   * Put a battle sprite on a side, from the picture both sides fight in.
    *
    * Both sides go through the same path — keyed on the sprite key, so a
    * Pokémon whose shape changes mid-fight is reloaded like a new picture
@@ -320,7 +320,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (side === 'player') loadedPlayerId = key;
     else loadedFoeId = key;
 
-    const art = battlerArt(pokemon);
+    const room = side === 'foe' ? FOE_ROOM : PLAYER_ROOM;
+    const art = battlerArt(pokemon, room);
     if (!art) return;
     loadSprite(art.path, art.meta).then((sprite) => {
       const latest = side === 'player' ? loadedPlayerId : loadedFoeId;
@@ -332,16 +333,14 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
               x: FOE_SPOT.x,
               y: FOE_SPOT.y,
               facing: -1,
-              // Drawn smaller to put it up the field: without a depth cue the
-              // two sit on the same plane and the battle reads flat.
-              scale: battlerScale(sprite, pokemon, FOE_ROOM, FOE_DEPTH),
+              scale: battlerScale(sprite, room),
               flip: mirrorFor(sprite, 'left'),
             }
           : {
               x: PLAYER_SPOT.x,
               y: PLAYER_SPOT.y,
               facing: 1,
-              scale: battlerScale(sprite, pokemon, PLAYER_ROOM),
+              scale: battlerScale(sprite, room),
               // The companion stands on the left, looking up the field at its
               // opponent.
               flip: mirrorFor(sprite, 'right'),

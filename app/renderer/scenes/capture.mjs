@@ -140,16 +140,16 @@ export function captureScene({ session, target, onFinish }) {
     keepBelow: true,
 
     mount(app) {
-      const art = battlerArt(target);
+      // Field coordinates, clear of the name above it and the balls below,
+      // whatever size the species is drawn at — and the same picture the
+      // fight was drawn in, so the Pokémon being thrown at is the one that
+      // was standing there a second ago.
+      const y = Math.round(FIELD_HEIGHT * 0.52);
+      const room = { width: FIELD_WIDTH - 24, height: y - 14 };
+      const art = battlerArt(target, room);
       if (art) {
         loadSprite(art.path, art.meta).then((sprite) => {
-          // Field coordinates, so the target is the size it was on the path.
-          const y = Math.round(FIELD_HEIGHT * 0.52);
-          // Clear of the name above it and the balls below, whatever size the
-          // species is drawn at — and the same art the fight was drawn
-          // in, so the Pokémon being thrown at is the one that was standing
-          // there a second ago.
-          const scale = battlerScale(sprite, target, { width: FIELD_WIDTH - 24, height: y - 14 });
+          const scale = battlerScale(sprite, room);
           battler = new Battler({
             sprite,
             x: Math.round(FIELD_WIDTH / 2),

@@ -225,42 +225,31 @@ function languageRows(app, rebuild) {
 /**
  * Who drew the art the game borrows.
  *
- * The Pokémon walk the road in the PMD Sprite Collab's sprites, which are
- * shared on the condition that they are credited — every artist, by name — and
- * never sold. The list comes from the build, which gathers it from the very
- * sheets it downloaded, so it names exactly the people whose work ships.
+ * The Pokémon are Pokémon Black and White's own sprites up to Genesect and the
+ * Smogon community's past it, which are shared on the condition that they are
+ * credited — every artist, by name — and never sold.
  *
  * @returns {HTMLElement[]}
  */
 function creditRows() {
-  const { sprites, followers, battle } = gameData().credits ?? {};
-  if (!sprites && !followers && !battle) return [el('p.meta', { text: t('credits.none') })];
+  const { sprites, custom } = gameData().credits ?? {};
+  if (!sprites && !custom) return [el('p.meta', { text: t('credits.none') })];
   return [
     ...(sprites
       ? [
           el('div.section-title', { text: t('credits.sprites') }),
           el('p.meta', { text: t('credits.spritesNote', { source: sprites.source, license: sprites.license }) }),
           el('p.meta.credits-url', { text: sprites.url }),
-          el('p.credits-names', { text: sprites.artists.join(', ') }),
         ]
       : []),
-    // The species and formes the collab has not drawn walk in the Essentials
-    // packs' followers, whose artists are thanked the same way.
-    ...(followers
+    // Past Genesect the sprites are the Smogon community's, drawn in the same
+    // style, and their artists are thanked by name.
+    ...(custom
       ? [
-          el('div.section-title', { text: t('credits.followers') }),
-          el('p.meta', { text: t('credits.followersNote', { source: followers.source }) }),
-          el('p.meta.credits-url', { text: followers.url }),
-          el('p.credits-names', { text: followers.artists.join(', ') }),
-        ]
-      : []),
-    // The formes only a battle puts a Pokémon in stand in the Smogon Sprite
-    // Project's battlers, shrunk to the walking art's pixels.
-    ...(battle
-      ? [
-          el('div.section-title', { text: t('credits.battle') }),
-          el('p.meta', { text: t('credits.battleNote', { source: battle.source }) }),
-          el('p.meta.credits-url', { text: battle.url }),
+          el('div.section-title', { text: t('credits.custom') }),
+          el('p.meta', { text: t('credits.customNote', { source: custom.source }) }),
+          el('p.meta.credits-url', { text: custom.url }),
+          el('p.credits-names', { text: custom.artists.join(', ') }),
         ]
       : []),
   ];

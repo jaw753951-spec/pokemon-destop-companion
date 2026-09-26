@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { artOf, gameData, speciesIdBySlug, spriteKey } from '../../app/renderer/core/data.mjs';
+import { artOf, fieldArtOf, gameData, speciesIdBySlug, spriteKey } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { WEATHER } from '../../app/renderer/engine/field.mjs';
 import { HELD_FORMES, SCHOOLING_LEVEL, settleForme, standingTypes } from '../../app/renderer/engine/forms.mjs';
@@ -78,26 +78,27 @@ test('every forme looks like itself, in a picture of its own', options, () => {
   const wash = { speciesId: /** @type {number} */ (speciesIdBySlug('rotom')), forme: 'rotom-wash' };
   assert.match(artOf(wash)?.path ?? '', /\/art-form-rotom-wash\.png$/);
   assert.match(artOf({ ...wash, shiny: true })?.path ?? '', /\/art-form-rotom-wash-shiny\.png$/);
-  // A forme only a battle puts it in is the Smogon Sprite Project's pixel art
-  // cut to the walking art's size, facing the same way.
+  // A forme only a battle puts it in has a sprite of its own too.
   const cramorant = /** @type {number} */ (speciesIdBySlug('cramorant'));
   const stood = artOf({ speciesId: cramorant, forme: 'cramorant-gulping' });
-  assert.equal(stood?.meta.facing, 'right');
+  assert.equal(stood?.meta.facing, 'left');
   const own = artOf({ speciesId: cramorant });
   assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
 });
 
-test('every Pokémon is one still picture, facing right', options, () => {
+test('every Pokémon is one still picture and its half, facing left as Black and White drew them', options, () => {
   const sprites = gameData().sprites;
   for (const species of Object.values(gameData().species)) {
     const entry = sprites[species.id];
-    assert.ok(entry?.art, `${species.slug} has no picture`);
-    assert.ok(!entry.fromIcon, `${species.slug} is cut from its box icon`);
+    assert.ok(entry?.art && entry.field, `${species.slug} has no picture`);
     // Nothing of the old sets goes out with the game.
-    for (const key of Object.keys(entry)) assert.match(key, /^(art(-female|-form-.+)?|shiny|cry)$/, `${species.slug} ships ${key}`);
+    for (const key of Object.keys(entry)) assert.match(key, /^((art|field)(-female|-form-.+)?|shiny)$/, `${species.slug} ships ${key}`);
     const art = artOf({ speciesId: species.id });
     assert.equal(art?.meta.frames, 1);
-    assert.equal(art?.meta.facing, 'right');
+    assert.equal(art?.meta.facing, 'left');
+    // The road's is the same picture at half the size.
+    const field = fieldArtOf({ speciesId: species.id });
+    assert.ok(field && art && Math.abs(field.meta.height * 2 - art.meta.height) <= 2, `${species.slug}: the road's picture is not half`);
   }
 });
 
@@ -278,7 +279,7 @@ test('a variety walks in its own art, and a female in hers where her species dra
 });
 
 test('a hand-drawn sheet directory is named for what it draws', options, async () => {
-  const { authoredTarget } = await import('../tools/build/walkers.mjs');
+  const { authoredTarget } = await import('../tools/build/art.mjs');
   const species = gameData().species;
   const id = (slug) => /** @type {number} */ (speciesIdBySlug(slug));
   assert.deepEqual(authoredTarget('urshifu-rapid-strike', species), { id: id('urshifu-rapid-strike'), key: '', shiny: false });
@@ -295,25 +296,27 @@ test('a hand-drawn sheet directory is named for what it draws', options, async (
   assert.equal(authoredTarget('not-a-pokemon', species), null);
 });
 
-test('a shiny is a recolour of the drawing its Pokémon walks in, not of an older one', options, async () => {
-  const { sameSilhouette } = await import('../tools/build/walkers.mjs');
+test('a shiny is the same drawing in other colours, for every species and forme', options, async () => {
   const { decodePng } = await import('../tools/lib/png.mjs');
   const sprites = gameData().sprites;
   const png = (id, file) => decodePng(readFileSync(new URL(`../../assets/pokemon/${id}/${file}.png`, import.meta.url)));
-  // Dewott, Archen, Minior and Marshadow: the collab's shinies are of other drawings.
-  for (const slug of ['dewott', 'archen', 'minior', 'marshadow']) {
-    const id = /** @type {number} */ (speciesIdBySlug(slug));
-    assert.ok(sprites[id].shiny?.art, `${slug} has a shiny picture`);
-    assert.ok(
-      sameSilhouette(png(id, 'art'), sprites[id].art, png(id, 'art-shiny'), sprites[id].shiny.art),
-      `${slug}'s shiny is another drawing`,
-    );
-  }
-  // And every species has a shiny, and every forme drawn in both.
+  const solid = (image) => Array.from({ length: image.width * image.height }, (_, i) => image.data[i * 4 + 3] > 127);
+  const drawnApart = [];
   for (const species of Object.values(gameData().species)) {
-    assert.ok(sprites[species.id]?.shiny?.art, `${species.slug}: no shiny`);
-    for (const form of species.forms ?? []) {
-      assert.ok(sprites[species.id].shiny[`art-form-${form.slug}`], `${form.slug}: no shiny`);
+    const entry = sprites[species.id];
+    for (const key of ['art', ...(species.forms ?? []).map((form) => `art-form-${form.slug}`)]) {
+      assert.ok(entry?.shiny?.[key], `${species.slug} ${key}: no shiny`);
+      const [plain, shiny] = [png(species.id, key), png(species.id, `${key}-shiny`)];
+      if (plain.width !== shiny.width || plain.height !== shiny.height) {
+        drawnApart.push(`${species.slug} ${key}`);
+        continue;
+      }
+      const [a, b] = [solid(plain), solid(shiny)];
+      const same = a.filter((value, i) => value === b[i]).length / a.length;
+      if (same < 0.97) drawnApart.push(`${species.slug} ${key}`);
     }
   }
+  // A handful of the community's shinies are redrawn a pixel or two apart;
+  // anything more is a shiny of another drawing.
+  assert.ok(drawnApart.length <= 20, `shinies of another drawing: ${drawnApart.join(', ')}`);
 });

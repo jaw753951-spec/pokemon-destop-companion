@@ -11,7 +11,7 @@ import assert from 'node:assert/strict';
 import { setGameData } from '../../app/renderer/core/data.mjs';
 import { Sprite } from '../../app/renderer/core/assets.mjs';
 import { ACTOR_SCALE, actorHeight, actorScale, POKEMON_SCALE } from '../../app/renderer/render/field.mjs';
-import { BATTLE_ZOOM, fitScale, FOE_DEPTH } from '../../app/renderer/render/battler.mjs';
+import { BATTLE_SCALE, fitScale } from '../../app/renderer/render/battler.mjs';
 import { companionArmour } from '../../app/renderer/engine/battle.mjs';
 import { treeFor } from '../../app/renderer/scenes/fieldevents.mjs';
 import { COMPANION_DAMAGE_TAKEN, COMPANION_WEAKNESS, FIELD_ZOOM } from '../../app/shared/constants.mjs';
@@ -52,8 +52,8 @@ test('a bigger Pokémon is bigger because its art is', () => {
 });
 
 test('a battle draws both sides in whole screen pixels', () => {
-  assert.ok(Number.isInteger(BATTLE_ZOOM * FIELD_ZOOM), 'the near side');
-  assert.ok(Number.isInteger(BATTLE_ZOOM * FOE_DEPTH * FIELD_ZOOM), 'the far side');
+  // Both sides at the road's own size of pixel.
+  assert.equal(BATTLE_SCALE * FIELD_ZOOM, POKEMON_SCALE * FIELD_ZOOM);
 
   const room = { width: 100, height: 60 };
   // One that fits is drawn at the size asked for.

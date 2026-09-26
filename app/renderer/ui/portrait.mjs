@@ -11,7 +11,7 @@
 import { FIELD_ZOOM } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { el } from '../core/dom.mjs';
-import { artOf } from '../core/data.mjs';
+import { fieldArtOf } from '../core/data.mjs';
 import { actorScale, drawWalker, IDLE_BOB_HEIGHT } from '../render/field.mjs';
 
 /**
@@ -24,7 +24,7 @@ import { actorScale, drawWalker, IDLE_BOB_HEIGHT } from '../render/field.mjs';
  * @returns {HTMLElement|null} null when the species has no field art
  */
 export function walkerPortrait(pokemon, { zoom = FIELD_ZOOM, maxHeight = Infinity, label = '' } = {}) {
-  const art = artOf(pokemon);
+  const art = fieldArtOf(pokemon);
   if (!art) return null;
 
   const canvas = /** @type {HTMLCanvasElement} */ (el('canvas.walker-portrait', { role: 'img', 'aria-label': label }));

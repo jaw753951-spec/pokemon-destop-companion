@@ -8,7 +8,7 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { fieldArtOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
@@ -647,7 +647,7 @@ function startWild(session, spawnAt) {
   };
 
   // Standing its ground in the road, in the same art the companion walks in.
-  const art = artOf(wild);
+  const art = fieldArtOf(wild);
   if (art) {
     loadSprite(art.path, art.meta).then((sprite) => {
       state.prop.sprite = sprite;

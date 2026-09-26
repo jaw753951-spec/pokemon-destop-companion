@@ -17,7 +17,7 @@ import { createPool } from './lib/http.mjs';
 import { buildAreas } from './build/areas.mjs';
 import { buildDex } from './build/dex.mjs';
 import { buildSprites } from './build/sprites.mjs';
-import { buildWalkers } from './build/walkers.mjs';
+import { buildArt } from './build/art.mjs';
 import { buildItems } from './build/items.mjs';
 import { buildActors } from './build/actors.mjs';
 import { buildAudio } from './build/audio.mjs';
@@ -30,7 +30,7 @@ const ROOT = fileURLToPath(new URL('../../', import.meta.url));
 const STEPS = {
   dex: buildDex,
   sprites: buildSprites,
-  walkers: buildWalkers,
+  art: buildArt,
   items: buildItems,
   actors: buildActors,
   areas: buildAreas,
@@ -54,9 +54,6 @@ async function main() {
 
   const context = {
     assetDir: join(ROOT, 'assets'),
-    // The sprite sheets every source publishes, gathered and cleaned up before
-    // each Pokémon is cut down to the one picture the game ships.
-    sheetDir: join(ROOT, '.cache', 'sheets'),
     dataDir: join(ROOT, 'data', 'generated'),
     docsDir: join(ROOT, 'dev', 'docs'),
     sample,

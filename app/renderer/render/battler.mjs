@@ -7,8 +7,8 @@
  * winning, and a slide into the ground on fainting.
  */
 
-import { artOf } from '../core/data.mjs';
-import { actorScale, idleBob } from './field.mjs';
+import { artOf, fieldArtOf } from '../core/data.mjs';
+import { idleBob } from './field.mjs';
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
 
@@ -35,21 +35,31 @@ export function fitScale(sprite, room, preferred) {
 const SCALE_STEP = 0.5;
 
 /**
- * The art a Pokémon is drawn from in a battle: its one picture, the same it
- * walks the road and sits in the box in.
+ * The art a Pokémon is drawn from in a battle: its Black and White sprite,
+ * at the sprite's own size, as the battles those games drew it in.
  *
- * The game used to fight with the front and back sprites, which come from a
- * different set entirely — Showdown's animations where there are any, and the
- * modern three-dimensional renders where there are not. Those renders are lit,
- * shaded and posed like models rather than drawn like sprites, so a battle
- * looked like a different game from the walk that led into it. One picture
- * for the whole game is worth more than the best picture of each Pokémon
- * taken separately — and a forme, which a battle is where a shape changes,
- * has a picture of its own.
+ * The game used to fight with Showdown's animations where there were any and
+ * the modern three-dimensional renders where there were not — lit, shaded
+ * and posed like models rather than drawn like sprites — and later with the
+ * small fan art it walked the road in. Now the picture is the one the box and
+ * the road show, and a forme, which a battle is where a shape changes, has a
+ * picture of its own.
+ *
+ * A Pokémon too big for where it stands — a Groudon under the foe's name
+ * plate — fights in its road picture instead: the same drawing halved as
+ * pixel art, at the same density as every other Pokémon on screen, where
+ * shrinking the sprite itself would leave it made of smaller pixels than its
+ * opponent.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {{width: number, height: number}} [room] field pixels it has to stand in
  */
-export const battlerArt = (pokemon) => artOf(pokemon);
+export function battlerArt(pokemon, room) {
+  const full = artOf(pokemon);
+  if (!full || !room) return full;
+  const fits = full.meta.width * BATTLE_SCALE <= room.width && full.meta.height * BATTLE_SCALE <= room.height;
+  return fits ? full : fieldArtOf(pokemon) ?? full;
+}
 
 /**
  * Whether a battler's art has to be mirrored to look the way its side faces.
@@ -60,39 +70,22 @@ export const battlerArt = (pokemon) => artOf(pokemon);
 export const mirrorFor = (sprite, facing) => (sprite.facing ?? 'left') !== facing;
 
 /**
- * How much bigger than its field size a Pokémon is drawn in a battle.
- *
- * A battle is a close-up: the same sprite that is ankle-high on the road fills
- * a good part of the screen here, which is exactly what the cartridges do when
- * they cut from the overworld to a fight. A whole number, so each art pixel
- * is a whole number of screen pixels.
+ * How big a battler is drawn, in field pixels per art pixel: one, which the
+ * field's own zoom makes two screen pixels — the size the road's tiles and
+ * people are drawn at, so a battle is made of the same pixels as the walk
+ * that led into it. Both sides alike, as Black and White drew them.
  */
-export const BATTLE_ZOOM = 2;
+export const BATTLE_SCALE = 1;
 
 /**
- * And how much smaller the far side is drawn, which is the only depth cue a
- * flat backdrop has. The foe stands up the field; the companion is nearer the
- * camera than it is. Three quarters of the near side's two is one and a half,
- * which is still a whole number of screen pixels.
- */
-export const FOE_DEPTH = 0.75;
-
-/**
- * What to draw a battler at: its own field scale, brought up to battle size,
- * pushed back if it is the far one, and shrunk to fit if that overruns.
- *
- * Because it starts from the field's own {@link actorScale}, the whole roster
- * keeps one scale in battle too — a Sableye is a Sableye's size next to a
- * Snorlax rather than whatever size its icon happened to be drawn at.
+ * What to draw a battler at: {@link BATTLE_SCALE}, and smaller only for a
+ * picture that still overruns the room it has, which only a hand-drawn one
+ * could.
  *
  * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{speciesId: number}|null|undefined} pokemon
  * @param {{width: number, height: number}} room
- * @param {number} [depth]
  */
-export function battlerScale(sprite, pokemon, room, depth = 1) {
-  return fitScale(sprite, room, actorScale(sprite, pokemon) * BATTLE_ZOOM * depth);
-}
+export const battlerScale = (sprite, room) => fitScale(sprite, room, BATTLE_SCALE);
 
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: 340 };

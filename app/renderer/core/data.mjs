@@ -24,7 +24,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
- * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}, followers?: {source: string, url: string, license: string, artists: string[]}, battle?: {source: string, url: string, license: string, artists: string[]}}} credits who
+ * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}, custom?: {source: string, url: string, license: string, artists: string[]}}} credits who
  *   drew what the game borrows, for the credits the licence asks for
  */
 
@@ -57,7 +57,7 @@ export async function loadGameData() {
     loadJson('authored', 'trainer-classes.json').then((file) => file.classes ?? []).catch(() => []),
     loadJson('authored', 'leaders.json').then((file) => file.leaders ?? []).catch(() => []),
     loadJson('authored', 'leagues.json').then((file) => file.leagues ?? []).catch(() => []),
-    // Written by the walkers step; a build from before it has nothing to credit.
+    // Written by the art step; a build from before it has nothing to credit.
     loadJson('data', 'credits.json').catch(() => ({})),
     loadJson('authored', 'item-texts.json').then((file) => file.items ?? {}).catch(() => ({})),
     loadJson('authored', 'move-texts.json').then((file) => file.moves ?? {}).catch(() => ({})),
@@ -158,46 +158,64 @@ export const abilityOf = (slug) => (slug ? gameData().abilities?.[slug] ?? null 
 export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
 
 /**
- * The one picture a Pokémon is shown in, and how big it is.
+ * The picture a Pokémon is shown in, and how big it is.
  *
- * Every screen draws the same picture — the box, the road, a battle, its tab
- * — so which of its shapes it is in picks the file and nothing else does:
- * the forme it is wearing, if that forme was drawn, else the female of a
+ * It is the front sprite Pokémon Black and White drew — official up to
+ * Genesect, drawn in the same style by the Smogon community past it — and
+ * every screen draws the same one, so which of its shapes it is in picks the
+ * file and nothing else does: the forme it is wearing, else the female of a
  * species whose sexes look different, else the species. A shiny Pokémon has
  * a picture of its own rather than a filter over the ordinary one; one whose
  * shiny never built falls back on the ordinary colours, silently — a missing
  * picture is worse than a missing sparkle.
  *
- * The picture is still and faces right; the screens move it rather than
- * animating it, so the meta says one frame.
+ * The picture is still and faces left, as the sprites do; the screens move it
+ * rather than animating it, and mirror it to face right.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
- * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'right'}}|null}
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
  */
-export function artOf(pokemon) {
+export const artOf = (pokemon) => pictureOf(pokemon, 'art');
+
+/**
+ * The same picture halved, as pixel art, for the road: a battle sprite at its
+ * own size stands half the field's height, where the overworld draws its
+ * people a tile or two tall.
+ *
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ */
+export const fieldArtOf = (pokemon) => pictureOf(pokemon, 'field');
+
+/**
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {'art'|'field'} kind
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
+ */
+function pictureOf(pokemon, kind) {
   if (!pokemon) return null;
   const entry = gameData().sprites[pokemon.speciesId];
   if (!entry) return null;
-  const key = artKey(pokemon, entry);
+  const key = `${kind}${shapeOf(pokemon, entry)}`;
   const shiny = pokemon.shiny ? entry.shiny?.[key] : null;
   const meta = shiny ?? entry[key];
   if (!meta) return null;
   return {
     path: `pokemon/${pokemon.speciesId}/${key}${shiny ? '-shiny' : ''}.png`,
-    meta: { width: meta.width, height: meta.height, frames: 1, delay: 1000, facing: 'right' },
+    meta: { width: meta.width, height: meta.height, frames: 1, delay: 1000, facing: 'left' },
   };
 }
 
 /**
- * Which of a species' pictures a Pokémon is drawn in.
+ * Which of a species' shapes a Pokémon is drawn in: `-form-<forme>`,
+ * `-female`, or nothing for the species' own.
  *
  * @param {{forme?: string|null, gender?: string|null}} pokemon
  * @param {Record<string, any>} entry
  */
-function artKey(pokemon, entry) {
-  if (pokemon.forme && entry[`art-form-${pokemon.forme}`]) return `art-form-${pokemon.forme}`;
-  if (pokemon.gender === 'female' && entry['art-female']) return 'art-female';
-  return 'art';
+function shapeOf(pokemon, entry) {
+  if (pokemon.forme && entry[`art-form-${pokemon.forme}`]) return `-form-${pokemon.forme}`;
+  if (pokemon.gender === 'female' && entry['art-female']) return '-female';
+  return '';
 }
 
 /**
