@@ -257,7 +257,7 @@ test('pixel art shrinks with its outline whole, and a blown-up drawing comes bac
 
 test('every sprite the vendored sources list is in the repository, and nothing unlisted is', async () => {
   const { readdir, readFile: read } = await import('node:fs/promises');
-  const { join, relative } = await import('node:path');
+  const { join, relative, sep } = await import('node:path');
   const { VENDOR_DIR } = await import('../tools/lib/vendor.mjs');
   const walk = async (dir) =>
     (await readdir(dir, { withFileTypes: true })).flatMap((entry) => entry).reduce(async (acc, entry) => {
@@ -269,7 +269,8 @@ test('every sprite the vendored sources list is in the repository, and nothing u
     const root = join(VENDOR_DIR, source);
     const index = JSON.parse(await read(join(root, 'index.json'), 'utf8'));
     assert.match(index.commit, /^[0-9a-f]{40}$/, `${source} is pinned to a commit`);
-    const files = (await walk(root)).map((path) => relative(root, path)).filter((path) => path !== 'index.json');
+    // Paths as the index files them, with forward slashes on every OS.
+    const files = (await walk(root)).map((path) => relative(root, path).split(sep).join('/')).filter((path) => path !== 'index.json');
     assert.deepEqual([...files].sort(), [...index.present].sort(), `${source}: index and files disagree`);
     assert.equal(index.present.filter((path) => index.absent.includes(path)).length, 0);
   }
