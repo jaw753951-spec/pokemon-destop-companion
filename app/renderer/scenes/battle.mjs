@@ -5,7 +5,7 @@
  * produces back one entry at a time, so the fight reads at a watchable pace
  * even though it was decided instantly.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, FOE_PLATFORM_DROP, timeOfDay, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { environmentType, weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
@@ -30,7 +30,7 @@ import { abilityName, afterBattle } from '../engine/abilities.mjs';
 
 /** How often a Pickup finds something after a win, as Emerald's one in ten does. */
 const PICKUP_CHANCE = 0.1;
-import { Battler, battlerArt, battlerScale, mirrorFor } from '../render/battler.mjs';
+import { BATTLE_SCALE, Battler, battlerArt, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 
@@ -111,27 +111,16 @@ const MESSAGE_TOP = FIELD_HEIGHT - 21;
  *
  * Field coordinates, because the battlers are drawn in the same doubled space
  * as the backdrop behind them, and the backdrop is composed at exactly that
- * size — so these are the platforms' own pixels rather than a guess.
- */
-const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) };
-const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: MESSAGE_TOP - 3 };
-
-/**
- * How much room each side has to stand in, in field pixels.
+ * size — so these are the platforms' own pixels rather than a guess. The far
+ * platform stands {@link FOE_PLATFORM_DROP} lower than the cartridge draws it,
+ * for the height a Black and White sprite needs.
  *
- * The foe has everything above its platform: its own name plate is over on the
- * left, away from it. The companion's head has to stay clear of that plate, so
- * it gets the window below it. Both are kept inside the window horizontally by
- * the room either side of the spot they stand on.
+ * Nothing is shrunk to fit: every battler is its sprite at its own size, and
+ * the few tall enough to reach the top of the window, or the foe's name
+ * plate, are cut off there.
  */
-const FOE_ROOM = {
-  width: 2 * Math.min(FOE_SPOT.x, FIELD_WIDTH - FOE_SPOT.x),
-  height: FOE_SPOT.y - 2,
-};
-const PLAYER_ROOM = {
-  width: 2 * Math.min(PLAYER_SPOT.x, FIELD_WIDTH - PLAYER_SPOT.x),
-  height: PLAYER_SPOT.y - 30,
-};
+const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) + FOE_PLATFORM_DROP };
+const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: MESSAGE_TOP - 3 };
 
 /**
  * @param {{
@@ -320,8 +309,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (side === 'player') loadedPlayerId = key;
     else loadedFoeId = key;
 
-    const room = side === 'foe' ? FOE_ROOM : PLAYER_ROOM;
-    const art = battlerArt(pokemon, room);
+    const art = battlerArt(pokemon);
     if (!art) return;
     loadSprite(art.path, art.meta).then((sprite) => {
       const latest = side === 'player' ? loadedPlayerId : loadedFoeId;
@@ -333,14 +321,14 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
               x: FOE_SPOT.x,
               y: FOE_SPOT.y,
               facing: -1,
-              scale: battlerScale(sprite, room),
+              scale: BATTLE_SCALE,
               flip: mirrorFor(sprite, 'left'),
             }
           : {
               x: PLAYER_SPOT.x,
               y: PLAYER_SPOT.y,
               facing: 1,
-              scale: battlerScale(sprite, room),
+              scale: BATTLE_SCALE,
               // The companion stands on the left, looking up the field at its
               // opponent.
               flip: mirrorFor(sprite, 'right'),

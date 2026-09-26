@@ -22,6 +22,7 @@ import { METATILE_SIZE, parseJascPal, sliceTiles, TILE_SIZE } from '../lib/gba-g
 import { crop } from '../lib/image.mjs';
 import { openMaps } from '../lib/maps.mjs';
 import { BATTLE_HEIGHT, BATTLE_WIDTH, EMERALD, HOENN_BADGE_TYPES } from '../sources.mjs';
+import { FOE_PLATFORM_DROP } from '../../../app/shared/constants.mjs';
 
 /** Screen entries across one GBA screenblock. */
 const MAP_COLUMNS = 32;
@@ -124,7 +125,7 @@ export async function buildBattle({ assetDir, dataDir, log, pool }) {
       : scene.palette;
     if (!palette) throw new Error(`Backdrop ${entry.id} has no palette`);
 
-    const image = compose(scene.tiles, scene.map, palette);
+    const image = lowerFoePlatform(compose(scene.tiles, scene.map, palette), FOE_PLATFORM_DROP);
     await writeOut(join(assetDir, 'battle', `${entry.id}.png`), encodePng(image.width, image.height, image.data));
     backdrops[entry.id] = { width: image.width, height: image.height };
   }
@@ -218,6 +219,42 @@ function compose(tiles, map, palette) {
 }
 
 const EMPTY_TILE = new Uint8Array(TILE_SIZE * TILE_SIZE);
+
+/**
+ * Move the far platform down a backdrop, leaving the near one where it is.
+ *
+ * Every battle backdrop is drawn the same way: horizontal bands of one colour
+ * a row, and the two platforms laid over them. So the far platform is found
+ * as whatever on the right half differs from its row's band — read at a
+ * column left of it — painted back over with the band, and laid down again
+ * `drop` rows lower on the bands there.
+ *
+ * @param {{width: number, height: number, data: Uint8Array}} image
+ * @param {number} drop rows
+ */
+export function lowerFoePlatform(image, drop) {
+  const { width, height, data } = image;
+  // Left of the far platform, and above the near one.
+  const probe = 100;
+  const band = (y) => data.subarray((y * width + probe) * 4, (y * width + probe) * 4 + 4);
+  const differs = (x, y) => {
+    const at = (y * width + x) * 4;
+    const own = band(y);
+    return data[at] !== own[0] || data[at + 1] !== own[1] || data[at + 2] !== own[2];
+  };
+  /** @type {Array<[number, number, Uint8Array]>} */
+  const platform = [];
+  for (let y = 0; y < Math.min(height, 100); y++) {
+    for (let x = probe + 1; x < width; x++) {
+      if (differs(x, y)) platform.push([x, y, data.slice((y * width + x) * 4, (y * width + x) * 4 + 4)]);
+    }
+  }
+  if (!platform.length || !drop) return image;
+  const out = new Uint8Array(data);
+  for (const [x, y] of platform) out.set(band(y), (y * width + x) * 4);
+  for (const [x, y, colour] of platform) if (y + drop < height) out.set(colour, ((y + drop) * width + x) * 4);
+  return { width, height, data: out };
+}
 
 /**
  * Draw each league room, cropped to the window around the spot its trainer

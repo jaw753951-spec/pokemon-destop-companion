@@ -63,6 +63,18 @@ export const FIELD_HEIGHT = VIEW_HEIGHT / FIELD_ZOOM;
  */
 export const BACKGROUND_HEIGHT = FIELD_HEIGHT;
 
+/**
+ * How far below where the cartridge draws it the foe's platform stands in a
+ * battle backdrop, in field pixels.
+ *
+ * The window is 135 field pixels tall where the Game Boy Advance was 160, and
+ * a Black and White sprite stands up to 96 — so the far platform is moved
+ * down this far to give the foe the height it needs, which the backdrop build
+ * and the battle scene both read. It stops short of the near side's name
+ * plate.
+ */
+export const FOE_PLATFORM_DROP = 10;
+
 /** How often the game writes to the active save slot. */
 export const AUTOSAVE_INTERVAL_MS = 5 * 60 * 1000;
 

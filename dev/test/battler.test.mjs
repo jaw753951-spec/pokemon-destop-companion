@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Battler, fitScale } from '../../app/renderer/render/battler.mjs';
+import { Battler } from '../../app/renderer/render/battler.mjs';
 import { idleBob } from '../../app/renderer/render/field.mjs';
 
 /** A canvas context that remembers where the pen went. */
@@ -94,11 +94,6 @@ test('the arrows stay on the sprite they belong to', () => {
       }
     }
   }
-});
-
-test('a battler too big for its corner is scaled to fit it', () => {
-  assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 80, height: 120 }, 1), 1);
-  assert.equal(fitScale(/** @type {any} */ ({ width: 40, height: 60 }), { width: 40, height: 30 }, 1), 0.5);
 });
 
 test('a fainting Pokémon sinks straight down and is cut off at its feet', () => {
@@ -189,4 +184,25 @@ test('an attack is one push forward and a hit one push back, level and at its ow
   const first = hit.transform().flash;
   hit.update(200);
   assert.ok(first > hit.transform().flash && hit.transform().flash > 0);
+});
+
+test('the far platform moves down the backdrop and the bands close up behind it', async () => {
+  const { lowerFoePlatform } = await import('../tools/build/battle.mjs');
+  // Two bands of one colour a row, and a "platform" of another on the right.
+  const width = 160;
+  const height = 60;
+  const data = new Uint8Array(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) data.set(y % 2 ? [10, 10, 10, 255] : [20, 20, 20, 255], (y * width + x) * 4);
+  }
+  for (let y = 10; y < 14; y++) for (let x = 120; x < 150; x++) data.set([200, 0, 0, 255], (y * width + x) * 4);
+  const moved = lowerFoePlatform({ width, height, data }, 5);
+  const at = (x, y) => [...moved.data.subarray((y * width + x) * 4, (y * width + x) * 4 + 3)];
+  assert.deepEqual(at(130, 15), [200, 0, 0]);
+  assert.deepEqual(at(130, 18), [200, 0, 0]);
+  // Where it stood is its rows' own bands again.
+  assert.deepEqual(at(130, 10), [20, 20, 20]);
+  assert.deepEqual(at(130, 11), [10, 10, 10]);
+  // And nothing on the left moves.
+  assert.deepEqual(at(50, 12), [20, 20, 20]);
 });

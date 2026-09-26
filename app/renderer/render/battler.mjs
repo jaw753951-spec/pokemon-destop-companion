@@ -7,32 +7,10 @@
  * winning, and a slide into the ground on fainting.
  */
 
-import { artOf, fieldArtOf } from '../core/data.mjs';
+import { artOf } from '../core/data.mjs';
 import { idleBob } from './field.mjs';
 
 /** @typedef {'idle'|'attack'|'hit'|'win'|'lose'|'emerge'} Pose */
-
-/**
- * Shrink a battler that would not fit where it stands.
- *
- * Anything that would overrun the room it has is brought down to fit it —
- * but only in steps of half a field pixel, which the field's own zoom turns
- * into whole screen pixels. A Pokémon shrunk to an arbitrary fraction is made
- * of pixels of two sizes, and every Pokémon on screen being made of one size
- * of pixel is the whole reason the art is drawn at a fixed scale.
- *
- * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{width: number, height: number}} room field pixels available
- * @param {number} preferred the scale it is drawn at when it fits
- */
-export function fitScale(sprite, room, preferred) {
-  const fits = Math.min(room.height / sprite.height, room.width / sprite.width);
-  if (preferred <= fits) return preferred;
-  return Math.max(SCALE_STEP, Math.floor(fits / SCALE_STEP) * SCALE_STEP);
-}
-
-/** The smallest step a battler's scale moves in: one screen pixel per art pixel. */
-const SCALE_STEP = 0.5;
 
 /**
  * The art a Pokémon is drawn from in a battle: its Black and White sprite,
@@ -45,21 +23,14 @@ const SCALE_STEP = 0.5;
  * the road show, and a forme, which a battle is where a shape changes, has a
  * picture of its own.
  *
- * A Pokémon too big for where it stands — a Groudon under the foe's name
- * plate — fights in its road picture instead: the same drawing halved as
- * pixel art, at the same density as every other Pokémon on screen, where
- * shrinking the sprite itself would leave it made of smaller pixels than its
- * opponent.
+ * A Pokémon is never shrunk to fit a battle: a picture made smaller would be
+ * made of smaller pixels than its opponent. The far platform stands low
+ * enough for nearly all of them, and the tallest few are cut off at the top
+ * of the window.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
- * @param {{width: number, height: number}} [room] field pixels it has to stand in
  */
-export function battlerArt(pokemon, room) {
-  const full = artOf(pokemon);
-  if (!full || !room) return full;
-  const fits = full.meta.width * BATTLE_SCALE <= room.width && full.meta.height * BATTLE_SCALE <= room.height;
-  return fits ? full : fieldArtOf(pokemon) ?? full;
-}
+export const battlerArt = (pokemon) => artOf(pokemon);
 
 /**
  * Whether a battler's art has to be mirrored to look the way its side faces.
@@ -76,16 +47,6 @@ export const mirrorFor = (sprite, facing) => (sprite.facing ?? 'left') !== facin
  * that led into it. Both sides alike, as Black and White drew them.
  */
 export const BATTLE_SCALE = 1;
-
-/**
- * What to draw a battler at: {@link BATTLE_SCALE}, and smaller only for a
- * picture that still overruns the room it has, which only a hand-drawn one
- * could.
- *
- * @param {import('../core/assets.mjs').Sprite} sprite
- * @param {{width: number, height: number}} room
- */
-export const battlerScale = (sprite, room) => fitScale(sprite, room, BATTLE_SCALE);
 
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: 340 };
