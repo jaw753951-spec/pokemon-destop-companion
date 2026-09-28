@@ -1324,6 +1324,12 @@ canvas {
   overflow-y: auto;
 }
 
+.item-options-heading {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
 .item-options .meta {
   margin: 0 0 2px;
   line-height: 1.3;

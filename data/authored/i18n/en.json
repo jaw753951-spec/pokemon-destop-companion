@@ -137,6 +137,8 @@
   "items.options": "Use",
   "items.berryRestock": "Berry restock",
   "items.berryRestockNote": "After a battle, the first of these the bag holds goes into an empty hand.",
+  "items.berryRecommend": "Recommend",
+  "items.berryRecommendNote": "Fills the order for the companion walking now: healing, then halving a hit it is weak to, then a stat boost.",
   "items.priority": "Choice {rank}",
   "items.unset": "Unset",
   "items.healingUse": "Healing items",

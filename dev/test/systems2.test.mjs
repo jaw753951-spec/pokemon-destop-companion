@@ -586,6 +586,24 @@ test('the same wild Pokémon twice running is drawn again', options, () => {
   assert.ok(again / rolls < 0.2, `${again} Spinda after a Spinda in ${rolls}`);
 });
 
+test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {
+  const { recommendedBerries } = await import('../../app/renderer/engine/items.mjs');
+  const charmander = fixed(4, 50); // Fire: weak to Water, Ground and Rock
+  const bag = (held) => /** @type {any} */ ({ countOf: (slug) => (held.includes(slug) ? 1 : 0) });
+  const kindOf = (slug) => itemOf(slug)?.held ?? {};
+
+  const [heal, resist, pinch] = recommendedBerries(bag([]), charmander);
+  assert.ok(kindOf(heal).heal, `${heal} heals`);
+  assert.ok(['water', 'ground', 'rock'].includes(kindOf(resist).moveType), `${resist} halves a weakness`);
+  assert.ok(kindOf(pinch).stat, `${pinch} raises a stat`);
+
+  // What the bag holds wins over what it does not, within each kind.
+  const held = recommendedBerries(bag(['shuca-berry', 'oran-berry', 'salac-berry']), charmander);
+  assert.deepEqual(held, ['oran-berry', 'shuca-berry', 'salac-berry']);
+  // A resist berry for a type it is not weak to is never offered.
+  assert.notEqual(recommendedBerries(bag(['occa-berry']), charmander)[1], 'occa-berry');
+});
+
 test('an early road trainer sends out one Pokémon, no higher than the companion and no further evolved', options, async () => {
   const { readFile } = await import('node:fs/promises');
   const raw = JSON.parse(await readFile(new URL('../../data/authored/trainer-classes.json', import.meta.url), 'utf8'));

@@ -137,6 +137,8 @@
   "items.options": "사용 설정",
   "items.berryRestock": "나무열매 자동 보충",
   "items.berryRestockNote": "전투가 끝났을 때 아무것도 지니고 있지 않으면 순서대로 찾아 지니게 합니다.",
+  "items.berryRecommend": "추천",
+  "items.berryRecommendNote": "회복 → 약점 피격 데미지 감소 → 능력치 상승 순으로, 지금 동행에게 맞는 나무열매를 채웁니다.",
   "items.priority": "{rank}순위",
   "items.unset": "미지정",
   "items.healingUse": "회복 아이템 사용",
