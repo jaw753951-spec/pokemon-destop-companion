@@ -1080,7 +1080,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       case 'end':
         if (battle.outcome === 'won') {
-          say(t('battle.won'));
+          // The games say nothing more after a wild Pokémon's faint and the
+          // experience — the fight is simply over — and name the trainer beaten.
+          if (trainer) say(t(leader ? 'battle.wonLeader' : 'battle.wonTrainer', { trainer: localized(trainer.name, '') }));
           playerBattler?.setPose('win');
         } else if (battle.outcome === 'fled' || battle.outcome === 'escaped') {
           // Nobody was beaten: the line that sent it away has already been

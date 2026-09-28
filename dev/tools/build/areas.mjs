@@ -49,6 +49,11 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     // the loop it walks has no hillside or tree in it at any point. See
     // `pickWalkPath` for why a whole-width strip could not manage that.
     const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks, isWater);
+    // Slid down the map where the area asks, to show what stands below the
+    // lane; the lane itself stays where it was, higher in the strip.
+    if (area.bandDrop) {
+      path.bandRow = Math.max(0, Math.min(layout.height - bandBlocks, path.laneRow, path.bandRow + area.bandDrop));
+    }
     const band = crop(
       rendered,
       path.column * METATILE_SIZE,
@@ -101,6 +106,7 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       name,
       region: area.region ?? 'hoenn',
       tags: area.tags,
+      ...(area.backdrop ? { backdrop: area.backdrop } : {}),
       width: strip.width,
       height: strip.height,
       groundY,

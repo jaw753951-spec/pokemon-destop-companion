@@ -20,12 +20,15 @@ const LEAGUE_ROOMS = ['elite-sidney', 'elite-phoebe', 'elite-glacia', 'elite-dra
 export const CHAMPION_ROOM = 'champion';
 
 /**
- * The backdrop for an area, from the first of its terrain tags that names one.
+ * The backdrop for an area: its own where it names one, else the first of its
+ * terrain tags that names one.
  *
- * @param {{tags?: string[]}|null|undefined} area
+ * @param {{tags?: string[], backdrop?: string}|null|undefined} area
  * @returns {string}
  */
 export function backdropForArea(area) {
+  // An area that names its own, over what its tags would give.
+  if (area?.backdrop && gameData().battle?.backdrops?.[area.backdrop]) return area.backdrop;
   const tags = gameData().battle?.tags ?? {};
   for (const tag of area?.tags ?? []) {
     if (tags[tag]) return tags[tag];
