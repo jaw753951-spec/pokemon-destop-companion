@@ -9,11 +9,11 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, useItem } from '../engine/items.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
-import { chooseAction, chooseFromList, chooseItem, confirm } from './dialog.mjs';
+import { chooseAction, chooseFromList, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
 const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
@@ -134,19 +134,9 @@ function optionsPane(app, session, refresh) {
   const policy = session.itemPolicy;
 
   return el('div.item-options', {}, [
-    el('div.item-options-heading', {}, [
-      el('div.section-title', { text: t('items.berryRestock') }),
-      el('span.spacer'),
-      // Healing first, then a resist for its weakness, then a pinch berry —
-      // picked for the companion walking now.
-      button(t('items.berryRecommend'), () => {
-        app.audio.blip('confirm');
-        policy.berries = recommendedBerries(session, session.active);
-        refresh();
-      }, { className: 'small', title: t('items.berryRecommendNote') }),
-    ]),
+    el('div.section-title', { text: t('items.berryRestock') }),
     el('p.meta', { text: t('items.berryRestockNote') }),
-    ...[0, 1, 2].map((index) => berryRow(app, session, policy, index, refresh)),
+    autoBerryRow(app, policy, refresh),
 
     el('div.section-title', { text: t('items.healingUse') }),
     el('p.meta', { text: t('items.healingUseNote') }),
@@ -186,51 +176,23 @@ function afterBattleRow(app, policy, refresh) {
 }
 
 /**
- * Every berry in the bag, whichever pocket the data files it in — the restock
- * order once left out a berry the data had put among the medicine — in the
- * order of their names.
- *
- * @param {import('../engine/session.mjs').Session} session
+ * Whether an empty hand is given the best berry in the bag — one switch
+ * rather than an order to keep up, since which berry is best changes with the
+ * companion walking and what the bag holds. See `bestBerry` for how it picks.
  */
-function heldBerries(session) {
-  const pockets = new Map([...session.pocket('berries'), ...session.pocket('medicine')].map((entry) => [entry.slug, entry]));
-  return [...pockets.values()]
-    .filter((entry) => entry.item.pocket === 'berries' || entry.slug.endsWith('-berry'))
-    .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)));
-}
-
-/**
- * One rank of the restock order. Only berries the bag has ever held are
- * offered, plus the empty choice — a rank left unset is simply skipped.
- */
-function berryRow(app, session, policy, index, refresh) {
-  const slug = policy.berries[index] ?? null;
-  const item = slug ? itemOf(slug) : null;
+function autoBerryRow(app, policy, refresh) {
+  const on = Boolean(policy.autoBerry);
 
   return el('div.setting.item-option', {}, [
-    el('span.label', { text: t('items.priority', { rank: index + 1 }) }),
+    el('span.label', { text: t('items.berryAuto') }),
     el('span.spacer'),
-    el(`button.chip${slug ? '' : '.off'}`, {
+    el(`button.chip${on ? '' : '.off'}`, {
       type: 'button',
-      text: item ? localized(item.name, slug) : t('items.unset'),
-      onClick: async () => {
+      text: on ? t('items.berryAuto.on') : t('items.berryAuto.off'),
+      'aria-pressed': String(on),
+      onClick: () => {
         app.audio.blip('select');
-        const chosen = await chooseItem(app, t('items.priority', { rank: index + 1 }),
-          heldBerries(session).map((entry) => ({
-            value: entry.slug,
-            label: localized(entry.item.name, entry.slug),
-            icon: url('assets', `items/${entry.slug}.png`),
-            count: entry.count,
-            text: localized(entry.item.text, ''),
-          })),
-          {
-            current: slug,
-            clearLabel: t('items.unset'),
-            confirmLabel: t('items.berryPick'),
-            empty: t('items.noBerries'),
-          });
-        if (chosen === null) return;
-        policy.berries[index] = chosen || null;
+        policy.autoBerry = !on;
         refresh();
       },
     }),

@@ -20,6 +20,7 @@ import { walkSteps } from '../engine/pokemon.mjs';
 
 import { name as localized, t } from '../core/i18n.mjs';
 import { eventModifiers, healAfterBattle, restockBerry } from '../engine/items.mjs';
+import { callRestStop } from '../engine/rest.mjs';
 import { earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { Session } from '../engine/session.mjs';
 import {
@@ -567,6 +568,9 @@ export function fieldScene(session) {
         if (events?.busy || menuOpen || crossing > 0 || nearOverpass(session.area, eventGround(offset))) {
           session.eventTimer = EVENT_RETRY_MS;
         } else {
+          // Running short of health, PP, potions or balls calls a rest stop
+          // once; it is no longer one of the rolls.
+          callRestStop(session);
           events?.start(session.events.roll(session.rng, eventModifiers(session)), offset, app);
           // Ten things happen in a place, and then somewhere else.
           if (session.countEvent()) pendingCrossing = true;

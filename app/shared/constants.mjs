@@ -202,8 +202,46 @@ export const CAPTURE_ATTEMPTS = 3;
 /** Badges needed before the Pokémon League opens. */
 export const BADGES_FOR_LEAGUE = 8;
 
-/** Trainer wins that summon a gym leader even without the random roll. */
-export const TRAINER_WINS_FOR_LEADER = 50;
+/**
+ * How often a trainer encounter is a gym leader instead, and how many trainer
+ * wins in a row summon one without the roll — by how far into the journey the
+ * companion is.
+ *
+ * One flat 5% and fifty wins made the late badges a long wait: by the sixth
+ * badge the companion had long outgrown the road and was still walking it for
+ * a leader who rarely came. So the odds rise with the badges in hand, or with
+ * the companion's level for one that has levelled ahead of its badges —
+ * whichever is further on.
+ *
+ * | stage | badges | or level | chance | wins |
+ * |-------|--------|----------|--------|------|
+ * | early |   0–3  |   < 30   |   5%   |  50  |
+ * | mid   |   4–5  |  30–44   |  10%   |  30  |
+ * | late  |   6–7  |   45+    |  15%   |  20  |
+ */
+export const LEADER_ODDS = [
+  { badges: 0, level: 0, chance: 0.05, wins: 50 },
+  { badges: 4, level: 30, chance: 0.1, wins: 30 },
+  { badges: 6, level: 45, chance: 0.15, wins: 20 },
+];
 
-/** Chance a trainer encounter is a gym leader instead. */
-export const LEADER_ENCOUNTER_CHANCE = 0.05;
+/** Trainer wins that summon a gym leader even without the random roll, at the start. */
+export const TRAINER_WINS_FOR_LEADER = LEADER_ODDS[0].wins;
+
+/** Chance a trainer encounter is a gym leader instead, at the start. */
+export const LEADER_ENCOUNTER_CHANCE = LEADER_ODDS[0].chance;
+
+/**
+ * The leader odds for a companion this far along.
+ *
+ * @param {number} badges
+ * @param {number} level
+ * @returns {{chance: number, wins: number}}
+ */
+export function leaderOdds(badges, level) {
+  let odds = LEADER_ODDS[0];
+  for (const stage of LEADER_ODDS) {
+    if (badges >= stage.badges || level >= stage.level) odds = stage;
+  }
+  return odds;
+}

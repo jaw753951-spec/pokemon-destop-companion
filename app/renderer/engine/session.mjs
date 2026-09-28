@@ -343,17 +343,17 @@ export function defaultAutoBattle() {
 /**
  * How the bag is used without being opened.
  *
- * `berries` are the restock choices in order of preference, any of which may
- * be left unset; `healing` names an item to throw, or null for whatever fits
- * the damage taken, and the health it is thrown at — `never` for a player who
+ * `autoBerry` hands the companion the berry in the bag that suits it best
+ * whenever its hand is empty after a fight. `healing` names an item to throw,
+ * or null for whatever fits the damage taken, and the health it is thrown
+ * at — `never` for a player who
  * would rather do it by hand. `afterBattle` is how far a win tops the
  * companion back up from the bag: a key of `AFTER_BATTLE_TARGETS`, a full bar
  * unless the player says otherwise.
  */
 export function defaultItemPolicy() {
   return {
-    /** @type {Array<string|null>} */
-    berries: [null, null, null],
+    autoBerry: true,
     healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
     afterBattle: 'full',
   };
@@ -364,11 +364,16 @@ export function normalizeItemPolicy(policy) {
   const fresh = defaultItemPolicy();
   if (!policy) return fresh;
 
-  const berries = Array.isArray(policy.berries) ? policy.berries.slice(0, 3) : [];
-  while (berries.length < 3) berries.push(null);
+  // A save from the days of a three-rank restock order kept restocking if any
+  // rank was set, and stays on; one that set none had it off, and stays off.
+  const autoBerry = typeof policy.autoBerry === 'boolean'
+    ? policy.autoBerry
+    : Array.isArray(policy.berries)
+      ? policy.berries.some(Boolean)
+      : fresh.autoBerry;
 
   return {
-    berries: berries.map((slug) => slug || null),
+    autoBerry,
     healing: {
       item: policy.healing?.item ?? null,
       condition: policy.healing?.condition ?? fresh.healing.condition,

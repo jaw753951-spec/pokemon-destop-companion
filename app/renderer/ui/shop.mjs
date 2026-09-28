@@ -36,7 +36,12 @@ export function shopScene({ session, onClose }) {
 
     mount(app) {
       const purse = el('span.shop-money');
-      const body = el('div.screen-body.shop-body');
+      // Laid out as the bag's own tab body is — a column whose split takes the
+      // height left under the pockets — so the stock list has a height to
+      // overflow and the wheel scrolls it. As a plain block the list simply
+      // grew past the bottom of the window and was cut off there, and nothing
+      // scrolled at all.
+      const body = el('div.screen-body.tabbed.shop-body');
 
       const rebuild = () => {
         const keep = body.querySelector('.item-list')?.scrollTop ?? 0;
@@ -61,7 +66,7 @@ export function shopScene({ session, onClose }) {
             el('span.item-count', { text: t('money.label', { amount: formatMoney(price) }) }),
           ])));
 
-        setChildren(body, [
+        setChildren(body, [el('div.tab-body.items-tab', {}, [
           el('div.pocket-tabs', {}, POCKETS.map((pocket) =>
             el('button.chip', {
               type: 'button',
@@ -75,7 +80,7 @@ export function shopScene({ session, onClose }) {
               },
             }))),
           el('div.items-split', {}, [list, inspector(app, session, state, stock, rebuild)]),
-        ]);
+        ])]);
         list.scrollTop = keep;
       };
       rebuild();
@@ -106,7 +111,9 @@ export function shopScene({ session, onClose }) {
  * @param {() => void} rebuild
  */
 function inspector(app, session, state, stock, rebuild) {
-  const panel = el('div.item-inspector');
+  // A machine's move text runs long; the panel scrolls rather than pushing
+  // the buy button off the bottom.
+  const panel = scrollable(el('div.item-inspector'));
   const entry = stock.find((candidate) => candidate.slug === state.selected);
   if (!entry) {
     panel.append(el('span.meta.inspect-hint', { text: t('shop.hint') }));

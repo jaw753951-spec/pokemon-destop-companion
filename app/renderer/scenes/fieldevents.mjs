@@ -6,14 +6,14 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, leaderOdds } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { alreadyOwned } from '../engine/shop.mjs';
-import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
+import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
 import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY } from '../render/field.mjs';
@@ -311,16 +311,29 @@ function startBerry(session, spawnAt) {
  * so the roadside has the variety it looks like it should and a Roseli Berry
  * is on the same tree every time you meet one.
  *
+ * Only a sheet with fruit on it is handed out. The build marks a sheet whose
+ * fruiting stage is the same picture as its flowering one — `fruit: null` —
+ * and the renderer draws the fruiting frames of it all the same, so a Kasib
+ * Berry that hashed onto one of those walked the companion up to a tree with
+ * nothing on it. A berry's own sheet is passed over for the same reason; a
+ * manifest from before the build checked (no `fruit` at all) is trusted.
+ *
  * @param {string} berry the item slug, e.g. `oran-berry`
  * @param {Record<string, any>} trees the sheets the build produced
  * @returns {string|null}
  */
 export function treeFor(berry, trees) {
+  const bears = (/** @type {string} */ name) => {
+    const meta = trees[name];
+    return Boolean(meta) && (!('fruit' in meta) || (Array.isArray(meta.fruit) && meta.fruit.length > 0));
+  };
   // `oran-berry` is drawn by a tree sheet named `oran`.
   const own = berry.replace(/-berry$/, '');
-  if (trees[own]) return own;
+  if (bears(own)) return own;
 
-  const names = Object.keys(trees).sort();
+  const fruiting = Object.keys(trees).filter(bears).sort();
+  // A build where no sheet has fruit still grows the berry on something.
+  const names = fruiting.length ? fruiting : Object.keys(trees).sort();
   if (names.length === 0) return null;
 
   let hash = 0;
@@ -699,8 +712,10 @@ function startTrainer(session, spawnAt) {
 /** @param {import('../engine/session.mjs').Session} session */
 function shouldSummonLeader(session) {
   if (session.badges.length >= 8) return false;
-  if (session.trainerWins >= TRAINER_WINS_FOR_LEADER) return true;
-  return session.rng.chance(LEADER_ENCOUNTER_CHANCE);
+  // Likelier the further along the journey is; see LEADER_ODDS.
+  const odds = leaderOdds(session.badges.length, levelOf(session.active));
+  if (session.trainerWins >= odds.wins) return true;
+  return session.rng.chance(odds.chance);
 }
 
 /**
@@ -735,9 +750,9 @@ export function leaderParty(session, leader) {
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
-    ? roster
+    ? capRoster(roster, LEADER_PARTY_CAP)
     : // No roster on file: fall back to strong members of the leader's type.
-      pickTypeRoster(session, leader.type, 3);
+      pickTypeRoster(session, leader.type, LEADER_PARTY_CAP);
 
   const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
   return giveTrainerItems(session.rng, party, 'leader');

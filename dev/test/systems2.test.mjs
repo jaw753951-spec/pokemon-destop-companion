@@ -666,22 +666,39 @@ test('the shop sells all but the unique, prices a trainer\'s prize, and a kept i
   assert.equal(lossFor(session), 8 * 20);
 });
 
-test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {
-  const { recommendedBerries } = await import('../../app/renderer/engine/items.mjs');
+test('the best berry halves a 4× weakness, then heals, then halves a 2× one, then raises a stat', options, async () => {
+  const { bestBerry, restockBerry } = await import('../../app/renderer/engine/items.mjs');
   const charmander = fixed(4, 50); // Fire: weak to Water, Ground and Rock
-  const bag = (held) => /** @type {any} */ ({ countOf: (slug) => (held.includes(slug) ? 1 : 0) });
-  const kindOf = (slug) => itemOf(slug)?.held ?? {};
+  const charizard = fixed(6, 50); // Fire/Flying: four times weak to Rock
+  const bag = (held) => /** @type {any} */ ({
+    countOf: (slug) => (held.includes(slug) ? 1 : 0),
+    pocket: (pocket) => held
+      .filter((slug) => itemOf(slug)?.pocket === pocket)
+      .map((slug) => ({ slug, count: 1, item: itemOf(slug) })),
+    removeItem: () => {},
+    itemPolicy: { autoBerry: true },
+  });
 
-  const [heal, resist, pinch] = recommendedBerries(bag([]), charmander);
-  assert.ok(kindOf(heal).heal, `${heal} heals`);
-  assert.ok(['water', 'ground', 'rock'].includes(kindOf(resist).moveType), `${resist} halves a weakness`);
-  assert.ok(kindOf(pinch).stat, `${pinch} raises a stat`);
+  assert.equal(bestBerry(bag([]), charmander), null, 'nothing in the bag, nothing held');
+  // A 4× weakness beats even a Sitrus.
+  assert.equal(bestBerry(bag(['sitrus-berry', 'charti-berry']), charizard), 'charti-berry');
+  // A Sitrus beats a 2× resist.
+  assert.equal(bestBerry(bag(['sitrus-berry', 'passho-berry']), charmander), 'sitrus-berry');
+  // A 2× resist beats an Oran at level 50, and a pinch berry.
+  assert.equal(bestBerry(bag(['oran-berry', 'passho-berry', 'salac-berry']), charmander), 'passho-berry');
+  assert.equal(bestBerry(bag(['oran-berry', 'salac-berry']), charmander), 'oran-berry');
+  // A resist berry for a type it is not weak to is never held.
+  assert.equal(bestBerry(bag(['occa-berry']), charmander), null);
 
-  // What the bag holds wins over what it does not, within each kind.
-  const held = recommendedBerries(bag(['shuca-berry', 'oran-berry', 'salac-berry']), charmander);
-  assert.deepEqual(held, ['oran-berry', 'shuca-berry', 'salac-berry']);
-  // A resist berry for a type it is not weak to is never offered.
-  assert.notEqual(recommendedBerries(bag(['occa-berry']), charmander)[1], 'occa-berry');
+  // Handed over only when the hand is empty and the setting is on.
+  charmander.heldItem = null;
+  assert.equal(restockBerry(bag(['sitrus-berry']), charmander), 'sitrus-berry');
+  assert.equal(charmander.heldItem, 'sitrus-berry');
+  assert.equal(restockBerry(bag(['oran-berry']), charmander), null, 'already holding one');
+  charmander.heldItem = null;
+  const off = bag(['sitrus-berry']);
+  off.itemPolicy.autoBerry = false;
+  assert.equal(restockBerry(off, charmander), null);
 });
 
 test('an early road trainer sends out one Pokémon, no higher than the companion and no further evolved', options, async () => {

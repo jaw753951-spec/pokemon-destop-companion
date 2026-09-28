@@ -1,7 +1,7 @@
 /**
  * The field event scheduler.
  *
- * Once a minute the game rolls one of five events. They start out equally
+ * Once a minute the game rolls one of four events. They start out equally
  * likely, and the scheduler remembers the **last two** it fired: the one that
  * just happened is worth 1%, the one before it 10%, and the probability those
  * two give up is shared equally among the events that are neither. So a run of
@@ -12,12 +12,26 @@
  * three steps (20 → 10 → 1 → 0): it could not tell the difference between
  * "berry, berry" and "berry, ball, berry", so the two-event ping-pong it left
  * behind was exactly as likely as anything else.
+ *
+ * The rest stop is not one of the four. It used to be a fifth of every roll,
+ * which handed out a full heal and a bag of supplies whether the companion
+ * needed them or not; now it is only ever called — by a blackout, or by the
+ * companion running short of something (see `rest.mjs`) — and never rolled.
  */
 
 /** @typedef {'berry'|'ball'|'wild'|'trainer'|'heal'} EventKind */
 
-/** @type {EventKind[]} */
-export const EVENT_KINDS = ['berry', 'ball', 'wild', 'trainer', 'heal'];
+/**
+ * The events the minute's roll chooses between.
+ * @type {EventKind[]}
+ */
+export const EVENT_KINDS = ['berry', 'ball', 'wild', 'trainer'];
+
+/**
+ * The events that only happen when the game calls for them.
+ * @type {EventKind[]}
+ */
+export const CALLED_KINDS = ['heal'];
 
 /** Each event's share of the roll when nothing is damped. */
 export const BASE_WEIGHT = 100 / EVENT_KINDS.length;
@@ -41,6 +55,7 @@ export class EventScheduler {
    *   last?: EventKind|null,
    *   streak?: number,
    *   forced?: EventKind|null,
+   *   shortages?: string[],
    * }} [state] `last`/`streak` are the shape older saves carry
    */
   constructor(state = {}) {
@@ -55,7 +70,13 @@ export class EventScheduler {
      * the dice say next.
      * @type {EventKind|null}
      */
-    this.forced = state.forced ?? null;
+    this.forced = [...EVENT_KINDS, ...CALLED_KINDS].includes(/** @type {any} */ (state.forced)) ? state.forced ?? null : null;
+    /**
+     * The shortages a rest stop has already been called for, so each calls
+     * one once rather than every minute it lasts. See `rest.mjs`.
+     * @type {string[]}
+     */
+    this.shortages = Array.isArray(state.shortages) ? state.shortages.filter((entry) => typeof entry === 'string') : [];
   }
 
   /** The event that fired most recently, or null before any has. */
@@ -125,15 +146,21 @@ export class EventScheduler {
 
   /**
    * Push an event onto the memory, dropping whatever falls off the end.
+   *
+   * Only the rolled events are remembered: a rest stop the game called is not
+   * one the dice need damping, and letting it take a slot would free the
+   * event before it from its damping early.
+   *
    * @param {EventKind} kind
    */
   remember(kind) {
+    if (!EVENT_KINDS.includes(kind)) return;
     this.recent = [kind, ...this.recent].slice(0, MEMORY);
   }
 
-  /** @returns {{recent: EventKind[], forced: EventKind|null}} */
+  /** @returns {{recent: EventKind[], forced: EventKind|null, shortages: string[]}} */
   toJSON() {
-    return { recent: [...this.recent], forced: this.forced };
+    return { recent: [...this.recent], forced: this.forced, shortages: [...this.shortages] };
   }
 }
 

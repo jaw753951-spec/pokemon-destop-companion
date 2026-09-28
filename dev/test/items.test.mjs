@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
-import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
 import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
@@ -289,11 +289,13 @@ test('the after-battle top-up defaults to full, for new and old saves alike', ()
   assert.equal(normalizeItemPolicy({ afterBattle: 'hpHalf' }).afterBattle, 'hpHalf');
 });
 
-test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {
-  const session = fakeSession({ 'sitrus-berry': 1 });
-  assert.equal(berryToHold(session, [null, 'oran-berry', 'sitrus-berry']), 'sitrus-berry');
-  assert.equal(berryToHold(session, [null, null, null]), null);
-  assert.equal(berryToHold(session, ['oran-berry']), null);
+test('the automatic berry is on for a new save, and an old save keeps what its order meant', () => {
+  assert.equal(defaultItemPolicy().autoBerry, true);
+  assert.equal(normalizeItemPolicy(null).autoBerry, true);
+  assert.equal(normalizeItemPolicy({ berries: ['sitrus-berry', null, null] }).autoBerry, true);
+  assert.equal(normalizeItemPolicy({ berries: [null, null, null] }).autoBerry, false);
+  assert.equal(normalizeItemPolicy({ autoBerry: false }).autoBerry, false);
+  assert.equal('berries' in normalizeItemPolicy({ berries: ['oran-berry'] }), false);
 });
 
 test('every item the bag can hold says what it is, in Korean as well as English', withData, () => {

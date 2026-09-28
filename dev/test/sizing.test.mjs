@@ -112,3 +112,15 @@ test('every berry grows on a tree, and always the same one', () => {
   // And a build with no berry trees at all says so rather than throwing.
   assert.equal(treeFor('oran-berry', {}), null);
 });
+
+test('no berry grows on a tree the build found no fruit on', () => {
+  const fruit = [4, 5];
+  const trees = { cheri: { fruit }, oran: { fruit: null }, pecha: { fruit }, sitrus: { fruit: null } };
+  const berries = ['kasib', 'roseli', 'babiri', 'occa', 'passho', 'wacan', 'rindo', 'yache', 'chople', 'oran', 'sitrus'];
+  for (const name of berries) {
+    const tree = treeFor(`${name}-berry`, trees);
+    assert.ok(tree === 'cheri' || tree === 'pecha', `${name} landed on the bare ${tree}`);
+  }
+  // Its own tree still wins when it has fruit on it.
+  assert.equal(treeFor('pecha-berry', trees), 'pecha');
+});
