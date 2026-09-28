@@ -1077,30 +1077,127 @@ canvas {
  * play a chime; a star in the same place says it at the size these screens
  * work at.
  */
+/* A shiny: the red star the games' summary screens have put beside it since
+   Diamond and Pearl — red, too, so it is never taken for the box's yellow
+   favourite star. */
 .shiny-mark {
-  color: #d8a21f;
+  color: #e0302c;
   font-size: 9px;
-  text-shadow: 0 0 2px rgba(255, 233, 150, 0.9);
+  text-shadow: 0 0 1px #fff, 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
-/* ♂ and ♀ beside a name, which infatuation and Rivalry both read. */
+/* ♂ and ♀ beside a name, which infatuation and Rivalry both read — blue
+   and red, as the games' nameplates and summary screens colour them. */
 .gender-mark {
   font-size: 10px;
   font-weight: 700;
 }
 
+.battle-name .gender-mark {
+  font-size: inherit;
+}
+
 .gender-mark.male {
-  color: #4a7fd0;
+  color: #3a86f0;
 }
 
 .gender-mark.female {
-  color: #d05a8a;
+  color: #f0506e;
+}
+
+/* A species the Pokédex already has as caught, marked with a small Poké Ball
+   as the games mark the nameplate: red over white, with the black band and
+   the white button across the middle. It sits on the frame's top-left
+   corner, clear of the sprite inside. */
+.caught-mark {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 1;
+  width: 9px;
+  height: 9px;
+  box-sizing: border-box;
+  border: 1px solid #1c1c24;
+  border-radius: 50%;
+  background: linear-gradient(#e8403a 0 40%, #1c1c24 40% 60%, #f6f6f2 60%);
+  pointer-events: none;
+}
+
+.caught-mark::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 3px;
+  height: 3px;
+  box-sizing: border-box;
+  border: 1px solid #1c1c24;
+  border-radius: 50%;
+  background: #f6f6f2;
+  transform: translate(-50%, -50%);
+}
+
+/* A status condition beside a name: the games' small coloured tag, white
+   letters on the condition's colour. */
+.status-mark {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  vertical-align: 1px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.status-mark.par { background: #c8a818; }
+.status-mark.psn { background: #a040a8; }
+.status-mark.brn { background: #e05030; }
+.status-mark.slp { background: #8c8c98; }
+.status-mark.frz { background: #48a8d8; }
+.status-mark.confusion { background: #d0609c; }
+
+/* Something new behind it: a red dot in the corner, as a phone badges an app. */
+.new-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e8403a;
+  box-shadow: 0 0 0 1px #fff;
+  pointer-events: none;
+}
+
+.new-dot.inline {
+  position: static;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: 2px;
 }
 
 .box-space .shiny-mark {
   position: absolute;
   top: 0;
   right: 2px;
+}
+
+/* A favourite: a yellow star on the space's top-left corner, where the catch
+   tray puts its Poké Ball. */
+.favorite-mark {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  background: #f6c630;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  filter: drop-shadow(0 0 0.5px #7a5a00) drop-shadow(0 0 0.5px #7a5a00);
+  pointer-events: none;
 }
 
 .type-chip {
@@ -1125,6 +1222,7 @@ canvas {
 
 .move-slot {
   -webkit-app-region: no-drag;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1265,6 +1363,12 @@ canvas {
   overflow-y: auto;
 }
 
+.item-options-heading {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
 .item-options .meta {
   margin: 0 0 2px;
   line-height: 1.3;
@@ -1273,6 +1377,26 @@ canvas {
 .item-option .label {
   width: auto;
   color: var(--ink);
+}
+
+.shop-money {
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shop-buy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.shop-count {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
 }
 
 .item-inspector {
@@ -1433,6 +1557,8 @@ canvas {
   grid-template-columns: repeat(10, 1fr);
   gap: 2px;
   align-content: start;
+  /* Room round the edge for the favourite star, which sits on the corner. */
+  padding: 4px 4px 2px;
 }
 
 .box-space {
@@ -1540,18 +1666,59 @@ canvas {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   padding: 8px 10px;
 }
 
+/* The three things that pick a move, one tier each, highest first. All
+   three start on one line, and each is drawn quieter than the one that
+   outranks it. */
+.auto-tier {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 8px 6px;
+  border-left: 3px solid var(--frame-light);
+  border-radius: 0 5px 5px 0;
+}
+
+.auto-tier-1 {
+  border-left-color: var(--accent);
+  background: rgba(216, 68, 60, 0.08);
+}
+
+.auto-tier-2 {
+  border-left-color: var(--frame);
+  background: rgba(56, 74, 99, 0.07);
+}
+
+.auto-tier-3 {
+  background: rgba(56, 74, 99, 0.03);
+}
+
+.auto-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.auto-modes .chip {
+  padding: 3px 6px;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+/* Four boxes fired left to right, with a notch between each pair saying so. */
 .auto-order {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 3px;
+  gap: 10px;
 }
 
 .auto-slot {
   -webkit-app-region: no-drag;
+  position: relative;
   min-height: 24px;
   padding: 2px 4px;
   border: 1px solid var(--frame-light);
@@ -1560,6 +1727,17 @@ canvas {
   font: inherit;
   font-size: 9px;
   cursor: pointer;
+}
+
+.auto-slot + .auto-slot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--frame-light);
+  transform: translateY(-50%);
 }
 
 .auto-slot.empty {
@@ -1576,12 +1754,21 @@ canvas {
   opacity: 0.55;
 }
 
+.auto-kinds {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px 12px;
+}
+
 .auto-kind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
+  font-size: 10px;
 }
 
 .auto-kind .label {
-  width: auto;
   color: var(--ink);
 }
 
@@ -1688,6 +1875,12 @@ canvas {
 .dex-detail-name {
   font-size: 12px;
   font-weight: 700;
+}
+
+.dex-detail-form {
+  margin-top: -2px;
+  color: var(--ink-soft);
+  font-size: 10px;
 }
 
 .dex-champion-mark {

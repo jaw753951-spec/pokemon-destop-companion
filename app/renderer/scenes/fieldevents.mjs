@@ -8,10 +8,11 @@
  */
 import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
-import { fieldArtOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
+import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
+import { alreadyOwned } from '../engine/shop.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
@@ -279,7 +280,7 @@ function startBerry(session, spawnAt) {
     onGathered: (app) => {
       session.addItem(berry);
       state.prop.frame = 'bare';
-      state.carried = { icon: `items/${berry}.png`, sprite: null };
+      state.carried = { icon: `items/${berry}.png`, sprite: null, scale: CARRIED_BERRY_SCALE };
       loadImage(`items/${berry}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
       });
@@ -334,7 +335,9 @@ export function treeFor(berry, trees) {
 function startBall(session, spawnAt) {
   const tier = session.rng.weighted(BALL_TIERS.map((entry) => ({ value: entry, weight: entry.chance })))
     ?? BALL_TIERS[0];
-  const pool = gameData().itemTiers[tier.ball] ?? [];
+  // A kept item — a Leftovers, a TM — is only ever found once: a second
+  // would be a thing with nothing to do.
+  const pool = (gameData().itemTiers[tier.ball] ?? []).filter((slug) => !alreadyOwned(session, slug));
   // Now and then, the item the travelling legendary is waiting on.
   const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 
@@ -625,7 +628,8 @@ function restAndResupply(session, app) {
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active);
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies);
+  session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 
   const state = {
@@ -647,7 +651,7 @@ function startWild(session, spawnAt) {
   };
 
   // Standing its ground in the road, in the same art the companion walks in.
-  const art = fieldArtOf(wild);
+  const art = artOf(wild);
   if (art) {
     loadSprite(art.path, art.meta).then((sprite) => {
       state.prop.sprite = sprite;
@@ -834,6 +838,13 @@ const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
 const BERRY_SWAY_MS = 380;
 
 /**
+ * How big a berry tree stands on the road: its own tile size, the map's
+ * pixels. It used to stand at the actors' half again, which made it as tall
+ * as the Pokémon picking it and taller than the trees behind it.
+ */
+const BERRY_TREE_SCALE = 1;
+
+/**
  * Berry sheets hold the tree's growth stages; see {@link BERRY_STAGES}.
  */
 function drawBerryTree(context, prop, screenX, elapsed = 0) {
@@ -857,9 +868,7 @@ function drawBerryTree(context, prop, screenX, elapsed = 0) {
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;
-  // A berry tree is one tile wide and easy to miss against a busy route, so it
-  // is drawn at the same size as the actors that walk up to it.
-  const scale = ACTOR_SCALE;
+  const scale = BERRY_TREE_SCALE;
 
   context.drawImage(
     image,
@@ -959,8 +968,16 @@ export function drawBall(context, prop, screenX, sinceOpened = 0) {
  */
 function drawCarried(context, carried, actorHeight) {
   if (!carried.sprite) return;
-  carried.sprite.draw(context, COMPANION_X, groundY() - actorHeight - 4);
+  carried.sprite.draw(context, COMPANION_X, groundY() - actorHeight - 4, { scale: carried.scale ?? 1 });
 }
+
+/**
+ * How big a picked berry is held up: half its icon, one screen pixel to each
+ * of its own. At full size a bag icon held over a Pokémon's head came out
+ * nearly the size of the Pokémon; half is as small as it goes while every
+ * pixel stays one pixel.
+ */
+const CARRIED_BERRY_SCALE = 0.5;
 
 /** @param {HTMLImageElement} image */
 function stillSprite(image) {

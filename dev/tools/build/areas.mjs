@@ -49,6 +49,11 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     // the loop it walks has no hillside or tree in it at any point. See
     // `pickWalkPath` for why a whole-width strip could not manage that.
     const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks, isWater);
+    // Slid down the map where the area asks, to show what stands below the
+    // lane; the lane itself stays where it was, higher in the strip.
+    if (area.bandDrop) {
+      path.bandRow = Math.max(0, Math.min(layout.height - bandBlocks, path.laneRow, path.bandRow + area.bandDrop));
+    }
     const band = crop(
       rendered,
       path.column * METATILE_SIZE,
@@ -74,8 +79,11 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       bandBlocks * METATILE_SIZE,
     );
     const overhead = keepOverLane(overBand, groundY);
-    const overStrip = overhead ? repeatToWidth(makeSeamless(overhead), FIELD_WIDTH * 2) : null;
-    const covered = overStrip ? coveredSpans(overStrip, groundY) : [];
+    const overStrip = overhead ? repeatToWidth(makeSeamless(overhead.overlay), FIELD_WIDTH * 2) : null;
+    // Only what hides the companion whole — a bridge, a roof — keeps events
+    // from starting under it; a tree top over its feet does not.
+    const blockingStrip = overhead?.blocking ? repeatToWidth(makeSeamless(overhead.blocking), FIELD_WIDTH * 2) : null;
+    const covered = blockingStrip ? coveredSpans(blockingStrip, groundY) : [];
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
@@ -101,12 +109,14 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       name,
       region: area.region ?? 'hoenn',
       tags: area.tags,
+      ...(area.backdrop ? { backdrop: area.backdrop } : {}),
       width: strip.width,
       height: strip.height,
       groundY,
       // Stretches of the strip, in its own pixels, where something is drawn
       // over the lane; see `overhead` above.
-      ...(covered.length ? { overlay: true, covered } : {}),
+      ...(overStrip ? { overlay: true } : {}),
+      ...(covered.length ? { covered } : {}),
       music,
       weather: map.weather ? map.weather.replace('WEATHER_', '').toLowerCase() : 'none',
       encounters: encounters.get(map.id) ?? [],
@@ -130,11 +140,12 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
  *
  * The layer above the sprites holds more than bridges: a tree's crown is on
  * it, which is how a player in the games walks behind the top of a tree, and
- * several lanes run along a row of crowns. Drawn over the companion those
- * would hide it every few steps for no reason anyone could see. A bridge is
+ * several lanes run along a row of crowns. Those are drawn over the lane's own
+ * block only — the companion's feet go behind the tree top, as a player's do,
+ * where it used to walk across it — and do not hold events back. A bridge is
  * the thing that is solid all the way up the band — Route 110's Cycling Road
  * crosses the whole window — so only a column solid for this many blocks is
- * taken to be one.
+ * taken to be one, and drawn whole.
  */
 const OVERPASS_BLOCKS = 4;
 
@@ -142,15 +153,26 @@ const OVERPASS_BLOCKS = 4;
 const OVERPASS_FILL = 0.6;
 
 /**
- * The part of a map's over-the-sprites layer that is a bridge over the lane.
+ * How much of the lane's block, and the one below, a roof fills: all of it,
+ * where the rounded crowns of a tree line overhanging the lane fill about
+ * four fifths.
+ */
+const ROOF_FILL = 0.95;
+
+/**
+ * The part of a map's over-the-sprites layer that is a bridge over the lane,
+ * or a roof overhanging it.
  *
  * A block column is kept, top to bottom, when its layer is solid from the
  * block the companion's feet stand in up through {@link OVERPASS_BLOCKS}
- * blocks; every other column is cleared.
+ * blocks, or solid in that block and the one below it; every other column is
+ * cleared.
  *
  * @param {import('../lib/image.mjs').Raster} over
  * @param {number} groundY the bottom edge of the lane's row, in the band
- * @returns {import('../lib/image.mjs').Raster|null} null when nothing crosses it
+ * @returns {{overlay: import('../lib/image.mjs').Raster, blocking: import('../lib/image.mjs').Raster|null}|null}
+ *   what is drawn over the companion, and the part of it that hides it whole;
+ *   null when nothing crosses the lane
  */
 function keepOverLane(over, groundY) {
   const drawnIn = (column, bottom) => {
@@ -163,11 +185,21 @@ function keepOverLane(over, groundY) {
     return drawn / (METATILE_SIZE * METATILE_SIZE);
   };
   const columns = Math.floor(over.width / METATILE_SIZE);
+  const solid = (index, block, fill = OVERPASS_FILL) =>
+    drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) >= fill;
   const deck = Array.from({ length: columns }, (_, index) => {
-    for (let block = 0; block < OVERPASS_BLOCKS; block++) {
-      if (drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) < OVERPASS_FILL) return false;
-    }
-    return true;
+    // A bridge: solid from the lane all the way up.
+    let bridge = true;
+    for (let block = 0; block < OVERPASS_BLOCKS && bridge; block++) bridge = solid(index, block);
+    if (bridge) return true;
+    // A roof: a building whose roof overhangs the lane from below, solid in
+    // the lane's own block and on down into the building under it. Route 7's
+    // lane runs along the top of a house's roof, and the companion walked
+    // across the roof where a player in the games walks behind its edge. A
+    // roof's edge is a straight line filling the whole block; a tree line's
+    // crowns overhang the same way but round, never filling it — see
+    // `ROOF_FILL` — and are left out for the reason `OVERPASS_BLOCKS` gives.
+    return solid(index, 0, ROOF_FILL) && solid(index, -1, ROOF_FILL);
   });
   // The railings either side of the deck are thinner than the deck, and are
   // as much the bridge as it is.
@@ -175,14 +207,28 @@ function keepOverLane(over, groundY) {
     (isDeck, index) =>
       isDeck || ((deck[index - 1] || deck[index + 1]) && drawnIn(index * METATILE_SIZE, groundY) > 0),
   );
-  if (!keep.some(Boolean)) return null;
-  keep.forEach((kept, index) => {
-    if (kept) return;
-    for (let y = 0; y < over.height; y++) {
-      for (let x = index * METATILE_SIZE; x < (index + 1) * METATILE_SIZE; x++) over.data[(y * over.width + x) * 4 + 3] = 0;
+  // A tree whose crown overhangs the lane from the row below: only the
+  // lane's own block of it is kept, so the companion walks behind the top of
+  // the tree as a player in the games does, feet hidden and the rest showing.
+  // Any of it at all: Fire Red's trees put only the tip of the crown on the
+  // layer, a sliver of the block, and the companion walked across that tip.
+  const crown = keep.map((kept, index) => !kept && drawnIn(index * METATILE_SIZE, groundY) > 0);
+  if (!keep.some(Boolean) && !crown.some(Boolean)) return null;
+
+  const blocking = keep.some(Boolean) ? { width: over.width, height: over.height, data: Uint8Array.from(over.data) } : null;
+  const clear = (raster, index, keepFrom = Infinity, keepTo = -Infinity) => {
+    for (let y = 0; y < raster.height; y++) {
+      if (y >= keepFrom && y < keepTo) continue;
+      for (let x = index * METATILE_SIZE; x < (index + 1) * METATILE_SIZE; x++) raster.data[(y * raster.width + x) * 4 + 3] = 0;
     }
+  };
+  keep.forEach((kept, index) => {
+    if (blocking && !kept) clear(blocking, index);
+    if (kept) return;
+    if (crown[index]) clear(over, index, groundY - METATILE_SIZE, groundY);
+    else clear(over, index);
   });
-  return over;
+  return { overlay: over, blocking };
 }
 
 /**
@@ -228,41 +274,92 @@ function musicFor(constant, game) {
 }
 
 /**
- * Land encounter tables from the decompilation, flattened to
- * `{species, minLevel, maxLevel, weight}` per map.
+ * Encounter tables from the decompilation, flattened to
+ * `{species, minLevel, maxLevel, weight}` per map, `weight` being the
+ * species' share of the map's encounters in per cent.
+ *
+ * The share is the cartridge's own: a table is twelve land slots at 20, 20,
+ * 10, 10, 10, 10, 5, 5, 4, 4, 1 and 1 per cent, and a species is the sum of
+ * the slots it fills. This used to keep only the list of species, so every
+ * Pokémon a map named was drawn as often as every other — Route 113's
+ * Skarmory, one slot in twenty, as often as its Spinda, seven in ten.
+ *
+ * A map's tables are the ways of meeting something there — walking the
+ * grass, surfing, fishing, smashing rocks — each with its own rates deciding
+ * within it. Walking is half of the map where it has a walking table, since
+ * the companion is on foot; the rest share the other half. So a lakeside
+ * route's Magikarp and Tentacool are still on it, as they always were, but
+ * a pond's one surfing species does not outnumber the route it sits on.
  *
  * Fire Red files each map twice, once per version; the two are merged, so a
- * route has both games' Pokémon on it.
+ * route has both games' Pokémon on it, each version's table counting for
+ * half.
  *
  * @param {string} base the decompilation's URL
- * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number}>>>}
+ * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>>}
  */
 async function loadEncounterTables(base) {
   const data = await fetchJson(`${base}/src/data/wild_encounters.json`);
   const group = data.wild_encounter_groups.find((entry) => entry.label === 'gWildMonHeaders');
-  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number}>>} */
+  /** @type {Record<string, number[]>} each method's slot rates, in per cent */
+  const rates = Object.fromEntries(group.fields.map((field) => [field.type, field.encounter_rates]));
+
+  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number}>>} */
   const byMap = new Map();
+  /** @type {Map<string, number>} how many tables each map has, so versions share it */
+  const tables = new Map();
 
   for (const entry of group.encounters) {
-    /** @type {Map<string, {species: string, minLevel: number, maxLevel: number}>} */
-    const merged = new Map((byMap.get(entry.map) ?? []).map((mon) => [mon.species, { ...mon }]));
-    for (const field of ['land_mons', 'water_mons', 'rock_smash_mons', 'fishing_mons']) {
-      for (const mon of entry[field]?.mons ?? []) {
+    const methods = ['land_mons', 'water_mons', 'rock_smash_mons', 'fishing_mons'].filter((field) => entry[field]?.mons?.length);
+    if (!methods.length) continue;
+    const merged = byMap.get(entry.map) ?? new Map();
+    byMap.set(entry.map, merged);
+    tables.set(entry.map, (tables.get(entry.map) ?? 0) + 1);
+
+    for (const field of methods) {
+      const slots = entry[field].mons ?? [];
+      const slotRates = rates[field] ?? [];
+      // Fishing's rates are three rods' worth, each summing to a hundred.
+      const total = slotRates.slice(0, slots.length).reduce((sum, rate) => sum + rate, 0) || 1;
+      slots.forEach((mon, slot) => {
         // `SPECIES_NIDORAN_F` -> `nidoran-f`, matching PokeAPI's slugs.
         const species = mon.species.replace('SPECIES_', '').toLowerCase().replace(/_/g, '-');
+        const share = ((slotRates[slot] ?? 0) / total) * methodShare(field, methods);
         const existing = merged.get(species);
         if (existing) {
           existing.minLevel = Math.min(existing.minLevel, mon.min_level);
           existing.maxLevel = Math.max(existing.maxLevel, mon.max_level);
+          existing.weight += share;
         } else {
-          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level });
+          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share });
         }
-      }
+      });
     }
-    // A map can appear twice (different versions); both tables are kept.
-    byMap.set(entry.map, [...merged.values()]);
   }
-  return byMap;
+
+  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>} */
+  const out = new Map();
+  for (const [map, merged] of byMap) {
+    const versions = tables.get(map) ?? 1;
+    out.set(
+      map,
+      [...merged.values()]
+        .map((mon) => ({ ...mon, weight: Math.round((mon.weight / versions) * 100) / 100 }))
+        .sort((a, b) => b.weight - a.weight),
+    );
+  }
+  return out;
+}
+
+/**
+ * How much of a map, in per cent, one of its ways of meeting Pokémon is.
+ *
+ * @param {string} field
+ * @param {string[]} methods every table the map has
+ */
+function methodShare(field, methods) {
+  if (!methods.includes('land_mons') || methods.length === 1) return 100 / methods.length;
+  return field === 'land_mons' ? 50 : 50 / (methods.length - 1);
 }
 
 /**

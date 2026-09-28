@@ -96,6 +96,10 @@ import { stageMultiplier } from './stats.mjs';
  * @property {Record<string, any>} [data]
  * @property {{player: number, foe: number}} [hp] what both sides stood at when
  *   this line was written, so a bar can follow the turn rather than its end
+ * @property {{player: string|null, foe: string|null}} [statuses] the status
+ *   condition each side was under when this line was written
+ * @property {{player: boolean, foe: boolean}} [confused] whether each side was
+ *   confused when this line was written
  */
 
 /** The stats a Starf Berry can land on. */
@@ -1511,11 +1515,38 @@ export class Battle {
       value: (...entries) => {
         for (const entry of entries) {
           if (entry && !entry.hp) entry.hp = this.hitPoints();
+          if (entry && !entry.statuses) entry.statuses = this.statuses();
+          if (entry && !entry.confused) entry.confused = this.confusion();
         }
         return push(...entries);
       },
     });
     return log;
+  }
+
+  /**
+   * What status condition each side is under right now, stamped on every
+   * line for the same reason the hit points are: the nameplate follows the
+   * turn as it plays back, rather than jumping to how it ended.
+   *
+   * @returns {{player: string|null, foe: string|null}}
+   */
+  statuses() {
+    return {
+      player: this.player.pokemon.status ?? null,
+      foe: this.foe ? this.foe.pokemon.status ?? null : null,
+    };
+  }
+
+  /**
+   * Whether each side is confused right now, stamped beside the conditions.
+   * @returns {{player: boolean, foe: boolean}}
+   */
+  confusion() {
+    return {
+      player: hasVolatile(this.player, VOLATILE.CONFUSION),
+      foe: this.foe ? hasVolatile(this.foe, VOLATILE.CONFUSION) : false,
+    };
   }
 
   /** What both sides are on right now. */
@@ -4611,9 +4642,10 @@ export class Battle {
     if (ability?.indirectImmune) return;
     if (status === STATUS.POISON && ability?.feedsOnPoison) return;
 
-    // A bad poison takes a sixteenth more every turn it lasts; a burn on a
-    // Heatproof bites half as hard.
-    let share = 1 / 16;
+    // A burn takes a sixteenth a turn and a poison an eighth, as they have
+    // since Gold and Silver; a bad poison a sixteenth more every turn it
+    // lasts, and a burn on a Heatproof bites half as hard.
+    let share = status === STATUS.POISON ? 1 / 8 : 1 / 16;
     if (status === STATUS.POISON && combatant.pokemon.toxic) {
       combatant.marks.toxicTurns = Math.min(15, (combatant.marks.toxicTurns ?? 0) + 1);
       share = combatant.marks.toxicTurns / 16;
@@ -5045,11 +5077,18 @@ function estimatedFixedDamage(attacker, defender, move, slug) {
 /**
  * Choose a move from the player's auto-battle policy.
  *
- * The policy has three parts, applied in order: an explicit move order the
- * user laid out, the `mode` that decides what happens once that order runs
- * out, and the kinds of move the companion may reach for, each with a
- * condition. Anything the policy cannot decide falls through to the strongest
- * attack.
+ * The policy has three parts, and they rank in this order. The `mode` comes
+ * first: it decides how the move order is used, and `damageFirst` overrides
+ * it outright — the hardest-hitting attack in the order, or of every move
+ * held when the order has none that lands. The move order the user laid out
+ * comes next, in sequence, repeated as the mode says. The kinds of move the
+ * companion may reach for, each under a condition, only decide what the two
+ * above leave open. Anything none of them decides falls through to the
+ * strongest attack.
+ *
+ * A move in the order that the other side's typing cannot take at all is
+ * passed over for the next one: a Scratch into a Ghost does nothing, turn
+ * after turn, and nobody lays out an order meaning that.
  *
  * @param {Battle} battle
  * @param {Combatant} attacker
@@ -5062,15 +5101,27 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
   const known = new Set(usable.map((slot) => slot.move));
   const order = (policy.order ?? []).filter((move) => move && known.has(move));
 
-  if (order.length) {
-    const index = attacker.turnsTaken;
-    if (policy.mode === 'repeatLast' && index >= order.length) return order[order.length - 1];
-    if (policy.mode === 'repeatAll' || index < order.length) return order[index % order.length];
+  if (policy.mode === 'damageFirst') {
+    const ordered = usable.filter((slot) => order.includes(slot.move));
+    // The order breaks a tie, since a move earlier in it was put there first.
+    ordered.sort((a, b) => order.indexOf(a.move) - order.indexOf(b.move));
+    const damaging = bestDamageMove(battle, attacker, defender, ordered) ?? bestDamageMove(battle, attacker, defender, usable);
+    if (damaging) return damaging;
   }
 
-  if (policy.mode === 'damageFirst') {
-    const damaging = bestDamageMove(battle, attacker, defender, usable);
-    if (damaging) return damaging;
+  if (order.length) {
+    const lands = (move) => !cannotTouch(defender, moveOf(move));
+    const turn = attacker.turnsTaken;
+    // Where the sequence stands this turn, and every step after it the mode
+    // allows, so a move that cannot land hands its turn to the next.
+    const steps = [];
+    if (policy.mode === 'repeatLast') {
+      for (let index = Math.min(turn, order.length - 1); index < order.length; index++) steps.push(order[index]);
+    } else {
+      for (let step = 0; step < order.length; step++) steps.push(order[(turn + step) % order.length]);
+    }
+    const next = steps.find(lands);
+    if (next) return next;
   }
 
   /** @type {Array<{value: string, weight: number}>} */

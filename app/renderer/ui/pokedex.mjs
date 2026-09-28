@@ -67,7 +67,7 @@ function entryButton(app, session, id, detail) {
 
   return el(`button.dex-entry${seen ? '' : '.unseen'}`, {
     type: 'button',
-    title: seen ? localized(species?.name, '') : t('dex.unknown'),
+    title: seen ? [localized(species?.name, ''), localized(species?.form, '')].filter(Boolean).join(' · ') : t('dex.unknown'),
     onClick: () => {
       app.audio.blip('select');
       showDetail(session, detail, id);
@@ -108,6 +108,9 @@ function showDetail(session, detail, id) {
     el('img.dex-detail-sprite', { src: url('assets', artPath({ speciesId: id }) ?? ''), alt: '' }),
     el('span.dex-detail-number', { text: `No.${String(species?.dex ?? id).padStart(4, '0')}` }),
     el('span.dex-detail-name', { text: localized(species?.name, '') }),
+    // The form under the name, as the games' Pokédex labels it: the name is
+    // the species' own, and an Alolan Raichu is told apart here.
+    species?.form ? el('span.dex-detail-form', { text: localized(species.form, '') }) : null,
     session.champions.has(id) ? el('span.dex-champion-mark', { text: t('dex.championBadge') }) : null,
 
     caught

@@ -10,16 +10,17 @@ import { environmentType, weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
-import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
+import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, shedAfterEvolving, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
   gainFriendship,
   learnOnEvolution,
+  noteLearnedMoves,
   levelOf,
   maxHp,
   pendingEvolution,
@@ -32,7 +33,9 @@ import { abilityName, afterBattle } from '../engine/abilities.mjs';
 const PICKUP_CHANCE = 0.1;
 import { BATTLE_SCALE, Battler, battlerArt, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
+import { alreadyOwned } from '../engine/shop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
+import { drawWeather } from '../render/weather.mjs';
 
 /**
  * How long each log entry holds the screen.
@@ -41,7 +44,7 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100, go: 1050 };
+const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, status: 820, faint: 900, end: 1100, go: 1050 };
 
 /**
  * A Pokémon sent out of its ball: how long the ball is in the air, how high it
@@ -231,6 +234,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       if (battler) {
         battler.visible = true;
         battler.setPose('emerge');
+        // A shiny sparkles as it comes out of its ball, as it does in the games.
+        if (entry.pokemon?.shiny) battler.showStatus('shiny');
       }
       app.audio.blip('confirm');
       if (entry.pokemon && entry.side === 'player') app.audio.playCry(entry.pokemon.speciesId);
@@ -282,6 +287,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
   const message = el('div.battle-message');
   const conditions = el('div.battle-field');
+  /** The weather the field is drawn under, as far as the playback has got. */
+  let shownWeather = /** @type {string|null} */ (null);
   const playerPlate = nameplate(session.active);
   const foePlate = nameplate(shownFoe);
   const playerBar = healthBar();
@@ -350,7 +357,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    * as it faints; a wild Pokémon has no trainer, and the row stays empty.
    */
   function updateFoeBalls() {
-    const standing = (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0);
+    // A wild Pokémon has no belt: the row said "one" over every wild battle.
+    const standing = trainer ? (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0) : 0;
     setChildren(
       foeBalls,
       Array.from({ length: standing }, () =>
@@ -385,8 +393,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       app.audio.playCry(battle.foe?.pokemon.speciesId ?? session.active.speciesId);
 
       // A shiny gets a line of its own, after the one that says what turned
-      // up: in the cartridges it is a sparkle and a chime, and here it is the
-      // only thing that would tell a player what they are looking at.
+      // up, with the cartridges' sparkle bursting round it and a chime.
       queue = [
         { kind: 'intro', data: {} },
         ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
@@ -482,6 +489,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         foeBattler?.draw(field);
         playerBattler?.draw(field);
         drawTosses(field);
+        // The sky over the fight: rain streaking across it, sand blowing, hail
+        // and snow falling, a warm wash of sun — over the Pokémon, as on the road.
+        drawWeather(field, shownWeather, performance.now());
       });
 
       if (step < 1) drawEntryShutters(context, step);
@@ -535,14 +545,26 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     app.audio.blip('select');
 
     const usable = healingItems(session, session.active);
+    // And what cures the condition it is under, as the games' bag offers in a
+    // fight: an Antidote for a poison, a Full Heal for anything.
+    const status = session.active.status;
+    const healing = new Set(usable.map((entry) => entry.slug));
+    const cures = statusCures(session, session.active).filter((entry) => !healing.has(entry.slug));
     const chosen = await chooseFromList(
       app,
       t('battle.bag'),
-      usable.map(({ slug, count, item, restores }) => ({
-        value: slug,
-        label: localized(item.name, slug),
-        detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
-      })),
+      [
+        ...usable.map(({ slug, count, item, restores }) => ({
+          value: slug,
+          label: localized(item.name, slug),
+          detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
+        })),
+        ...cures.map(({ slug, count, item }) => ({
+          value: slug,
+          label: localized(item.name, slug),
+          detail: `${t('items.count', { count })}  ·  ${t('battle.cures', { status: t(`status.${status}.short`) })}`,
+        })),
+      ],
       { empty: t('battle.noItems') },
     );
 
@@ -625,23 +647,28 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         else if (entry.data?.woke) say(t('status.slp.ended', { name }));
         else if (entry.data?.thawed) say(t('status.frz.ended', { name }));
         else say(t('status.cured', { name }));
+        // The condition's own effect plays over the Pokémon as it takes hold.
+        if (status) battlerFor(entry.side)?.showStatus(status);
         updateBars();
-        break;
+        return status ? BEAT_MS.status : BEAT_MS.default;
       }
 
       case 'statusBlocked':
         say(t(STATUS_BLOCKED[entry.data?.status] ?? 'battle.cannotMove', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
-        break;
+        // And again whenever it stops the Pokémon moving, as the games play it.
+        if (entry.data?.status) battlerFor(entry.side)?.showStatus(entry.data.status);
+        return BEAT_MS.status;
 
       case 'statusDamage':
         say(t(STATUS_HURT[entry.data?.status] ?? 'battle.statusHurt', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        if (entry.data?.status) battlerFor(entry.side)?.showStatus(entry.data.status);
         battlerFor(entry.side)?.setPose('hit');
         updateBars();
-        return BEAT_MS.damage;
+        return Math.max(BEAT_MS.damage, BEAT_MS.status);
 
       case 'stat': {
         // How far it moved decides the wording, as in the games: one stage
@@ -700,12 +727,24 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           name: nameOf(entry.side === 'player' ? player : foe),
           move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
         }));
+        // Confusion plays its own effect as it takes hold, like a condition.
+        if (entry.data?.state === 'confusion') {
+          battlerFor(entry.side)?.showStatus('confusion');
+          updateBars();
+          return BEAT_MS.status;
+        }
+        updateBars();
         break;
 
       case 'volatileActive':
         say(t(`volatile.${entry.data?.state}.active`, {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        // And again each turn it is checked, as the games play it.
+        if (entry.data?.state === 'confusion') {
+          battlerFor(entry.side)?.showStatus('confusion');
+          return BEAT_MS.status;
+        }
         break;
 
       case 'volatileBlocked':
@@ -718,6 +757,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(t(`volatile.${entry.data?.state}.end`, {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        updateBars();
         break;
 
       case 'confusionDamage':
@@ -830,8 +870,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       case 'shiny':
         say(t('battle.shiny'));
+        foeBattler?.showStatus('shiny');
         app.audio.blip('confirm');
-        break;
+        return BEAT_MS.status;
 
       case 'ability':
         say(t('battle.ability', {
@@ -1061,7 +1102,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       case 'end':
         if (battle.outcome === 'won') {
-          say(t('battle.won'));
+          // The games say nothing more after a wild Pokémon's faint and the
+          // experience — the fight is simply over — and name the trainer beaten.
+          if (trainer) say(t(leader ? 'battle.wonLeader' : 'battle.wonTrainer', { trainer: localized(trainer.name, '') }));
           playerBattler?.setPose('win');
         } else if (battle.outcome === 'fled' || battle.outcome === 'escaped') {
           // Nobody was beaten: the line that sent it away has already been
@@ -1091,8 +1134,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // A Natural Cure and a Regenerator do on the way out what they do on
     // being switched out; a Pickup now and then finds something after a win.
     afterBattle(session.active, maxHp(session.active));
+    // A bad poison is an ordinary one once the battle is over, as it is since
+    // Black and White: the counter that made it worse is a battle's.
+    session.active.toxic = false;
     if (battle.outcome === 'won' && abilityName(session.active) === 'pickup' && session.rng.chance(PICKUP_CHANCE)) {
-      const pool = gameData().itemTiers?.['poke-ball'] ?? [];
+      const pool = (gameData().itemTiers?.['poke-ball'] ?? []).filter((slug) => !alreadyOwned(session, slug));
       const found = pool.length ? session.rng.pick(pool) : null;
       if (found) {
         session.addItem(found);
@@ -1141,6 +1187,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
     }
 
+    // Whatever this battle's levels and evolution taught, in the order it came.
+    noteLearnedMoves(session.active, session.machines);
+
     battle.release();
     onFinish({
       outcome: battle.outcome === 'lost' ? 'lost' : battle.outcome === 'fled' || battle.outcome === 'escaped' ? 'fled' : 'won',
@@ -1167,7 +1216,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   function updateBars() {
     playerBar.set(session.active, playing?.hp?.player);
     foeBar.set(shownFoe, playing?.hp?.foe);
-    playerPlate.set(session.active);
+    playerPlate.set(session.active, playing?.statuses ? playing.statuses.player : undefined, playing?.confused?.player ?? false);
+    foePlate.set(shownFoe, playing?.statuses ? playing.statuses.foe : undefined, playing?.confused?.foe ?? false);
   }
 
   /**
@@ -1177,6 +1227,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    */
   function updateField() {
     const field = battle.field;
+    shownWeather = field.weather ?? null;
     setChildren(conditions, [
       field.weather
         ? el('span.field-chip', { text: t(`weather.${field.weather}.name`), title: t(`weather.${field.weather}.start`) })
@@ -1199,7 +1250,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 }
 
 /**
- * A name and level caption over a health bar.
+ * A name and level caption over a health bar, with the status condition
+ * beside the name as the games' nameplates carry it.
  *
  * It can be pointed at somebody else: a trainer sends out a second Pokémon and
  * the plate over the bar was still naming the one that fainted.
@@ -1207,17 +1259,31 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 function nameplate(pokemon) {
   const node = el('span.battle-name');
 
-  /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next */
-  const set = (next) => {
+  /**
+   * @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next
+   * @param {string|null} [status] the condition to show, where the caller
+   *   knows it better than the Pokémon does — during the playback of a turn
+   *   the engine has already finished
+   * @param {boolean} [confused] whether it is confused, which only a battle
+   *   knows and which sits beside the condition
+   */
+  const set = (next, status, confused = false) => {
     if (!next) {
       node.textContent = '';
       return;
     }
     const species = speciesOf(next.speciesId);
-    const gender = next.gender ? t(`pokemon.gender.${next.gender}`) : '';
-    const shiny = next.shiny ? SHINY_MARK : '';
     const name = next.nickname || localized(species?.name, '');
-    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(next) })}`;
+    // The ♂ and ♀ in their own colours, as the games' nameplates draw them.
+    const condition = status === undefined ? next.status : status;
+    setChildren(node, [
+      name,
+      next.gender ? el(`span.gender-mark.${next.gender}`, { text: t(`pokemon.gender.${next.gender}`) }) : null,
+      shinyMark(next, t('pokemon.shiny')),
+      statusMark(condition, t(`status.${condition}.short`)),
+      confused ? statusMark('confusion', t('status.confusion.short')) : null,
+      `  ${t('slot.level', { level: levelOf(next) })}`,
+    ]);
   };
 
   set(pokemon);

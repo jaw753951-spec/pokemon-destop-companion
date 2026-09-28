@@ -12,7 +12,7 @@
  * instead: drawn on their own layer and washed with the hour's colour, which
  * is an approximation of the pipeline's own grade and costs one fill.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, FIELD_ZOOM } from '../../shared/constants.mjs';
 
 /**
  * The wash for each band.
@@ -43,18 +43,26 @@ export const DAYLIGHT = {
 let layer = null;
 
 /**
- * A field-sized canvas to draw the unlit things on, cleared and ready.
+ * A canvas to draw the unlit things on, cleared and ready, and set up the way
+ * the field is: its own 240x135 coordinates, at the window's 480x270 pixels.
+ *
+ * The pixels are the window's rather than the field's because a Pokémon is
+ * drawn at half the field's scale (`POKEMON_SCALE` in `field.mjs`):
+ * on a layer only as fine as the field, every other pixel of it was thrown away
+ * before it reached the screen.
+ *
  * @returns {CanvasRenderingContext2D|null}
  */
 export function openDaylightLayer() {
   if (!layer) {
     const canvas = document.createElement('canvas');
-    canvas.width = FIELD_WIDTH;
-    canvas.height = FIELD_HEIGHT;
+    canvas.width = FIELD_WIDTH * FIELD_ZOOM;
+    canvas.height = FIELD_HEIGHT * FIELD_ZOOM;
     layer = canvas.getContext('2d');
-    if (layer) layer.imageSmoothingEnabled = false;
+    if (!layer) return null;
+    layer.imageSmoothingEnabled = false;
+    layer.scale(FIELD_ZOOM, FIELD_ZOOM);
   }
-  if (!layer) return null;
   layer.clearRect(0, 0, FIELD_WIDTH, FIELD_HEIGHT);
   return layer;
 }
@@ -82,5 +90,5 @@ export function closeDaylightLayer(context, time) {
     layer.restore();
   }
 
-  context.drawImage(layer.canvas, 0, 0);
+  context.drawImage(layer.canvas, 0, 0, FIELD_WIDTH, FIELD_HEIGHT);
 }

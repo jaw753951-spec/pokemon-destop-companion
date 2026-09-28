@@ -9,7 +9,7 @@ import { url } from '../core/bridge.mjs';
 import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, useItem } from '../engine/items.mjs';
+import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
@@ -134,7 +134,17 @@ function optionsPane(app, session, refresh) {
   const policy = session.itemPolicy;
 
   return el('div.item-options', {}, [
-    el('div.section-title', { text: t('items.berryRestock') }),
+    el('div.item-options-heading', {}, [
+      el('div.section-title', { text: t('items.berryRestock') }),
+      el('span.spacer'),
+      // Healing first, then a resist for its weakness, then a pinch berry —
+      // picked for the companion walking now.
+      button(t('items.berryRecommend'), () => {
+        app.audio.blip('confirm');
+        policy.berries = recommendedBerries(session, session.active);
+        refresh();
+      }, { className: 'small', title: t('items.berryRecommendNote') }),
+    ]),
     el('p.meta', { text: t('items.berryRestockNote') }),
     ...[0, 1, 2].map((index) => berryRow(app, session, policy, index, refresh)),
 

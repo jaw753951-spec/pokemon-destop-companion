@@ -204,6 +204,42 @@ test('status immunities are respected', options, () => {
   assert.equal(grassBattle.foe?.pokemon.status, STATUS.BURN);
 });
 
+test('a poison takes an eighth a turn and a burn a sixteenth, as since Gold and Silver', options, () => {
+  const battle = new Battle({
+    rng: new Rng(5),
+    player: makeFixed(CHARIZARD, 50, ['ember']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle']), makeFixed(BLASTOISE, 50, ['tackle'])],
+    policy: null,
+  });
+  const foe = /** @type {any} */ (battle.foe);
+  foe.pokemon.status = STATUS.POISON;
+  foe.pokemon.toxic = false;
+  const full = foe.pokemon.hp;
+  battle.endOfTurnStatus(foe, battle.makeLog());
+  assert.equal(full - foe.pokemon.hp, Math.floor(foe.maxHp / 8));
+
+  foe.pokemon.hp = full;
+  foe.pokemon.status = STATUS.BURN;
+  battle.endOfTurnStatus(foe, battle.makeLog());
+  assert.equal(full - foe.pokemon.hp, Math.floor(foe.maxHp / 16));
+});
+
+test('every log line carries what condition each side was under, for the nameplates', options, () => {
+  const battle = new Battle({
+    rng: new Rng(5),
+    player: makeFixed(CHARIZARD, 50, ['ember']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: null,
+  });
+  const log = battle.makeLog();
+  log.push({ kind: 'marker' });
+  battle.inflictStatus(/** @type {any} */ (battle.foe), 'burn', log);
+  // Before the burn the plate shows nothing; the line that burns it shows it.
+  assert.deepEqual(log[0].statuses, { player: null, foe: null });
+  const burned = log.find((entry) => entry.kind === 'status');
+  assert.deepEqual(burned?.statuses, { player: null, foe: STATUS.BURN });
+});
+
 test('moves are sorted into auto-battle categories', options, () => {
   assert.equal(categoryOf(moveFixture('physical', 40, 'normal')), 'damage');
   assert.equal(categoryOf({ damageClass: 'status', meta: { healing: 50 }, statChanges: [] }), 'heal');
@@ -266,6 +302,57 @@ test('damageFirst ignores the conditions and picks the strongest attack', option
 
   const pick = choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
   assert.equal(pick, 'flamethrower');
+});
+
+test('damageFirst outranks the order: an order with Scratch in it does not Scratch a Ghost', options, () => {
+  // The order a player reported: Ember, then Scratch, with damage first on.
+  const player = makeFixed(4, 12, ['scratch', 'ember', 'growl']);
+  const battle = new Battle({
+    rng: new Rng(2),
+    player,
+    foes: [makeFixed(92, 12, ['lick'])], // Gastly
+    policy: { mode: 'damageFirst', order: ['ember', 'scratch'], conditions: {} },
+  });
+  const picks = [];
+  for (let turn = 0; turn < 4; turn++) {
+    picks.push(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves));
+    battle.player.turnsTaken++;
+  }
+  assert.deepEqual(picks, ['ember', 'ember', 'ember', 'ember']);
+});
+
+test('damageFirst takes the hardest hit in the order, then anything held when the order has none', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl', 'scratch']);
+  const pick = (order, foe = VENUSAUR) => {
+    const battle = new Battle({
+      rng: new Rng(2),
+      player,
+      foes: [makeFixed(foe, 50, ['tackle'])],
+      policy: { mode: 'damageFirst', order, conditions: {} },
+    });
+    return choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+  };
+  // Flamethrower is held but not in the order: the order is the pool.
+  assert.equal(pick(['scratch', 'ember']), 'ember');
+  // Nothing in the order hurts, so damage still comes first.
+  assert.equal(pick(['growl']), 'flamethrower');
+  assert.equal(pick(['scratch'], 92), 'flamethrower');
+});
+
+test('an order passes over a move the foe cannot take, to the next one', options, () => {
+  const player = makeFixed(4, 12, ['scratch', 'ember']);
+  const battle = new Battle({
+    rng: new Rng(2),
+    player,
+    foes: [makeFixed(92, 12, ['lick'])],
+    policy: { mode: 'repeatAll', order: ['scratch', 'ember'], conditions: {} },
+  });
+  const picks = [];
+  for (let turn = 0; turn < 3; turn++) {
+    picks.push(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves));
+    battle.player.turnsTaken++;
+  }
+  assert.deepEqual(picks, ['ember', 'ember', 'ember']);
 });
 
 test('a kind set to never takes a category out of the running', options, () => {

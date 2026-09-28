@@ -60,7 +60,9 @@ test('a regional variety is a Pokémon of its own, under its species number', op
   const galar = speciesOf(id('zigzagoon-galar'));
   assert.equal(galar.dex, 263);
   assert.deepEqual(galar.types, ['dark', 'normal']);
-  assert.match(galar.name.ko, /^가라르 /);
+  // Named as the games name it — a Zigzagoon — with the form beside it.
+  assert.equal(galar.name.ko, speciesOf(263).name.ko);
+  assert.equal(galar.form?.ko, '가라르의 모습');
 
   // Only the Galarian line reaches Obstagoon; the Hoenn Linoone stops.
   assert.deepEqual(speciesOf(264).evolutions, []);

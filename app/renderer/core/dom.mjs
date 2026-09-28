@@ -127,9 +127,8 @@ export function scrollable(node) {
 /**
  * The mark a shiny Pokémon is shown with.
  *
- * The cartridges draw a small sparkle beside the name and play a chime; the
- * sparkle is a sprite this project does not ship, and a star in the same place
- * says the same thing at the size these screens work at.
+ * The red star the games' summary screens put beside a shiny, from Diamond and
+ * Pearl through Sun and Moon.
  */
 export const SHINY_MARK = '★';
 
@@ -143,4 +142,18 @@ export const SHINY_MARK = '★';
 export function shinyMark(pokemon, title = '') {
   if (!pokemon?.shiny) return null;
   return el('span.shiny-mark', { text: SHINY_MARK, title: title || undefined, 'aria-label': title || undefined });
+}
+
+/**
+ * The status condition beside a name, as the games show it: a small coloured
+ * tag with the condition's short name — yellow for paralysis, purple for
+ * poison, and so on.
+ *
+ * @param {string|null|undefined} status `brn`, `psn`, `par`, `slp` or `frz`
+ * @param {string} label the condition's short name in the player's language
+ * @returns {HTMLElement|null} nothing for a healthy Pokémon
+ */
+export function statusMark(status, label) {
+  if (!status) return null;
+  return el(`span.status-mark.${status}`, { text: label });
 }

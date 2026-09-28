@@ -8,12 +8,13 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { gameData, itemOf, moveOf, speciesOf } from '../../app/renderer/core/data.mjs';
+import { gameData, itemOf, moveOf, speciesIdBySlug, speciesOf } from '../../app/renderer/core/data.mjs';
 import { ABILITIES } from '../../app/renderer/engine/abilities.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { hazardToll, TERRAIN } from '../../app/renderer/engine/field.mjs';
 import {
   createPokemon,
+  levelOf,
   maxHp,
   rollGender,
   rollWildHeldItem,
@@ -21,8 +22,8 @@ import {
   WILD_ITEM_ODDS,
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
-import { devolveToLevel, giveTrainerItems, pickStray, rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
-import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import { devolveToLevel, giveTrainerItems, isRare, pickSpecies, pickStray, rollTrainer, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
+import { defaultAutoBattle, Session } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
   hasVolatile,
@@ -543,4 +544,189 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   }
   assert.ok(legends / rolls < 0.02, `${legends} legendaries in ${rolls}`);
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
+});
+
+test('a route meets its Pokémon about as often as the cartridge does, softened', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
+  const share = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.weight]));
+  // Emerald's own slots: Spinda seven in ten, Slugma a quarter, Skarmory one in twenty.
+  assert.deepEqual(share, { spinda: 70, slugma: 25, skarmory: 5 });
+
+  // The water beside the road is met too, but walking is half the route.
+  const lake = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
+  const lakeShare = Object.fromEntries(lake.encounters.map((encounter) => [encounter.species, encounter.weight]));
+  assert.ok(lakeShare.magikarp > 0 && lakeShare.tentacool > 0, 'the lake is still on Route 103');
+  assert.equal(lakeShare.poochyena, 30, "Poochyena's 60 of the walking half");
+
+  const rng = new Rng(5);
+  const counts = new Map();
+  const rolls = 20000;
+  for (let roll = 0; roll < rolls; roll++) {
+    const slug = speciesOf(pickSpecies(rng, route, 15))?.slug;
+    counts.set(slug, (counts.get(slug) ?? 0) + 1);
+  }
+  const of = (slug) => (counts.get(slug) ?? 0) / rolls;
+  // The square roots of 70, 25 and 5, as shares: 54, 32 and 14.
+  assert.ok(Math.abs(of('spinda') - 0.54) < 0.02, `spinda ${of('spinda')}`);
+  assert.ok(Math.abs(of('skarmory') - 0.14) < 0.02, `skarmory ${of('skarmory')}`);
+});
+
+test('the same wild Pokémon twice running is drawn again', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
+  const companion = fixed(PIKACHU, 15);
+  const rng = new Rng(8);
+  const spinda = /** @type {number} */ (speciesIdBySlug('spinda'));
+  let again = 0;
+  const rolls = 5000;
+  for (let roll = 0; roll < rolls; roll++) {
+    if (rollWildPokemon(rng, route, companion, spinda).speciesId === spinda) again++;
+  }
+  // A Spinda is 0.7 x 0.54, about 38 in a hundred; after a Spinda it has to
+  // come up twice, about 14.
+  assert.ok(again / rolls < 0.2, `${again} Spinda after a Spinda in ${rolls}`);
+});
+
+test('a move learned since the last look is new until the move list is opened, and listed first', options, async () => {
+  const { noteLearnedMoves, movesByRecency } = await import('../../app/renderer/engine/pokemon.mjs');
+  const { experienceForLevel } = await import('../../app/renderer/engine/stats.mjs');
+  const charmander = createPokemon(new Rng(3), 4, 5);
+  // Met today: nothing it knows is new.
+  assert.deepEqual(charmander.newMoves, []);
+
+  charmander.experience = experienceForLevel(speciesOf(4).growthRate, 20);
+  noteLearnedMoves(charmander, []);
+  const equipped = new Set(charmander.moves.map((slot) => slot.move));
+  const learnedSince = (speciesOf(4).learnset.level ?? []).filter(([at]) => at > 5 && at <= 20).map(([, move]) => move);
+  const waiting = learnedSince.filter((move) => !equipped.has(move));
+  assert.ok(waiting.length > 0, 'a level-20 Charmander has learned something since 5');
+  assert.deepEqual([...charmander.newMoves].sort(), [...new Set(waiting)].sort());
+
+  // The newest is at the top of the list.
+  const listed = movesByRecency(charmander, []);
+  assert.equal(listed[0], learnedSince.at(-1));
+  // And a second look finds nothing new that was not new before.
+  noteLearnedMoves(charmander, []);
+  assert.deepEqual([...charmander.newMoves].sort(), [...new Set(waiting)].sort());
+});
+
+test('the box has no limit, and favourites keep its top rows in the order they were marked', options, () => {
+  const mons = [1, 4, 7, 25, 133].map((id) => fixed(id, 5));
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(152, 5), box: mons.slice() } } });
+  const order = () => session.box.map((pokemon) => pokemon?.speciesId ?? null);
+
+  // A hundred and fifty more still find room.
+  for (let index = 0; index < 150; index++) assert.equal(session.storeInBox(fixed(10, 2)), true);
+  assert.equal(session.boxFull, false);
+  session.box = session.box.slice(0, 5);
+
+  session.toggleFavorite(3); // Pikachu first
+  session.toggleFavorite(4); // then Eevee
+  assert.deepEqual(order(), [25, 133, 1, 4, 7]);
+  assert.ok(session.box[0]?.favorite && session.box[1]?.favorite);
+  // Unmarked, it goes back to the first space after the favourites.
+  session.toggleFavorite(0);
+  assert.deepEqual(order(), [133, 25, 1, 4, 7]);
+  assert.equal(session.box[1]?.favorite, undefined);
+  // A new catch takes the first free space after the favourites.
+  session.box[2] = null;
+  session.storeInBox(fixed(39, 5));
+  assert.deepEqual(order(), [133, 25, 39, 4, 7]);
+});
+
+test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {
+  const { alreadyOwned, buy, isConsumable, lossFor, priceOf, prizeFor, shopStock } = await import('../../app/renderer/engine/shop.mjs');
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(4, 20), box: [] } } });
+  assert.equal(session.money, 3000, 'a journey starts with the games\' 3,000');
+
+  assert.equal(priceOf('potion'), 200);
+  assert.equal(priceOf('master-ball'), null);
+  assert.equal(priceOf('red-orb'), null, 'a legendary\'s own item is not sold');
+  assert.ok(shopStock().length > 300);
+
+  // A potion is bought by the dozen; a Leftovers once.
+  assert.equal(isConsumable('potion'), true);
+  assert.equal(isConsumable('leftovers'), false);
+  assert.equal(buy(session, 'potion', 5), 'bought');
+  assert.equal(session.countOf('potion'), 5);
+  assert.equal(session.money, 2000);
+  session.money = 50000;
+  assert.equal(buy(session, 'leftovers', 3), 'bought');
+  assert.equal(session.countOf('leftovers'), 1);
+  assert.equal(buy(session, 'leftovers'), 'owned');
+  // Handed to the companion, it is still had.
+  session.removeItem('leftovers');
+  session.active.heldItem = 'leftovers';
+  assert.equal(alreadyOwned(session, 'leftovers'), true);
+  session.money = 100;
+  assert.equal(buy(session, 'super-potion'), 'poor');
+
+  // Forty a level of the last Pokémon; losing costs by level and badges.
+  assert.equal(prizeFor([fixed(1, 8), fixed(1, 12)], 'trainer'), 480);
+  session.money = 10000;
+  assert.equal(lossFor(session), 8 * 20);
+});
+
+test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {
+  const { recommendedBerries } = await import('../../app/renderer/engine/items.mjs');
+  const charmander = fixed(4, 50); // Fire: weak to Water, Ground and Rock
+  const bag = (held) => /** @type {any} */ ({ countOf: (slug) => (held.includes(slug) ? 1 : 0) });
+  const kindOf = (slug) => itemOf(slug)?.held ?? {};
+
+  const [heal, resist, pinch] = recommendedBerries(bag([]), charmander);
+  assert.ok(kindOf(heal).heal, `${heal} heals`);
+  assert.ok(['water', 'ground', 'rock'].includes(kindOf(resist).moveType), `${resist} halves a weakness`);
+  assert.ok(kindOf(pinch).stat, `${pinch} raises a stat`);
+
+  // What the bag holds wins over what it does not, within each kind.
+  const held = recommendedBerries(bag(['shuca-berry', 'oran-berry', 'salac-berry']), charmander);
+  assert.deepEqual(held, ['oran-berry', 'shuca-berry', 'salac-berry']);
+  // A resist berry for a type it is not weak to is never offered.
+  assert.notEqual(recommendedBerries(bag(['occa-berry']), charmander)[1], 'occa-berry');
+});
+
+test('an early road trainer sends out one Pokémon, no higher than the companion and no further evolved', options, async () => {
+  const { readFile } = await import('node:fs/promises');
+  const raw = JSON.parse(await readFile(new URL('../../data/authored/trainer-classes.json', import.meta.url), 'utf8'));
+  const classes = Array.isArray(raw) ? raw : raw.classes;
+  const areas = Object.values(gameData().areas);
+  const rng = new Rng(21);
+  for (let roll = 0; roll < 600; roll++) {
+    const level = [5, 7, 10, 13][roll % 4];
+    const companion = fixed(PIKACHU, level);
+    const { party } = rollTrainer(rng, areas[roll % areas.length], companion, classes);
+    // A Bug Catcher's two at level 5 was a two-on-one the starter lost as often as not.
+    if (level <= 7) assert.equal(party.length, 1, `${party.length} at level ${level}`);
+    else assert.ok(party.length <= 2);
+    for (const pokemon of party) {
+      const own = levelOf(pokemon);
+      assert.ok(own <= level, `a level ${own} against a level ${level}`);
+      // The type pool holds final stages; a level-6 Emboar should be a Tepig.
+      assert.equal(devolveToLevel(pokemon.speciesId, own), pokemon.speciesId, `${speciesOf(pokemon.speciesId)?.slug} at ${own}`);
+    }
+  }
+});
+
+test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', options, () => {
+  // PokeAPI flags none of them, so they walked the road as often as a Dratini.
+  for (const slug of ['great-tusk', 'iron-valiant', 'nihilego', 'poipole', 'articuno', 'mewtwo', 'mew']) {
+    assert.ok(isRare(speciesOf(/** @type {number} */ (speciesIdBySlug(slug)))), `${slug} is rare`);
+  }
+  assert.ok(!isRare(speciesOf(PIKACHU)));
+
+  const rng = new Rng(3);
+  const area = { id: 'test', tags: ['grass'] };
+  const rolls = 20000;
+  let rare = 0;
+  for (let roll = 0; roll < rolls; roll++) {
+    const species = speciesOf(pickStray(rng, area, 60));
+    if (isRare(species)) rare++;
+  }
+  // A hundred and twenty-nine rare species at a twentieth of the weight: under
+  // one stray in a hundred, where the thirty-one unflagged used to be three.
+  assert.ok(rare / rolls < 0.01, `${rare} rare strays in ${rolls}`);
+
+  // And they are not what an ordinary trainer of their type sends out.
+  for (const id of typePool({ tags: ['grass'] }, ['fairy', 'fighting', 'bug', 'steel'])) {
+    assert.ok(!isRare(speciesOf(id)), `${speciesOf(id)?.slug} in a trainer's pool`);
+  }
 });

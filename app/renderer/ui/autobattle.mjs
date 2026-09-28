@@ -2,8 +2,12 @@
  * Auto-battle settings.
  *
  * Three things decide what the companion does on its turn, in this order: the
- * move order laid out by hand, the mode that takes over once that order runs
- * out, and which kinds of move it may reach for, each under a condition.
+ * mode, which says how the move order is used and can override it; the move
+ * order laid out by hand; and which kinds of move it may reach for, each under
+ * a condition, for whatever the first two leave open. The screen stacks them
+ * in that order on one left edge, each tier quieter than the one above it,
+ * so the ranking reads off the layout without a word of it being written.
+ *
  * Everything here edits the policy the battle engine reads, so the effect of a
  * change is immediate.
  */
@@ -52,11 +56,15 @@ export function autoBattleScene({ session, onClose }) {
 
       const rebuild = () => {
         setChildren(body, [
-          el('div.section-title', { text: t('auto.order') }),
-          orderRow(app, session, rebuild),
-          modeRow(app, session, rebuild),
-          el('div.section-title', { text: t('auto.kinds') }),
-          ...CATEGORIES.map((category) => categoryRow(app, session, category, rebuild)),
+          el('div.auto-tier.auto-tier-1', {}, [modeRow(app, session, rebuild)]),
+          el('div.auto-tier.auto-tier-2', {}, [
+            el('div.section-title', { text: t('auto.order') }),
+            orderRow(app, session, rebuild),
+          ]),
+          el('div.auto-tier.auto-tier-3', {}, [
+            el('div.section-title', { text: t('auto.kinds') }),
+            el('div.auto-kinds', {}, CATEGORIES.map((category) => categoryRow(app, session, category, rebuild))),
+          ]),
         ]);
       };
       rebuild();
@@ -138,9 +146,7 @@ function orderRow(app, session, rebuild) {
  */
 function modeRow(app, session, rebuild) {
   const policy = session.autoBattle;
-  return el('div.setting', {}, [
-    el('span.label', { text: '' }),
-    el('div.options', {}, MODES.map((mode) =>
+  return el('div.auto-modes', {}, MODES.map((mode) =>
       el('button.chip', {
         type: 'button',
         text: t(`auto.${mode}`),
@@ -152,8 +158,7 @@ function modeRow(app, session, rebuild) {
           rebuild();
         },
       }),
-    )),
-  ]);
+    ));
 }
 
 /**
@@ -175,9 +180,8 @@ function categoryRow(app, session, category, rebuild) {
 
   const condition = policy.conditions[category] ?? 'always';
 
-  return el('div.setting.auto-kind', {}, [
+  return el('div.auto-kind', {}, [
     el('span.label', { text: t(`auto.kind.${category}`) }),
-    el('span.spacer'),
     el(`button.chip${condition === 'never' ? '.off' : ''}`, {
       type: 'button',
       text: t(`auto.condition.${condition}`),

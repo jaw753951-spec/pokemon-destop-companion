@@ -238,6 +238,24 @@ test('a win tops the companion up to full, smallest potion first', withData, () 
   assert.equal(session.bag.potion, 4);
 });
 
+test('a top-up to full cures the condition too, with the narrowest cure', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ antidote: 1, 'full-heal': 1, 'full-restore': 1 });
+  pokemon.status = 'psn';
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'antidote', count: 1 }]);
+  assert.equal(pokemon.status, null);
+
+  // A burn has no Antidote; the Full Heal goes before the Full Restore.
+  pokemon.status = 'brn';
+  assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'full-heal', count: 1 }]);
+
+  // And only a full top-up does it.
+  pokemon.status = 'par';
+  pokemon.hp = maxHp(pokemon) - 1;
+  healAfterBattle(session, pokemon, 'hpHalf');
+  assert.equal(pokemon.status, 'par');
+});
+
 test('a top-up stops at the target the player set, and never is never', withData, () => {
   const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
   const max = maxHp(pokemon);

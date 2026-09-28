@@ -15,11 +15,12 @@ import {
   timeOfDay,
 } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
-import { fieldArtOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { walkSteps } from '../engine/pokemon.mjs';
 
 import { name as localized, t } from '../core/i18n.mjs';
 import { eventModifiers, healAfterBattle, restockBerry } from '../engine/items.mjs';
+import { earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { Session } from '../engine/session.mjs';
 import {
   actorHeight,
@@ -48,6 +49,7 @@ import { captureScene } from './capture.mjs';
 import { createEventRunner, eventGround } from './fieldevents.mjs';
 import { leagueScene } from './league.mjs';
 import { inventoryScene } from '../ui/inventory.mjs';
+import { shopScene } from '../ui/shop.mjs';
 import { pokedexScene } from '../ui/pokedex.mjs';
 import { chooseAction, confirm } from '../ui/dialog.mjs';
 import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
@@ -165,10 +167,10 @@ export function fieldScene(session) {
     const speciesId = spriteKey(session.active);
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
-      // Its picture halved for the road, at the map's own density and sized
-      // to the Pokémon, so a Wurmple stays ankle-high and a Wailord fills the
-      // road without either being scaled to get there.
-      const art = fieldArtOf(session.active);
+      // Its battle picture, drawn at half a battle's size on the road and
+      // sized to the Pokémon, so a Wurmple stays ankle-high and a Wailord
+      // fills the road.
+      const art = artOf(session.active);
       if (art) {
         loadSprite(art.path, art.meta)
           .then((sprite) => {
@@ -285,11 +287,22 @@ export function fieldScene(session) {
       // — while a trainer takes no more from you than the walk to the next
       // rest stop, which is where the companion heads either way, on the one
       // hit point the loss leaves it.
+      // Losing to a trainer pays them, as the games have it; a wild Pokémon
+      // takes nothing.
+      const paid = setup.trainer ? lossFor(session) : 0;
+      if (paid > 0) earn(session, -paid);
       session.blackOut();
-      app.toast(t(setup.trainer ? 'battle.lost' : 'battle.lostWild'));
+      app.toast([t(setup.trainer ? 'battle.lost' : 'battle.lostWild'), paid > 0 ? t('money.paid', { amount: formatMoney(paid) }) : null].filter(Boolean).join('\n'));
       restock(app);
       refreshArt(app);
       return;
+    }
+
+    // A trainer beaten pays a prize: so much a level of their last Pokémon.
+    if (setup.trainer) {
+      const prize = prizeFor(setup.foes, setup.leader ? 'leader' : 'trainer');
+      earn(session, prize);
+      app.toast(t('money.prize', { amount: formatMoney(prize) }), 2600);
     }
 
     if (setup.leader) {
@@ -416,6 +429,11 @@ export function fieldScene(session) {
           app.audio.blip('select');
           menuOpen = true;
           app.push(pokedexScene({ session, onClose: () => closeMenu(app) }));
+        },
+        onShop: () => {
+          app.audio.blip('select');
+          menuOpen = true;
+          app.push(shopScene({ session, onClose: () => closeMenu(app) }));
         },
         onSettings: () => {
           app.audio.blip('select');
@@ -564,7 +582,9 @@ export function fieldScene(session) {
       // Held while a menu is open: the walk and the clocks carry on under one,
       // but an event part way through does not get to reach its battle and
       // push a fight on top of the bag the player is reading.
-      if (!menuOpen) events?.update(deltaMs, offset, app);
+      // And whatever is playing out on the road — a berry picked, a ball
+      // opened, the find held up — plays at the walk's pace while held.
+      if (!menuOpen) events?.update(deltaMs * boostPace(boost, HOLD_BOOST_WALK), offset, app);
       refreshArt(app);
       hud?.update(session);
     },

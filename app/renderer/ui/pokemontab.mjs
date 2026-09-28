@@ -9,13 +9,13 @@
  */
 import { MOVE_FLAG_SET } from '../../shared/move-flags.mjs';
 import { abilityOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
+import { button, el, scrollable, shinyMark, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilityName, abilityInert, abilityWorks } from '../engine/abilities.mjs';
 import { standingTypes } from '../engine/forms.mjs';
 import { unequipItem } from '../engine/items.mjs';
 import { itemOf } from '../core/data.mjs';
-import { availableMoves, experienceProgress, levelOf, maxHp, maxPp, setMove, statsOf } from '../engine/pokemon.mjs';
+import { experienceProgress, levelOf, maxHp, maxPp, movesByRecency, noteLearnedMoves, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
@@ -34,6 +34,9 @@ import { typeChip } from './typechip.mjs';
  */
 export function pokemonTab(app, session, refresh, state = {}) {
   const pokemon = session.active;
+  // Whatever it has come to know since the last look — a level, a machine,
+  // an evolution — is written down before the slots are drawn.
+  noteLearnedMoves(pokemon, session.machines);
   const species = speciesOf(pokemon.speciesId);
   const stats = statsOf(pokemon);
   const level = levelOf(pokemon);
@@ -55,6 +58,7 @@ export function pokemonTab(app, session, refresh, state = {}) {
           el('span.pokemon-nickname', { text: pokemon.nickname || localized(species?.name, '') }),
           genderMark(pokemon),
           shinyMark(pokemon, t('pokemon.shiny')),
+          statusMark(pokemon.status, t(`status.${pokemon.status}.short`)),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
         // A masked Ogerpon is the mask's type as well as Grass.
@@ -204,13 +208,16 @@ function moveSlot(app, session, slot, refresh, state) {
   const entry = pokemon.moves[slot];
   const move = entry ? moveOf(entry.move) : null;
 
+  // A red dot on the slots while it knows a move not yet looked at in the
+  // list, which is where a slot's move is changed.
+  const fresh = (pokemon.newMoves ?? []).length > 0 ? el('i.new-dot', { 'aria-hidden': 'true' }) : null;
+
   // An empty slot has nothing to describe, so it goes straight to the list.
   if (!move) {
     return el('button.move-slot.empty', {
       type: 'button',
-      text: '—',
       onClick: () => openReplace(app, session, slot, refresh),
-    });
+    }, ['—', fresh]);
   }
 
   return el('button.move-slot', {
@@ -228,6 +235,7 @@ function moveSlot(app, session, slot, refresh, state) {
       el('span.move-pp', { text: `PP ${entry.pp}/${maxPp(entry)}` }),
     ]),
     moveClasses(move),
+    fresh,
   ]);
 }
 
@@ -315,17 +323,21 @@ function abilityLine(app, pokemon) {
 async function openReplace(app, session, slot, refresh) {
   const pokemon = session.active;
   const known = new Set(pokemon.moves.map((entry) => entry.move));
-  const choices = availableMoves(pokemon, session.machines)
+  const fresh = new Set(pokemon.newMoves ?? []);
+  // The newest first, so what was just learned is at the top rather than
+  // somewhere down a list of forty; the new ones carry the dot.
+  const choices = movesByRecency(pokemon, session.machines)
     .filter((move) => !known.has(move) || move === pokemon.moves[slot]?.move)
     .map((move) => ({
       value: move,
       label: localized(moveOf(move)?.name, move),
       detail: moveSummary(move),
+      fresh: fresh.has(move),
     }));
 
+  // Opening the list is looking at them.
+  pokemon.newMoves = [];
   const chosen = await chooseFromList(app, t('pokemon.replaceMove'), choices);
-  if (!chosen) return;
-
-  setMove(pokemon, slot, chosen);
+  if (chosen) setMove(pokemon, slot, chosen);
   refresh();
 }

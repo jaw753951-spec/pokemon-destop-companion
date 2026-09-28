@@ -4,7 +4,7 @@
  */
 import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
-import { button, el, setChildren } from '../core/dom.mjs';
+import { button, el, setChildren, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
 
@@ -13,6 +13,7 @@ import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
  *   onInventory: () => void,
  *   onPokedex: () => void,
  *   onSettings: () => void,
+ *   onShop: () => void,
  *   onLeague: () => void,
  *   onTraySelect: (index: number) => void,
  * }} handlers
@@ -21,6 +22,9 @@ export function createHud(handlers) {
   const areaLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink)', fontWeight: '700' } });
   const nameLabel = el('span', { style: { fontSize: '11px', fontWeight: '700' } });
   const levelLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink-soft)' } });
+  /** The companion's status condition, beside its name as the games show it. */
+  const statusSlot = el('span');
+  let shownStatus = /** @type {string|null|undefined} */ (undefined);
   const hpFill = el('i', { style: barFill('#63bb5b') });
   const expFill = el('i', { style: barFill('#4d90d5') });
   const hpText = el('span', { style: { fontSize: '9px', color: 'var(--ink-soft)' } });
@@ -68,7 +72,7 @@ export function createHud(handlers) {
       gap: '2px',
     },
   }, [
-    el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '4px' } }, [nameLabel, levelLabel]),
+    el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '4px' } }, [nameLabel, statusSlot, levelLabel]),
     el('div', { style: barTrack() }, [hpFill]),
     el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [
       el('span', { text: t('pokemon.hp'), style: { fontSize: '9px', color: 'var(--ink-soft)' } }),
@@ -85,14 +89,20 @@ export function createHud(handlers) {
     button(t('field.settings'), handlers.onSettings, { className: 'small' }),
   ]);
 
-  const areaBadge = el('div.hud-window', {
+  // The shop, open from anywhere on the road, beside where the road is named.
+  const areaBadge = el('div', {
     style: {
       position: 'absolute',
       right: '6px',
       bottom: '6px',
-      padding: '2px 8px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
     },
-  }, [areaLabel]);
+  }, [
+    button(t('field.shop'), handlers.onShop, { className: 'small' }),
+    el('div.hud-window', { style: { padding: '2px 8px' } }, [areaLabel]),
+  ]);
 
   const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge, leagueButton]);
   for (const node of [status, tray, buttons, areaBadge, leagueButton]) node.style.pointerEvents = 'auto';
@@ -108,10 +118,14 @@ export function createHud(handlers) {
     update(session) {
       // Rebuilt from the session rather than on notification, so a Pokémon
       // reaching the tray by any route shows up without a separate call.
-      const key = session.tray.map((pokemon) => `${pokemon.speciesId}:${pokemon.caughtAt}`).join(',');
+      // Whether each is registered as caught is in the key too: catching one
+      // marks every other of its species waiting in the tray.
+      const key = session.tray
+        .map((pokemon) => `${pokemon.speciesId}:${pokemon.caughtAt}:${session.caught.has(pokemon.speciesId)}`)
+        .join(',');
       if (key !== trayKey) {
         trayKey = key;
-        this.updateTray(session.tray, handlers.onTraySelect);
+        this.updateTray(session.tray, handlers.onTraySelect, (speciesId) => session.caught.has(speciesId));
       }
 
       const pokemon = session.active;
@@ -121,6 +135,10 @@ export function createHud(handlers) {
 
       nameLabel.textContent = pokemon.nickname || localized(species.name, species.slug);
       levelLabel.textContent = t('slot.level', { level: levelOf(pokemon) });
+      if ((pokemon.status ?? null) !== shownStatus) {
+        shownStatus = pokemon.status ?? null;
+        setChildren(statusSlot, [statusMark(shownStatus, t(`status.${shownStatus}.short`))]);
+      }
       hpText.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
 
       const ratio = max > 0 ? Math.max(0, pokemon.hp) / max : 0;
@@ -134,10 +152,16 @@ export function createHud(handlers) {
 
     /**
      * The tray of defeated Pokémon waiting to be caught or let go.
+     *
+     * A species already registered as caught wears a small Poké Ball in its
+     * corner, as the games mark a wild Pokémon's nameplate once the Pokédex
+     * has it.
+     *
      * @param {Array<import('../engine/pokemon.mjs').Pokemon>} entries
      * @param {(index: number) => void} onSelect
+     * @param {(speciesId: number) => boolean} [caught]
      */
-    updateTray(entries, onSelect) {
+    updateTray(entries, onSelect, caught = () => false) {
       setChildren(tray, [
         entries.length ? trayLabel : null,
         ...entries.map((pokemon, index) =>
@@ -146,6 +170,7 @@ export function createHud(handlers) {
             title: localized(speciesOf(pokemon.speciesId)?.name, ''),
             style: {
               '-webkit-app-region': 'no-drag',
+              position: 'relative',
               width: '30px',
               height: '30px',
               padding: '0',
@@ -158,6 +183,7 @@ export function createHud(handlers) {
               alt: '',
               style: { width: '28px', height: '28px', objectFit: 'contain' },
             }),
+            caught(pokemon.speciesId) ? el('i.caught-mark', { 'aria-hidden': 'true' }) : null,
           ]),
         ),
       ]);

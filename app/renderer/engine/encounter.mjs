@@ -25,6 +25,16 @@ export const LEVEL_SPREAD = { min: -6, max: 6 };
 export const PARTY_CAP = 3;
 
 /**
+ * The companion's levels a road trainer sends out one Pokémon for, and then
+ * one or two; past them, the class's own range up to {@link PARTY_CAP}.
+ */
+export const SOLO_UNTIL = 7;
+export const PAIR_UNTIL = 17;
+
+/** The companion's levels up to which no road trainer's Pokémon outlevels it. */
+export const LEVEL_CAPPED_UNTIL = 15;
+
+/**
  * The spread actually on offer at a given level, widest at the top.
  *
  * A wild Pokémon used to be able to turn up fifteen levels above the
@@ -52,14 +62,22 @@ export function spreadFor(level) {
 /**
  * Roll a wild Pokémon for the area the companion is in.
  *
+ * One that comes out the same species as the last is drawn again, once. A
+ * route's commonest Pokémon is common — Route 113 is mostly Spinda — but
+ * three of it in a row reads as the game stuck rather than the route being
+ * what it is. The second draw stands, so a route of one Pokémon still has it.
+ *
  * @param {import('../core/rng.mjs').Rng} rng
  * @param {any} area
  * @param {import('./pokemon.mjs').Pokemon} companion
+ * @param {number|null} [previous] the species of the wild Pokémon met last
  * @returns {import('./pokemon.mjs').Pokemon}
  */
-export function rollWildPokemon(rng, area, companion) {
+export function rollWildPokemon(rng, area, companion, previous = null) {
   const level = rollLevel(rng, companion);
-  const speciesId = rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level);
+  const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
+  let speciesId = draw();
+  if (previous !== null && speciesId === previous) speciesId = draw();
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
@@ -86,10 +104,39 @@ export const STRAY_CHANCE = 0.3;
 const STRAY_TERRAIN_WEIGHT = 3;
 
 /**
- * And how much rarer when it is a legendary or a mythical: out there, but a
+ * And how much rarer when it is a rare one ({@link isRare}): out there, but a
  * once-in-a-long-while meeting rather than a route's regular.
  */
 const STRAY_LEGEND_WEIGHT = 0.05;
+
+/**
+ * The Paradox Pokémon and the Ultra Beasts, which PokeAPI flags as neither
+ * legendary nor mythical — so they used to walk the road as often as a
+ * Dratini, and all thirty-one of them together seven times as often as every
+ * legendary and mythical put together.
+ */
+const RARE_SLUGS = new Set([
+  // Paradox, ancient
+  'great-tusk', 'scream-tail', 'brute-bonnet', 'flutter-mane', 'slither-wing', 'sandy-shocks',
+  'roaring-moon', 'walking-wake', 'gouging-fire', 'raging-bolt',
+  // Paradox, future
+  'iron-treads', 'iron-bundle', 'iron-hands', 'iron-jugulis', 'iron-moth', 'iron-thorns',
+  'iron-valiant', 'iron-leaves', 'iron-boulder', 'iron-crown',
+  // Ultra Beasts
+  'nihilego', 'buzzwole', 'pheromosa', 'xurkitree', 'celesteela', 'kartana', 'guzzlord',
+  'poipole', 'naganadel', 'stakataka', 'blacephalon',
+]);
+
+/**
+ * Whether a species is one the road only rarely turns up: a legendary — the
+ * lesser ones and the box art alike, which PokeAPI flags the same — a
+ * mythical, a Paradox Pokémon or an Ultra Beast.
+ *
+ * @param {{slug?: string, isLegendary?: boolean, isMythical?: boolean}|null|undefined} species
+ */
+export function isRare(species) {
+  return Boolean(species && (species.isLegendary || species.isMythical || RARE_SLUGS.has(species.slug ?? '')));
+}
 
 /**
  * A wild Pokémon from anywhere in the Pokédex, leaning towards the types the
@@ -106,7 +153,7 @@ export function pickStray(rng, area, level) {
     value: species.id,
     weight:
       (species.types.some((type) => wanted.has(type)) ? STRAY_TERRAIN_WEIGHT : 1) *
-      (species.isLegendary || species.isMythical ? STRAY_LEGEND_WEIGHT : 1),
+      (isRare(species) ? STRAY_LEGEND_WEIGHT : 1),
   }));
   const chosen = rng.weighted(entries) ?? 1;
   return evolveToLevel(devolveToLevel(chosen, level), level);
@@ -157,24 +204,38 @@ export function rollLevel(rng, companion) {
  */
 export function pickSpecies(rng, area, level, preferredTypes = []) {
   const fromTable = areaSpecies(area);
-  const pool = preferredTypes.length ? filterByType(fromTable, preferredTypes) : fromTable;
+  const pool = preferredTypes.length ? fromTable.filter((entry) => filterByType([entry.value], preferredTypes).length) : fromTable;
 
   const chosen = pool.length
-    ? rng.pick(pool)
+    ? rng.weighted(pool) ?? pool[0].value
     : rng.pick(typePool(area, preferredTypes)) ?? 1;
 
-  return evolveToLevel(chosen, level);
+  // Down its line first, as a stray is: the type pool is every species of a
+  // type, final stages included, and a level-6 Emboar is not a Tepig.
+  return evolveToLevel(devolveToLevel(chosen, level), level);
 }
 
 /**
- * Pokédex numbers the area's own encounter table names.
+ * The Pokémon the area's own encounter table names, each weighted by how
+ * often the cartridge meets it there — softened.
+ *
+ * The table's own shares (the `areas` build step
+ * reads them off the slots) make a route's rare Pokémon rare: Route 113's
+ * Skarmory is one encounter in twenty, and its Absol, Kecleon and Clefairy
+ * the same. Taken as they are, they also let one Pokémon swamp a route: the
+ * same Spinda seven times in ten. The square root keeps the order and most
+ * of the gap — Spinda, Slugma and Skarmory at 70, 25 and 5 come out 54, 32
+ * and 14 — without the road being the one Pokémon.
+ *
+ * A table from before the shares were kept weighs every species alike.
+ *
  * @param {any} area
- * @returns {number[]}
+ * @returns {Array<{value: number, weight: number}>}
  */
 export function areaSpecies(area) {
   return (area?.encounters ?? [])
-    .map((encounter) => speciesIdBySlug(encounter.species))
-    .filter((id) => id && speciesOf(id));
+    .map((encounter) => ({ value: speciesIdBySlug(encounter.species), weight: Math.sqrt(encounter.weight ?? 1) }))
+    .filter((entry) => entry.value && speciesOf(entry.value));
 }
 
 /**
@@ -194,8 +255,9 @@ export function typePool(area, preferredTypes = []) {
 
   const pool = [];
   for (const species of Object.values(gameData().species)) {
-    // Legendaries and mythicals are not roadside encounters.
-    if (species.isLegendary || species.isMythical) continue;
+    // Legendaries, mythicals, Paradoxes and Ultra Beasts are not roadside
+    // encounters, nor what an ordinary trainer carries.
+    if (isRare(species)) continue;
     if (species.types.some((type) => wanted.has(type))) pool.push(species.id);
   }
   return pool.length ? pool : [1];
@@ -264,16 +326,23 @@ export function rollTrainer(rng, area, companion, classes) {
   // Early trainers with three monsters a level-5 starter cannot out-trade
   // made the first ten minutes a coin flip on which trainer walked up.
   const companionLevel = levelOf(companion);
-  // One Pokémon while the companion is finding its feet, then two, then
-  // three — and never the six a class may claim on paper. A companion is one
-  // Pokémon; six of anything is a wall, not a fight.
-  const cap = companionLevel <= 5 ? 1 : companionLevel <= 11 ? 2 : Math.min(maxParty, PARTY_CAP);
-  const high = Math.max(minParty, Math.min(maxParty, cap));
-  const size = companionLevel <= 5 ? minParty : rng.int(minParty, high);
+  // One Pokémon while the companion is finding its feet, then one or two,
+  // then the class's own — and never the six a class may claim on paper. A
+  // companion is one Pokémon; six of anything is a wall, not a fight. The
+  // early steps overrule the class's minimum too: a Bug Catcher's pair at
+  // level 5 was a two-on-one the starter lost as often as not.
+  let size;
+  if (companionLevel <= SOLO_UNTIL) size = 1;
+  else if (companionLevel <= PAIR_UNTIL) size = rng.int(1, Math.min(2, Math.max(1, maxParty)));
+  else size = rng.int(minParty, Math.max(minParty, Math.min(maxParty, PARTY_CAP)));
 
   const party = [];
   for (let index = 0; index < size; index++) {
-    const level = rollLevel(rng, companion);
+    // Early on, a trainer's Pokémon is never above the companion: it has a
+    // party to fall back on and the companion has nothing, and every level
+    // over it is a fight the companion takes on at a loss.
+    const rolled = rollLevel(rng, companion);
+    const level = companionLevel <= LEVEL_CAPPED_UNTIL ? Math.min(rolled, companionLevel) : rolled;
     const speciesId = pickSpecies(rng, area, level, trainerClass.types ?? []);
     // No floor on the genes: an ordinary trainer's Pokémon is somebody's
     // ordinary Pokémon, not a bred one.

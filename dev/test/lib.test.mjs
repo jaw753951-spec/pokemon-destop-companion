@@ -222,8 +222,8 @@ test('combineMetatiles places secondary metatiles after the primary block', () =
   assert.equal(combined.length, (512 + 1) * 8);
 });
 
-test('pixel art shrinks with its outline whole, and a blown-up drawing comes back exactly', async () => {
-  const { shrinkPixelArt, doubledPixels, undouble } = await import('../tools/lib/image.mjs');
+test('a blown-up drawing comes back exactly', async () => {
+  const { doubledPixels, undouble } = await import('../tools/lib/image.mjs');
   const raster = (width, height, paint) => {
     const data = new Uint8Array(width * height * 4);
     for (let y = 0; y < height; y++) {
@@ -235,16 +235,6 @@ test('pixel art shrinks with its outline whole, and a blown-up drawing comes bac
     }
     return { width, height, data };
   };
-  // A red square with a one-pixel black outline on the odd rows and columns:
-  // a fixed-corner sample would lose the outline on two sides.
-  const square = raster(8, 8, (x, y) =>
-    x < 1 || y < 1 || x > 6 || y > 6 ? null : x === 1 || y === 1 || x === 6 || y === 6 ? [0, 0, 0] : [200, 0, 0],
-  );
-  const small = shrinkPixelArt(square);
-  const at = (x, y) => [...small.data.subarray((y * small.width + x) * 4, (y * small.width + x) * 4 + 3)];
-  assert.deepEqual(at(0, 0), [0, 0, 0]);
-  assert.deepEqual(at(3, 3), [0, 0, 0]);
-  assert.deepEqual(at(3, 0), [0, 0, 0]);
 
   // Every pixel doubled, on the odd parity.
   const art = raster(3, 2, (x, y) => [x * 80, y * 80, 40]);

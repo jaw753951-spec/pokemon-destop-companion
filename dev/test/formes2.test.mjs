@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { artOf, fieldArtOf, gameData, speciesIdBySlug, spriteKey } from '../../app/renderer/core/data.mjs';
+import { artOf, gameData, speciesIdBySlug, spriteKey } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { WEATHER } from '../../app/renderer/engine/field.mjs';
 import { HELD_FORMES, SCHOOLING_LEVEL, settleForme, standingTypes } from '../../app/renderer/engine/forms.mjs';
@@ -86,19 +86,17 @@ test('every forme looks like itself, in a picture of its own', options, () => {
   assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
 });
 
-test('every Pokémon is one still picture and its half, facing left as Black and White drew them', options, () => {
+test('every Pokémon is one still picture, facing left as Black and White drew them', options, () => {
   const sprites = gameData().sprites;
   for (const species of Object.values(gameData().species)) {
     const entry = sprites[species.id];
-    assert.ok(entry?.art && entry.field, `${species.slug} has no picture`);
-    // Nothing of the old sets goes out with the game.
-    for (const key of Object.keys(entry)) assert.match(key, /^((art|field)(-female|-form-.+)?|shiny)$/, `${species.slug} ships ${key}`);
+    assert.ok(entry?.art, `${species.slug} has no picture`);
+    // Nothing of the old sets goes out with the game — the road's halved
+    // copies among them.
+    for (const key of Object.keys(entry)) assert.match(key, /^(art(-female|-form-.+)?|shiny)$/, `${species.slug} ships ${key}`);
     const art = artOf({ speciesId: species.id });
     assert.equal(art?.meta.frames, 1);
     assert.equal(art?.meta.facing, 'left');
-    // The road's is the same picture at half the size.
-    const field = fieldArtOf({ speciesId: species.id });
-    assert.ok(field && art && Math.abs(field.meta.height * 2 - art.meta.height) <= 2, `${species.slug}: the road's picture is not half`);
   }
 });
 

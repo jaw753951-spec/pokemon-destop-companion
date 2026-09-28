@@ -206,9 +206,11 @@ test('what it was already carrying goes back in the bag', () => {
   mon.heldItem = 'escape-rope';
   const run = /** @type {any} */ (session(mon, { 'oran-berry': 1 }));
 
-  equipItem(run, 'oran-berry');
+  const result = equipItem(run, 'oran-berry');
   assert.equal(mon.heldItem, 'oran-berry');
   assert.equal(run.countOf('escape-rope'), 1);
+  // And says so, as the games do: what came back, and what went on.
+  assert.match(result.message, /swapped|가져오고/);
 });
 
 test('an item nothing can carry says so, rather than being lost', () => {

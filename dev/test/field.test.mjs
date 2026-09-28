@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { boostPace, drawWalker, idleBob, nearOverpass, nextBoost, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import { boostPace, drawWalker, idleBob, nearOverpass, nextBoost, POKEMON_SCALE, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
 import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
 import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
@@ -219,7 +219,8 @@ test('one picture hops as it walks and bobs as it stands, and never leans', () =
     assert.equal(calls[0][1], 0);
     return calls[0][6];
   };
-  const ground = 100 - 24;
+  // Drawn at the road's scale: the sprite is 24 of its own pixels tall.
+  const ground = 100 - 24 * POKEMON_SCALE;
 
   // Walking: a pixel's hop on each step, by distance, whatever the clock says.
   assert.equal(tops({ distance: 0, moving: true, time: 230 }), ground);
