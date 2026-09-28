@@ -204,6 +204,22 @@ test('status immunities are respected', options, () => {
   assert.equal(grassBattle.foe?.pokemon.status, STATUS.BURN);
 });
 
+test('every log line carries what condition each side was under, for the nameplates', options, () => {
+  const battle = new Battle({
+    rng: new Rng(5),
+    player: makeFixed(CHARIZARD, 50, ['ember']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: null,
+  });
+  const log = battle.makeLog();
+  log.push({ kind: 'marker' });
+  battle.inflictStatus(/** @type {any} */ (battle.foe), 'burn', log);
+  // Before the burn the plate shows nothing; the line that burns it shows it.
+  assert.deepEqual(log[0].statuses, { player: null, foe: null });
+  const burned = log.find((entry) => entry.kind === 'status');
+  assert.deepEqual(burned?.statuses, { player: null, foe: STATUS.BURN });
+});
+
 test('moves are sorted into auto-battle categories', options, () => {
   assert.equal(categoryOf(moveFixture('physical', 40, 'normal')), 'damage');
   assert.equal(categoryOf({ damageClass: 'status', meta: { healing: 50 }, statChanges: [] }), 'heal');

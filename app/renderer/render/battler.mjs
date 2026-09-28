@@ -74,6 +74,35 @@ const STAT_EFFECT_MS = 620;
 const STAT_ARROWS = 4;
 const STAT_COLOURS = { up: '#6ee06a', down: '#ff6b6b' };
 
+/**
+ * A status condition's effect over the Pokémon it takes hold of — and again
+ * each time it stops it moving or hurts it — after the games' own: purple
+ * bubbles rising off a poisoned Pokémon, flames licking up a burned one,
+ * sparks crackling round a paralysed one, Zs drifting up from a sleeping
+ * one, and ice glinting over a frozen one, each with the sprite washed in the
+ * condition's colour while it plays.
+ */
+const STATUS_EFFECT_MS = 800;
+const STATUS_EFFECTS = {
+  psn: { tint: '#a040c8', strength: 0.4, main: '#a848d0', light: '#f0c8ff', shadow: '#602070' },
+  brn: { tint: '#f05828', strength: 0.4, main: '#f06020', light: '#ffe060', shadow: '#a02810' },
+  par: { tint: '#f8d030', strength: 0.45, main: '#f8e040', light: '#fffce0', shadow: '#a07000' },
+  slp: { tint: '#8890a8', strength: 0.25, main: '#ffffff', light: '#ffffff', shadow: '#485078' },
+  frz: { tint: '#80d0f0', strength: 0.5, main: '#a8e8ff', light: '#ffffff', shadow: '#3888b8' },
+};
+
+/* The effects' little drawings, a character a field pixel (see `drawStatus`). */
+const BUBBLE = ['.xxx.', 'x#o#x', 'x###x', 'x###x', '.xxx.'];
+const BUBBLE_SMALL = ['.x.', 'xox', '.x.'];
+const POP = ['o.o', '...', 'o.o'];
+const FLAME = ['..x..', '..#..', '.x#x.', '.#o#.', 'x#oo#', 'x#oo#', '.x##.'];
+const FLAME_SMALL = ['.x.', '.#.', 'x#x', '.o.'];
+const BOLT = ['..xo', '.xo.', 'xo..', 'xooo', '..xo', '.xo.', 'xo..'];
+const Z = ['#####', '...#.', '..#..', '.#...', '#####'];
+const Z_SMALL = ['####', '..#.', '.#..', '####'];
+const GLINT = ['..o..', '..#..', 'o#o#o', '..#..', '..o..'];
+const GLINT_SMALL = ['.#.', '#o#', '.#.'];
+
 /** @type {HTMLCanvasElement|OffscreenCanvas|null} */
 let sharedTint = null;
 
@@ -136,6 +165,20 @@ export class Battler {
      */
     this.statDirection = 0;
     this.statElapsed = 0;
+
+    /** The status condition whose effect is playing, and how far through. */
+    this.statusEffect = /** @type {string|null} */ (null);
+    this.statusElapsed = 0;
+  }
+
+  /**
+   * Play a status condition's effect over the sprite.
+   * @param {string} status `brn`, `psn`, `par`, `slp` or `frz`
+   */
+  showStatus(status) {
+    if (!(status in STATUS_EFFECTS)) return;
+    this.statusEffect = status;
+    this.statusElapsed = 0;
   }
 
   /**
@@ -162,6 +205,11 @@ export class Battler {
     if (this.statDirection !== 0) {
       this.statElapsed += deltaMs;
       if (this.statElapsed >= STAT_EFFECT_MS) this.statDirection = 0;
+    }
+
+    if (this.statusEffect) {
+      this.statusElapsed += deltaMs;
+      if (this.statusElapsed >= STATUS_EFFECT_MS) this.statusEffect = null;
     }
 
     if (this.pose === 'idle') return;
@@ -210,6 +258,131 @@ export class Battler {
     if (transform.flash > 0) this.drawFlash(context, transform.flash);
     if (transform.glow > 0) this.drawTint(context, '#ffffff', transform.glow);
     if (this.statDirection !== 0) this.drawStatChange(context);
+    if (this.statusEffect) this.drawStatus(context);
+  }
+
+  /**
+   * The effect of the status condition playing, over the sprite it is on.
+   *
+   * Everything is drawn in whole field pixels, in the flat colours of the
+   * games' own effects, and placed by the sprite's size so a Joltik's sparks
+   * and a Wailord's sit on the Pokémon rather than round a fixed box.
+   *
+   * @param {CanvasRenderingContext2D} context
+   */
+  drawStatus(context) {
+    const effect = this.statusEffect ? STATUS_EFFECTS[/** @type {keyof typeof STATUS_EFFECTS} */ (this.statusEffect)] : null;
+    if (!this.sprite || !effect) return;
+    const progress = Math.min(1, this.statusElapsed / STATUS_EFFECT_MS);
+    // In, held, and out: a wash that swells and fades twice, as the games pulse it.
+    const pulse = Math.abs(Math.sin(progress * Math.PI * 2));
+    this.drawTint(context, effect.tint, pulse * effect.strength * (1 - progress * 0.5));
+
+    const width = this.sprite.width * this.scale;
+    const height = this.sprite.height * this.scale;
+    const dy = this.transform().dy;
+    const left = this.x - width / 2;
+    const top = this.y + dy - height;
+    const fade = progress < 0.75 ? 1 : Math.max(0, 1 - (progress - 0.75) * 4);
+
+    context.save();
+    context.globalAlpha = fade;
+    /**
+     * A little pixel drawing, one character a field pixel: `#` the effect's
+     * colour, `o` its light, `x` its shadow, anything else left clear.
+     * @param {string[]} rows
+     * @param {number} x centre
+     * @param {number} y centre
+     */
+    const stamp = (rows, x, y, shadowed = false) => {
+      // A drop shadow a pixel down and right, for a shape drawn in one light
+      // colour that has to read against a pale backdrop.
+      if (shadowed) {
+        const colour = effect.shadow;
+        stampIn(rows, x + 1, y + 1, () => colour);
+      }
+      stampIn(rows, x, y, (character) => ({ '#': effect.main, o: effect.light, x: effect.shadow })[character]);
+    };
+    /**
+     * @param {string[]} rows
+     * @param {number} x
+     * @param {number} y
+     * @param {(character: string) => string|undefined} colourOf
+     */
+    const stampIn = (rows, x, y, colourOf) => {
+      const ox = Math.round(x - rows[0].length / 2);
+      const oy = Math.round(y - rows.length / 2);
+      rows.forEach((row, ry) => {
+        for (let rx = 0; rx < row.length; rx++) {
+          if (row[rx] === '.') continue;
+          const colour = colourOf(row[rx]);
+          if (!colour) continue;
+          context.fillStyle = colour;
+          context.fillRect(ox + rx, oy + ry, 1, 1);
+        }
+      });
+    };
+
+    switch (this.statusEffect) {
+      case 'psn': {
+        // Bubbles rising off the body, shrinking as they go and popping.
+        for (let index = 0; index < 6; index++) {
+          const step = (progress - index * 0.09) / 0.55;
+          if (step <= 0 || step >= 1) continue;
+          const x = left + width * (0.2 + ((index * 37) % 60) / 100);
+          const y = this.y + dy - height * 0.2 - step * height * 0.7;
+          stamp(step < 0.6 ? BUBBLE : step < 0.9 ? BUBBLE_SMALL : POP, x, y);
+        }
+        break;
+      }
+      case 'brn': {
+        // Flames licking up from the feet, each rising and dying in turn.
+        for (let index = 0; index < 5; index++) {
+          const phase = (progress * 2.5 + index * 0.37) % 1;
+          const x = left + width * (0.12 + index * 0.19);
+          const y = this.y + dy - 4 - phase * height * 0.45;
+          stamp(phase < 0.7 ? FLAME : FLAME_SMALL, x, y);
+        }
+        break;
+      }
+      case 'par': {
+        // Sparks cracking on and off down both sides of the body.
+        for (let index = 0; index < 4; index++) {
+          if (Math.floor(progress * 12 + index * 2) % 3 === 0) continue;
+          const side = index % 2 === 0 ? -1 : 1;
+          const x = this.x + side * width * (0.32 + (index >> 1) * 0.1);
+          const y = top + height * (0.3 + (index >> 1) * 0.35);
+          stamp(side < 0 ? BOLT : BOLT.map((row) => [...row].reverse().join('')), x, y);
+        }
+        break;
+      }
+      case 'slp': {
+        // Zs drifting up and away from the head one after another, growing
+        // as they go, so the three stand in a rising line.
+        for (let index = 0; index < 3; index++) {
+          const step = (progress - index * 0.2) / 0.6;
+          if (step <= 0 || step >= 1) continue;
+          const x = this.x + width * 0.2 + step * 14;
+          const y = top + 2 - step * 16;
+          stamp(step < 0.4 ? Z_SMALL : Z, x, y, true);
+        }
+        break;
+      }
+      case 'frz': {
+        // Glints of ice winking on across the body, a star of light each.
+        for (let index = 0; index < 6; index++) {
+          const step = (progress - index * 0.09) / 0.4;
+          if (step <= 0 || step >= 1) continue;
+          const x = left + width * (0.15 + ((index * 43) % 70) / 100);
+          const y = top + height * (0.15 + ((index * 29) % 70) / 100);
+          stamp(step < 0.3 || step > 0.7 ? GLINT_SMALL : GLINT, x, y);
+        }
+        break;
+      }
+      default:
+        break;
+    }
+    context.restore();
   }
 
   /**

@@ -10,7 +10,7 @@ import { environmentType, weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
-import { button, el, setChildren, SHINY_MARK } from '../core/dom.mjs';
+import { button, el, setChildren, SHINY_MARK, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
@@ -41,7 +41,7 @@ import { inFieldSpace } from '../render/field.mjs';
  * the cadence is a watchable default, not a rule — so these are the full-pace
  * numbers and `advance` does the halving.
  */
-const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, faint: 900, end: 1100, go: 1050 };
+const BEAT_MS = { default: 620, intro: 1000, move: 520, damage: 680, stat: 700, status: 820, faint: 900, end: 1100, go: 1050 };
 
 /**
  * A Pokémon sent out of its ball: how long the ball is in the air, how high it
@@ -625,23 +625,28 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         else if (entry.data?.woke) say(t('status.slp.ended', { name }));
         else if (entry.data?.thawed) say(t('status.frz.ended', { name }));
         else say(t('status.cured', { name }));
+        // The condition's own effect plays over the Pokémon as it takes hold.
+        if (status) battlerFor(entry.side)?.showStatus(status);
         updateBars();
-        break;
+        return status ? BEAT_MS.status : BEAT_MS.default;
       }
 
       case 'statusBlocked':
         say(t(STATUS_BLOCKED[entry.data?.status] ?? 'battle.cannotMove', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
-        break;
+        // And again whenever it stops the Pokémon moving, as the games play it.
+        if (entry.data?.status) battlerFor(entry.side)?.showStatus(entry.data.status);
+        return BEAT_MS.status;
 
       case 'statusDamage':
         say(t(STATUS_HURT[entry.data?.status] ?? 'battle.statusHurt', {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        if (entry.data?.status) battlerFor(entry.side)?.showStatus(entry.data.status);
         battlerFor(entry.side)?.setPose('hit');
         updateBars();
-        return BEAT_MS.damage;
+        return Math.max(BEAT_MS.damage, BEAT_MS.status);
 
       case 'stat': {
         // How far it moved decides the wording, as in the games: one stage
@@ -1167,7 +1172,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   function updateBars() {
     playerBar.set(session.active, playing?.hp?.player);
     foeBar.set(shownFoe, playing?.hp?.foe);
-    playerPlate.set(session.active);
+    playerPlate.set(session.active, playing?.statuses ? playing.statuses.player : undefined);
+    foePlate.set(shownFoe, playing?.statuses ? playing.statuses.foe : undefined);
   }
 
   /**
@@ -1199,7 +1205,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 }
 
 /**
- * A name and level caption over a health bar.
+ * A name and level caption over a health bar, with the status condition
+ * beside the name as the games' nameplates carry it.
  *
  * It can be pointed at somebody else: a trainer sends out a second Pokémon and
  * the plate over the bar was still naming the one that fainted.
@@ -1207,8 +1214,13 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 function nameplate(pokemon) {
   const node = el('span.battle-name');
 
-  /** @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next */
-  const set = (next) => {
+  /**
+   * @param {import('../engine/pokemon.mjs').Pokemon|null|undefined} next
+   * @param {string|null} [status] the condition to show, where the caller
+   *   knows it better than the Pokémon does — during the playback of a turn
+   *   the engine has already finished
+   */
+  const set = (next, status) => {
     if (!next) {
       node.textContent = '';
       return;
@@ -1217,10 +1229,13 @@ function nameplate(pokemon) {
     const shiny = next.shiny ? SHINY_MARK : '';
     const name = next.nickname || localized(species?.name, '');
     // The ♂ and ♀ in their own colours, as the games' nameplates draw them.
+    const condition = status === undefined ? next.status : status;
     setChildren(node, [
       name,
       next.gender ? el(`span.gender-mark.${next.gender}`, { text: t(`pokemon.gender.${next.gender}`) }) : null,
-      `${shiny}  ${t('slot.level', { level: levelOf(next) })}`,
+      shiny,
+      statusMark(condition, t(`status.${condition}.short`)),
+      `  ${t('slot.level', { level: levelOf(next) })}`,
     ]);
   };
 

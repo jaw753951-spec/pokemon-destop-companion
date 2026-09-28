@@ -1134,6 +1134,27 @@ canvas {
   transform: translate(-50%, -50%);
 }
 
+/* A status condition beside a name: the games' small coloured tag, white
+   letters on the condition's colour. */
+.status-mark {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 12px;
+  vertical-align: 1px;
+  text-shadow: 0 1px 0 rgba(0, 0, 0, 0.25);
+}
+
+.status-mark.par { background: #c8a818; }
+.status-mark.psn { background: #a040a8; }
+.status-mark.brn { background: #e05030; }
+.status-mark.slp { background: #8c8c98; }
+.status-mark.frz { background: #48a8d8; }
+
 .box-space .shiny-mark {
   position: absolute;
   top: 0;

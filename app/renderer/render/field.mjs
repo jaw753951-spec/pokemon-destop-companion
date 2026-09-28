@@ -45,19 +45,19 @@ export function setGroundY(value) {
 }
 
 /**
- * How much larger than its own art an actor is drawn on the field.
+ * How much larger than its own art an actor is drawn on the field: not at all.
  *
- * Box icons and the overworld people sheets are built for a 16-pixel tile, and
- * at that size on this window a Pokémon is a thumbnail you squint at. Half
- * again is as far as they go before they stop belonging to the map — and the
- * field is drawn at twice size, so one source pixel still lands on a whole
- * number of screen pixels.
+ * The overworld people sheets are built for the map's 16-pixel tile, and drawn
+ * at the map's own size they stand in it as the cartridge stands them. They
+ * used to be half again as big, which was drawn for the days a Pokémon walked
+ * the road as a box icon and needed the help; next to the Pokémon's own sprite
+ * a trainer at half again towered over it.
  *
- * This is the figure for the things that really are tile art: trainers, berry
- * trees, the props an event puts on the road. A Pokémon is sized by
+ * This is the figure for the things that really are tile art: trainers and
+ * the props an event puts on the road. A Pokémon is sized by
  * {@link actorScale} instead — see there for why.
  */
-export const ACTOR_SCALE = 1.5;
+export const ACTOR_SCALE = 1;
 
 /**
  * How much larger than its own art a Pokémon is drawn on the field: half, for

@@ -144,3 +144,17 @@ export function shinyMark(pokemon, title = '') {
   if (!pokemon?.shiny) return null;
   return el('span.shiny-mark', { text: SHINY_MARK, title: title || undefined, 'aria-label': title || undefined });
 }
+
+/**
+ * The status condition beside a name, as the games show it: a small coloured
+ * tag with the condition's short name — yellow for paralysis, purple for
+ * poison, and so on.
+ *
+ * @param {string|null|undefined} status `brn`, `psn`, `par`, `slp` or `frz`
+ * @param {string} label the condition's short name in the player's language
+ * @returns {HTMLElement|null} nothing for a healthy Pokémon
+ */
+export function statusMark(status, label) {
+  if (!status) return null;
+  return el(`span.status-mark.${status}`, { text: label });
+}

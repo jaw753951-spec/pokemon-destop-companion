@@ -4,7 +4,7 @@
  */
 import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
-import { button, el, setChildren } from '../core/dom.mjs';
+import { button, el, setChildren, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
 
@@ -21,6 +21,9 @@ export function createHud(handlers) {
   const areaLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink)', fontWeight: '700' } });
   const nameLabel = el('span', { style: { fontSize: '11px', fontWeight: '700' } });
   const levelLabel = el('span', { style: { fontSize: '10px', color: 'var(--ink-soft)' } });
+  /** The companion's status condition, beside its name as the games show it. */
+  const statusSlot = el('span');
+  let shownStatus = /** @type {string|null|undefined} */ (undefined);
   const hpFill = el('i', { style: barFill('#63bb5b') });
   const expFill = el('i', { style: barFill('#4d90d5') });
   const hpText = el('span', { style: { fontSize: '9px', color: 'var(--ink-soft)' } });
@@ -68,7 +71,7 @@ export function createHud(handlers) {
       gap: '2px',
     },
   }, [
-    el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '4px' } }, [nameLabel, levelLabel]),
+    el('div', { style: { display: 'flex', alignItems: 'baseline', gap: '4px' } }, [nameLabel, statusSlot, levelLabel]),
     el('div', { style: barTrack() }, [hpFill]),
     el('div', { style: { display: 'flex', justifyContent: 'space-between' } }, [
       el('span', { text: t('pokemon.hp'), style: { fontSize: '9px', color: 'var(--ink-soft)' } }),
@@ -125,6 +128,10 @@ export function createHud(handlers) {
 
       nameLabel.textContent = pokemon.nickname || localized(species.name, species.slug);
       levelLabel.textContent = t('slot.level', { level: levelOf(pokemon) });
+      if ((pokemon.status ?? null) !== shownStatus) {
+        shownStatus = pokemon.status ?? null;
+        setChildren(statusSlot, [statusMark(shownStatus, t(`status.${shownStatus}.short`))]);
+      }
       hpText.textContent = `${Math.max(0, Math.round(pokemon.hp))}/${max}`;
 
       const ratio = max > 0 ? Math.max(0, pokemon.hp) / max : 0;

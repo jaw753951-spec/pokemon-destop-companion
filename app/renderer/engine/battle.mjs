@@ -96,6 +96,8 @@ import { stageMultiplier } from './stats.mjs';
  * @property {Record<string, any>} [data]
  * @property {{player: number, foe: number}} [hp] what both sides stood at when
  *   this line was written, so a bar can follow the turn rather than its end
+ * @property {{player: string|null, foe: string|null}} [statuses] the status
+ *   condition each side was under when this line was written
  */
 
 /** The stats a Starf Berry can land on. */
@@ -1511,11 +1513,26 @@ export class Battle {
       value: (...entries) => {
         for (const entry of entries) {
           if (entry && !entry.hp) entry.hp = this.hitPoints();
+          if (entry && !entry.statuses) entry.statuses = this.statuses();
         }
         return push(...entries);
       },
     });
     return log;
+  }
+
+  /**
+   * What status condition each side is under right now, stamped on every
+   * line for the same reason the hit points are: the nameplate follows the
+   * turn as it plays back, rather than jumping to how it ended.
+   *
+   * @returns {{player: string|null, foe: string|null}}
+   */
+  statuses() {
+    return {
+      player: this.player.pokemon.status ?? null,
+      foe: this.foe ? this.foe.pokemon.status ?? null : null,
+    };
   }
 
   /** What both sides are on right now. */

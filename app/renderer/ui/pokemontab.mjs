@@ -9,7 +9,7 @@
  */
 import { MOVE_FLAG_SET } from '../../shared/move-flags.mjs';
 import { abilityOf, gameData, moveOf, speciesOf } from '../core/data.mjs';
-import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
+import { button, el, scrollable, shinyMark, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { abilityName, abilityInert, abilityWorks } from '../engine/abilities.mjs';
 import { standingTypes } from '../engine/forms.mjs';
@@ -55,6 +55,7 @@ export function pokemonTab(app, session, refresh, state = {}) {
           el('span.pokemon-nickname', { text: pokemon.nickname || localized(species?.name, '') }),
           genderMark(pokemon),
           shinyMark(pokemon, t('pokemon.shiny')),
+          statusMark(pokemon.status, t(`status.${pokemon.status}.short`)),
           el('span.pokemon-level', { text: t('slot.level', { level }) }),
         ]),
         // A masked Ogerpon is the mask's type as well as Grass.
