@@ -1108,8 +1108,8 @@ canvas {
    corner, clear of the sprite inside. */
 .caught-mark {
   position: absolute;
-  top: -6px;
-  left: -6px;
+  top: -4px;
+  left: -4px;
   z-index: 1;
   width: 9px;
   height: 9px;
