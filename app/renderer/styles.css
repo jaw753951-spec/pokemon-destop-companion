@@ -1104,11 +1104,13 @@ canvas {
 
 /* A species the Pokédex already has as caught, marked with a small Poké Ball
    as the games mark the nameplate: red over white, with the black band and
-   the white button across the middle. */
+   the white button across the middle. It sits on the frame's top-left
+   corner, clear of the sprite inside. */
 .caught-mark {
   position: absolute;
-  top: 1px;
-  left: 1px;
+  top: -6px;
+  left: -6px;
+  z-index: 1;
   width: 9px;
   height: 9px;
   box-sizing: border-box;
