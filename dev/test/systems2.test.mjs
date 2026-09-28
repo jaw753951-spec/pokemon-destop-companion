@@ -551,9 +551,11 @@ test('a route meets its Pokémon about as often as the cartridge does, softened'
   // Emerald's own slots: Spinda seven in ten, Slugma a quarter, Skarmory one in twenty.
   assert.deepEqual(share, { spinda: 70, slugma: 25, skarmory: 5 });
 
-  // What lives in the water is not on the road: no Magikarp on Route 103.
+  // The water beside the road is met too, but walking is half the route.
   const lake = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
-  assert.ok(!lake.encounters.some((encounter) => encounter.species === 'magikarp'));
+  const lakeShare = Object.fromEntries(lake.encounters.map((encounter) => [encounter.species, encounter.weight]));
+  assert.ok(lakeShare.magikarp > 0 && lakeShare.tentacool > 0, 'the lake is still on Route 103');
+  assert.equal(lakeShare.poochyena, 30, "Poochyena's 60 of the walking half");
 
   const rng = new Rng(5);
   const counts = new Map();

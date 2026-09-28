@@ -835,6 +835,13 @@ const BERRY_STAGES = { ripe: [4, 5], bare: [2, 3] };
 const BERRY_SWAY_MS = 380;
 
 /**
+ * How big a berry tree stands on the road: its own tile size, the map's
+ * pixels. It used to stand at the actors' half again, which made it as tall
+ * as the Pokémon picking it and taller than the trees behind it.
+ */
+const BERRY_TREE_SCALE = 1;
+
+/**
  * Berry sheets hold the tree's growth stages; see {@link BERRY_STAGES}.
  */
 function drawBerryTree(context, prop, screenX, elapsed = 0) {
@@ -858,9 +865,7 @@ function drawBerryTree(context, prop, screenX, elapsed = 0) {
 
   const sx = (index % columns) * frameWidth;
   const sy = Math.floor(index / columns) * frameHeight;
-  // A berry tree is one tile wide and easy to miss against a busy route, so it
-  // is drawn at the same size as the actors that walk up to it.
-  const scale = ACTOR_SCALE;
+  const scale = BERRY_TREE_SCALE;
 
   context.drawImage(
     image,

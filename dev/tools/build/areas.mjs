@@ -238,10 +238,12 @@ function musicFor(constant, game) {
  * Pokémon a map named was drawn as often as every other — Route 113's
  * Skarmory, one slot in twenty, as often as its Spinda, seven in ten.
  *
- * Only the Pokémon met walking count where a map has any: the companion
- * keeps to the ground, so what lives in the water or under a rod is not on
- * its road. A map with no ground table at all — a sea route, a flooded
- * cave's mouth — falls back on surfing and fishing, half and half.
+ * A map's tables are the ways of meeting something there — walking the
+ * grass, surfing, fishing, smashing rocks — each with its own rates deciding
+ * within it. Walking is half of the map where it has a walking table, since
+ * the companion is on foot; the rest share the other half. So a lakeside
+ * route's Magikarp and Tentacool are still on it, as they always were, but
+ * a pond's one surfing species does not outnumber the route it sits on.
  *
  * Fire Red files each map twice, once per version; the two are merged, so a
  * route has both games' Pokémon on it, each version's table counting for
@@ -262,7 +264,7 @@ async function loadEncounterTables(base) {
   const tables = new Map();
 
   for (const entry of group.encounters) {
-    const methods = entry.land_mons ? ['land_mons'] : ['water_mons', 'fishing_mons'].filter((field) => entry[field]);
+    const methods = ['land_mons', 'water_mons', 'rock_smash_mons', 'fishing_mons'].filter((field) => entry[field]?.mons?.length);
     if (!methods.length) continue;
     const merged = byMap.get(entry.map) ?? new Map();
     byMap.set(entry.map, merged);
@@ -276,7 +278,7 @@ async function loadEncounterTables(base) {
       slots.forEach((mon, slot) => {
         // `SPECIES_NIDORAN_F` -> `nidoran-f`, matching PokeAPI's slugs.
         const species = mon.species.replace('SPECIES_', '').toLowerCase().replace(/_/g, '-');
-        const share = ((slotRates[slot] ?? 0) / total) * (100 / methods.length);
+        const share = ((slotRates[slot] ?? 0) / total) * methodShare(field, methods);
         const existing = merged.get(species);
         if (existing) {
           existing.minLevel = Math.min(existing.minLevel, mon.min_level);
@@ -301,6 +303,17 @@ async function loadEncounterTables(base) {
     );
   }
   return out;
+}
+
+/**
+ * How much of a map, in per cent, one of its ways of meeting Pokémon is.
+ *
+ * @param {string} field
+ * @param {string[]} methods every table the map has
+ */
+function methodShare(field, methods) {
+  if (!methods.includes('land_mons') || methods.length === 1) return 100 / methods.length;
+  return field === 'land_mons' ? 50 : 50 / (methods.length - 1);
 }
 
 /**

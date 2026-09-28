@@ -108,10 +108,14 @@ export function createHud(handlers) {
     update(session) {
       // Rebuilt from the session rather than on notification, so a Pokémon
       // reaching the tray by any route shows up without a separate call.
-      const key = session.tray.map((pokemon) => `${pokemon.speciesId}:${pokemon.caughtAt}`).join(',');
+      // Whether each is registered as caught is in the key too: catching one
+      // marks every other of its species waiting in the tray.
+      const key = session.tray
+        .map((pokemon) => `${pokemon.speciesId}:${pokemon.caughtAt}:${session.caught.has(pokemon.speciesId)}`)
+        .join(',');
       if (key !== trayKey) {
         trayKey = key;
-        this.updateTray(session.tray, handlers.onTraySelect);
+        this.updateTray(session.tray, handlers.onTraySelect, (speciesId) => session.caught.has(speciesId));
       }
 
       const pokemon = session.active;
@@ -134,10 +138,16 @@ export function createHud(handlers) {
 
     /**
      * The tray of defeated Pokémon waiting to be caught or let go.
+     *
+     * A species already registered as caught wears a small Poké Ball in its
+     * corner, as the games mark a wild Pokémon's nameplate once the Pokédex
+     * has it.
+     *
      * @param {Array<import('../engine/pokemon.mjs').Pokemon>} entries
      * @param {(index: number) => void} onSelect
+     * @param {(speciesId: number) => boolean} [caught]
      */
-    updateTray(entries, onSelect) {
+    updateTray(entries, onSelect, caught = () => false) {
       setChildren(tray, [
         entries.length ? trayLabel : null,
         ...entries.map((pokemon, index) =>
@@ -146,6 +156,7 @@ export function createHud(handlers) {
             title: localized(speciesOf(pokemon.speciesId)?.name, ''),
             style: {
               '-webkit-app-region': 'no-drag',
+              position: 'relative',
               width: '30px',
               height: '30px',
               padding: '0',
@@ -158,6 +169,7 @@ export function createHud(handlers) {
               alt: '',
               style: { width: '28px', height: '28px', objectFit: 'contain' },
             }),
+            caught(pokemon.speciesId) ? el('i.caught-mark', { 'aria-hidden': 'true' }) : null,
           ]),
         ),
       ]);
