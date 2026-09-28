@@ -25,6 +25,16 @@ export const LEVEL_SPREAD = { min: -6, max: 6 };
 export const PARTY_CAP = 3;
 
 /**
+ * The companion's levels a road trainer sends out one Pokémon for, and then
+ * one or two; past them, the class's own range up to {@link PARTY_CAP}.
+ */
+export const SOLO_UNTIL = 7;
+export const PAIR_UNTIL = 17;
+
+/** The companion's levels up to which no road trainer's Pokémon outlevels it. */
+export const LEVEL_CAPPED_UNTIL = 15;
+
+/**
  * The spread actually on offer at a given level, widest at the top.
  *
  * A wild Pokémon used to be able to turn up fifteen levels above the
@@ -200,7 +210,9 @@ export function pickSpecies(rng, area, level, preferredTypes = []) {
     ? rng.weighted(pool) ?? pool[0].value
     : rng.pick(typePool(area, preferredTypes)) ?? 1;
 
-  return evolveToLevel(chosen, level);
+  // Down its line first, as a stray is: the type pool is every species of a
+  // type, final stages included, and a level-6 Emboar is not a Tepig.
+  return evolveToLevel(devolveToLevel(chosen, level), level);
 }
 
 /**
@@ -314,16 +326,23 @@ export function rollTrainer(rng, area, companion, classes) {
   // Early trainers with three monsters a level-5 starter cannot out-trade
   // made the first ten minutes a coin flip on which trainer walked up.
   const companionLevel = levelOf(companion);
-  // One Pokémon while the companion is finding its feet, then two, then
-  // three — and never the six a class may claim on paper. A companion is one
-  // Pokémon; six of anything is a wall, not a fight.
-  const cap = companionLevel <= 5 ? 1 : companionLevel <= 11 ? 2 : Math.min(maxParty, PARTY_CAP);
-  const high = Math.max(minParty, Math.min(maxParty, cap));
-  const size = companionLevel <= 5 ? minParty : rng.int(minParty, high);
+  // One Pokémon while the companion is finding its feet, then one or two,
+  // then the class's own — and never the six a class may claim on paper. A
+  // companion is one Pokémon; six of anything is a wall, not a fight. The
+  // early steps overrule the class's minimum too: a Bug Catcher's pair at
+  // level 5 was a two-on-one the starter lost as often as not.
+  let size;
+  if (companionLevel <= SOLO_UNTIL) size = 1;
+  else if (companionLevel <= PAIR_UNTIL) size = rng.int(1, Math.min(2, Math.max(1, maxParty)));
+  else size = rng.int(minParty, Math.max(minParty, Math.min(maxParty, PARTY_CAP)));
 
   const party = [];
   for (let index = 0; index < size; index++) {
-    const level = rollLevel(rng, companion);
+    // Early on, a trainer's Pokémon is never above the companion: it has a
+    // party to fall back on and the companion has nothing, and every level
+    // over it is a fight the companion takes on at a loss.
+    const rolled = rollLevel(rng, companion);
+    const level = companionLevel <= LEVEL_CAPPED_UNTIL ? Math.min(rolled, companionLevel) : rolled;
     const speciesId = pickSpecies(rng, area, level, trainerClass.types ?? []);
     // No floor on the genes: an ordinary trainer's Pokémon is somebody's
     // ordinary Pokémon, not a bred one.

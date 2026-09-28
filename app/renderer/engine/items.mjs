@@ -215,21 +215,26 @@ export function canHold(slug) {
 export function equipItem(session, slug) {
   const item = itemOf(slug);
   const pokemon = session.active;
+  const itemName = localized(item?.name, slug);
   if (!item || !canHold(slug)) {
-    return { used: false, ok: false, message: t('items.cannotEquip') };
+    return { used: false, ok: false, message: t('items.cannotEquip', { item: itemName }) };
   }
   if (pokemon.heldItem === slug) {
-    return { used: false, ok: false, message: t('items.alreadyHeld') };
+    return { used: false, ok: false, message: t('items.alreadyHeld', { name: nameOf(pokemon), item: itemName }) };
   }
 
-  if (pokemon.heldItem) session.addItem(pokemon.heldItem);
-  if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip') };
+  const previous = pokemon.heldItem;
+  if (!session.removeItem(slug)) return { used: false, ok: false, message: t('items.cannotEquip', { item: itemName }) };
+  if (previous) session.addItem(previous);
   pokemon.heldItem = slug;
   settleForme(pokemon);
   return {
     used: true,
     ok: true,
-    message: t('items.equipped', { name: nameOf(pokemon), item: localized(item.name, slug) }),
+    // A swap says what came back as well as what went on, as the games do.
+    message: previous
+      ? t('items.swapped', { old: localized(itemOf(previous)?.name, previous), item: itemName })
+      : t('items.equipped', { name: nameOf(pokemon), item: itemName }),
   };
 }
 
@@ -242,7 +247,7 @@ export function equipItem(session, slug) {
 export function unequipItem(session) {
   const pokemon = session.active;
   const slug = pokemon.heldItem;
-  if (!slug) return { used: false, ok: false, message: t('items.holdsNothing') };
+  if (!slug) return { used: false, ok: false, message: t('items.holdsNothing', { name: nameOf(pokemon) }) };
 
   session.addItem(slug);
   pokemon.heldItem = null;

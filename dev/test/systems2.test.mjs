@@ -14,6 +14,7 @@ import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { hazardToll, TERRAIN } from '../../app/renderer/engine/field.mjs';
 import {
   createPokemon,
+  levelOf,
   maxHp,
   rollGender,
   rollWildHeldItem,
@@ -21,7 +22,7 @@ import {
   WILD_ITEM_ODDS,
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
-import { devolveToLevel, giveTrainerItems, isRare, pickSpecies, pickStray, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
+import { devolveToLevel, giveTrainerItems, isRare, pickSpecies, pickStray, rollTrainer, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
@@ -583,6 +584,28 @@ test('the same wild Pokémon twice running is drawn again', options, () => {
   // A Spinda is 0.7 x 0.54, about 38 in a hundred; after a Spinda it has to
   // come up twice, about 14.
   assert.ok(again / rolls < 0.2, `${again} Spinda after a Spinda in ${rolls}`);
+});
+
+test('an early road trainer sends out one Pokémon, no higher than the companion and no further evolved', options, async () => {
+  const { readFile } = await import('node:fs/promises');
+  const raw = JSON.parse(await readFile(new URL('../../data/authored/trainer-classes.json', import.meta.url), 'utf8'));
+  const classes = Array.isArray(raw) ? raw : raw.classes;
+  const areas = Object.values(gameData().areas);
+  const rng = new Rng(21);
+  for (let roll = 0; roll < 600; roll++) {
+    const level = [5, 7, 10, 13][roll % 4];
+    const companion = fixed(PIKACHU, level);
+    const { party } = rollTrainer(rng, areas[roll % areas.length], companion, classes);
+    // A Bug Catcher's two at level 5 was a two-on-one the starter lost as often as not.
+    if (level <= 7) assert.equal(party.length, 1, `${party.length} at level ${level}`);
+    else assert.ok(party.length <= 2);
+    for (const pokemon of party) {
+      const own = levelOf(pokemon);
+      assert.ok(own <= level, `a level ${own} against a level ${level}`);
+      // The type pool holds final stages; a level-6 Emboar should be a Tepig.
+      assert.equal(devolveToLevel(pokemon.speciesId, own), pokemon.speciesId, `${speciesOf(pokemon.speciesId)?.slug} at ${own}`);
+    }
+  }
 });
 
 test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', options, () => {
