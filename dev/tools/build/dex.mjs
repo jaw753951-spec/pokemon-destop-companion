@@ -1540,7 +1540,7 @@ const REGIONS = {
  * words (Scarlet/Violet's zkn_form) — the label the Pokédex puts under the
  * name, since the name itself is the species' own everywhere.
  *
- * @type {Record<string, {ko: string, en: string}>}
+ * @type {Record<string, {ko: string, en: string}|null>}
  */
 const VARIETY_FORMS = {
   'tauros-paldea-combat-breed': { ko: '팔데아의 모습(컴뱃종)', en: 'Paldean Form (Combat Breed)' },
@@ -1559,7 +1559,8 @@ const VARIETY_FORMS = {
   'oinkologne-female': { ko: '암컷의 모습', en: 'Female' },
   'basculegion-female': { ko: '암컷의 모습', en: 'Female' },
   'basculin-blue-striped': { ko: '청색근의 모습', en: 'Blue-Striped Form' },
-  'ursaluna-bloodmoon': { ko: '붉은 달', en: 'Bloodmoon' },
+  // The games label no form for it: it is Ursaluna, in the Pokédex as well.
+  'ursaluna-bloodmoon': null,
   'wormadam-sandy': { ko: '모래땅도롱', en: 'Sandy Cloak' },
   'wormadam-trash': { ko: '슈레도롱', en: 'Trash Cloak' },
   'pumpkaboo-small': { ko: '작은 사이즈', en: 'Small Size' },
@@ -1655,7 +1656,7 @@ async function addRegionalSpecies(out, pool) {
             // an Alolan Raichu is a Raichu on its nameplate — with the form
             // beside it, for the Pokédex to put under the name.
             name: { ...base.name },
-            form: varietyForm(pokemon.name, region, formName),
+            ...(varietyForm(pokemon.name, region, formName) ? { form: varietyForm(pokemon.name, region, formName) } : {}),
             types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
             stats,
             abilities: pokemon.abilities.map((entry) => ({ name: entry.ability.name, hidden: entry.is_hidden })),
@@ -1694,9 +1695,10 @@ async function addRegionalSpecies(out, pool) {
  * @param {string} slug
  * @param {string|null} region
  * @param {Record<string, string>} formName PokeAPI's form name bundle
- * @returns {Record<string, string>}
+ * @returns {Record<string, string>|null} null for a variety the games label no form for
  */
 function varietyForm(slug, region, formName) {
+  if (VARIETY_FORMS[slug] === null) return null;
   /** @type {Record<string, string>} */
   const out = {};
   for (const [code, text] of Object.entries(formName)) if (text) out[code] = text;
