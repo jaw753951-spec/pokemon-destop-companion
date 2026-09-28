@@ -705,12 +705,24 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           name: nameOf(entry.side === 'player' ? player : foe),
           move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
         }));
+        // Confusion plays its own effect as it takes hold, like a condition.
+        if (entry.data?.state === 'confusion') {
+          battlerFor(entry.side)?.showStatus('confusion');
+          updateBars();
+          return BEAT_MS.status;
+        }
+        updateBars();
         break;
 
       case 'volatileActive':
         say(t(`volatile.${entry.data?.state}.active`, {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        // And again each turn it is checked, as the games play it.
+        if (entry.data?.state === 'confusion') {
+          battlerFor(entry.side)?.showStatus('confusion');
+          return BEAT_MS.status;
+        }
         break;
 
       case 'volatileBlocked':
@@ -723,6 +735,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(t(`volatile.${entry.data?.state}.end`, {
           name: nameOf(entry.side === 'player' ? player : foe),
         }));
+        updateBars();
         break;
 
       case 'confusionDamage':
@@ -1096,6 +1109,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // A Natural Cure and a Regenerator do on the way out what they do on
     // being switched out; a Pickup now and then finds something after a win.
     afterBattle(session.active, maxHp(session.active));
+    // A bad poison is an ordinary one once the battle is over, as it is since
+    // Black and White: the counter that made it worse is a battle's.
+    session.active.toxic = false;
     if (battle.outcome === 'won' && abilityName(session.active) === 'pickup' && session.rng.chance(PICKUP_CHANCE)) {
       const pool = gameData().itemTiers?.['poke-ball'] ?? [];
       const found = pool.length ? session.rng.pick(pool) : null;
@@ -1172,8 +1188,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   function updateBars() {
     playerBar.set(session.active, playing?.hp?.player);
     foeBar.set(shownFoe, playing?.hp?.foe);
-    playerPlate.set(session.active, playing?.statuses ? playing.statuses.player : undefined);
-    foePlate.set(shownFoe, playing?.statuses ? playing.statuses.foe : undefined);
+    playerPlate.set(session.active, playing?.statuses ? playing.statuses.player : undefined, playing?.confused?.player ?? false);
+    foePlate.set(shownFoe, playing?.statuses ? playing.statuses.foe : undefined, playing?.confused?.foe ?? false);
   }
 
   /**
@@ -1219,8 +1235,10 @@ function nameplate(pokemon) {
    * @param {string|null} [status] the condition to show, where the caller
    *   knows it better than the Pokémon does — during the playback of a turn
    *   the engine has already finished
+   * @param {boolean} [confused] whether it is confused, which only a battle
+   *   knows and which sits beside the condition
    */
-  const set = (next, status) => {
+  const set = (next, status, confused = false) => {
     if (!next) {
       node.textContent = '';
       return;
@@ -1235,6 +1253,7 @@ function nameplate(pokemon) {
       next.gender ? el(`span.gender-mark.${next.gender}`, { text: t(`pokemon.gender.${next.gender}`) }) : null,
       shiny,
       statusMark(condition, t(`status.${condition}.short`)),
+      confused ? statusMark('confusion', t('status.confusion.short')) : null,
       `  ${t('slot.level', { level: levelOf(next) })}`,
     ]);
   };

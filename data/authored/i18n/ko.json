@@ -354,6 +354,7 @@
   "status.par.short": "마비",
   "status.slp.short": "잠듦",
   "status.frz.short": "얼음",
+  "status.confusion.short": "혼란",
   "items.equip": "건네준다",
   "items.equipped": "{name}에게 {item}을(를) 지니게 했다!",
   "items.unequipped": "{name}으로(로)부터 {item}을(를) 가져왔다!",

@@ -98,6 +98,8 @@ import { stageMultiplier } from './stats.mjs';
  *   this line was written, so a bar can follow the turn rather than its end
  * @property {{player: string|null, foe: string|null}} [statuses] the status
  *   condition each side was under when this line was written
+ * @property {{player: boolean, foe: boolean}} [confused] whether each side was
+ *   confused when this line was written
  */
 
 /** The stats a Starf Berry can land on. */
@@ -1514,6 +1516,7 @@ export class Battle {
         for (const entry of entries) {
           if (entry && !entry.hp) entry.hp = this.hitPoints();
           if (entry && !entry.statuses) entry.statuses = this.statuses();
+          if (entry && !entry.confused) entry.confused = this.confusion();
         }
         return push(...entries);
       },
@@ -1532,6 +1535,17 @@ export class Battle {
     return {
       player: this.player.pokemon.status ?? null,
       foe: this.foe ? this.foe.pokemon.status ?? null : null,
+    };
+  }
+
+  /**
+   * Whether each side is confused right now, stamped beside the conditions.
+   * @returns {{player: boolean, foe: boolean}}
+   */
+  confusion() {
+    return {
+      player: hasVolatile(this.player, VOLATILE.CONFUSION),
+      foe: this.foe ? hasVolatile(this.foe, VOLATILE.CONFUSION) : false,
     };
   }
 
@@ -4628,9 +4642,10 @@ export class Battle {
     if (ability?.indirectImmune) return;
     if (status === STATUS.POISON && ability?.feedsOnPoison) return;
 
-    // A bad poison takes a sixteenth more every turn it lasts; a burn on a
-    // Heatproof bites half as hard.
-    let share = 1 / 16;
+    // A burn takes a sixteenth a turn and a poison an eighth, as they have
+    // since Gold and Silver; a bad poison a sixteenth more every turn it
+    // lasts, and a burn on a Heatproof bites half as hard.
+    let share = status === STATUS.POISON ? 1 / 8 : 1 / 16;
     if (status === STATUS.POISON && combatant.pokemon.toxic) {
       combatant.marks.toxicTurns = Math.min(15, (combatant.marks.toxicTurns ?? 0) + 1);
       share = combatant.marks.toxicTurns / 16;

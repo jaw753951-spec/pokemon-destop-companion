@@ -204,6 +204,26 @@ test('status immunities are respected', options, () => {
   assert.equal(grassBattle.foe?.pokemon.status, STATUS.BURN);
 });
 
+test('a poison takes an eighth a turn and a burn a sixteenth, as since Gold and Silver', options, () => {
+  const battle = new Battle({
+    rng: new Rng(5),
+    player: makeFixed(CHARIZARD, 50, ['ember']),
+    foes: [makeFixed(VENUSAUR, 50, ['tackle']), makeFixed(BLASTOISE, 50, ['tackle'])],
+    policy: null,
+  });
+  const foe = /** @type {any} */ (battle.foe);
+  foe.pokemon.status = STATUS.POISON;
+  foe.pokemon.toxic = false;
+  const full = foe.pokemon.hp;
+  battle.endOfTurnStatus(foe, battle.makeLog());
+  assert.equal(full - foe.pokemon.hp, Math.floor(foe.maxHp / 8));
+
+  foe.pokemon.hp = full;
+  foe.pokemon.status = STATUS.BURN;
+  battle.endOfTurnStatus(foe, battle.makeLog());
+  assert.equal(full - foe.pokemon.hp, Math.floor(foe.maxHp / 16));
+});
+
 test('every log line carries what condition each side was under, for the nameplates', options, () => {
   const battle = new Battle({
     rng: new Rng(5),

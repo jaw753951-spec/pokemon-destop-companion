@@ -89,6 +89,7 @@ const STATUS_EFFECTS = {
   par: { tint: '#f8d030', strength: 0.45, main: '#f8e040', light: '#fffce0', shadow: '#a07000' },
   slp: { tint: '#8890a8', strength: 0.25, main: '#ffffff', light: '#ffffff', shadow: '#485078' },
   frz: { tint: '#80d0f0', strength: 0.5, main: '#a8e8ff', light: '#ffffff', shadow: '#3888b8' },
+  confusion: { tint: '#f0a0c8', strength: 0.2, main: '#f8d840', light: '#fff8c0', shadow: '#b07800' },
 };
 
 /* The effects' little drawings, a character a field pixel (see `drawStatus`). */
@@ -102,6 +103,7 @@ const Z = ['#####', '...#.', '..#..', '.#...', '#####'];
 const Z_SMALL = ['####', '..#.', '.#..', '####'];
 const GLINT = ['..o..', '..#..', 'o#o#o', '..#..', '..o..'];
 const GLINT_SMALL = ['.#.', '#o#', '.#.'];
+const STAR = ['..x..', '.x#x.', 'x#o#x', '.x#x.', '..x..'];
 
 /** @type {HTMLCanvasElement|OffscreenCanvas|null} */
 let sharedTint = null;
@@ -173,7 +175,7 @@ export class Battler {
 
   /**
    * Play a status condition's effect over the sprite.
-   * @param {string} status `brn`, `psn`, `par`, `slp` or `frz`
+   * @param {string} status `brn`, `psn`, `par`, `slp` or `frz`, or `confusion`
    */
   showStatus(status) {
     if (!(status in STATUS_EFFECTS)) return;
@@ -376,6 +378,18 @@ export class Battler {
           const x = left + width * (0.15 + ((index * 43) % 70) / 100);
           const y = top + height * (0.15 + ((index * 29) % 70) / 100);
           stamp(step < 0.3 || step > 0.7 ? GLINT_SMALL : GLINT, x, y);
+        }
+        break;
+      }
+      case 'confusion': {
+        // Stars circling the head, three at even spacing going round twice,
+        // the far side of the circle drawn a little smaller.
+        const radius = Math.max(8, width * 0.3);
+        for (let index = 0; index < 3; index++) {
+          const angle = progress * Math.PI * 4 + (index * Math.PI * 2) / 3;
+          const x = this.x + Math.cos(angle) * radius;
+          const y = top - 2 + Math.sin(angle) * radius * 0.3;
+          stamp(Math.sin(angle) < 0 ? GLINT_SMALL : STAR, x, y);
         }
         break;
       }

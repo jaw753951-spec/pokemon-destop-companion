@@ -1154,6 +1154,7 @@ canvas {
 .status-mark.brn { background: #e05030; }
 .status-mark.slp { background: #8c8c98; }
 .status-mark.frz { background: #48a8d8; }
+.status-mark.confusion { background: #d0609c; }
 
 .box-space .shiny-mark {
   position: absolute;
