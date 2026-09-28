@@ -79,8 +79,11 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       bandBlocks * METATILE_SIZE,
     );
     const overhead = keepOverLane(overBand, groundY);
-    const overStrip = overhead ? repeatToWidth(makeSeamless(overhead), FIELD_WIDTH * 2) : null;
-    const covered = overStrip ? coveredSpans(overStrip, groundY) : [];
+    const overStrip = overhead ? repeatToWidth(makeSeamless(overhead.overlay), FIELD_WIDTH * 2) : null;
+    // Only what hides the companion whole — a bridge, a roof — keeps events
+    // from starting under it; a tree top over its feet does not.
+    const blockingStrip = overhead?.blocking ? repeatToWidth(makeSeamless(overhead.blocking), FIELD_WIDTH * 2) : null;
+    const covered = blockingStrip ? coveredSpans(blockingStrip, groundY) : [];
 
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
@@ -112,7 +115,8 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       groundY,
       // Stretches of the strip, in its own pixels, where something is drawn
       // over the lane; see `overhead` above.
-      ...(covered.length ? { overlay: true, covered } : {}),
+      ...(overStrip ? { overlay: true } : {}),
+      ...(covered.length ? { covered } : {}),
       music,
       weather: map.weather ? map.weather.replace('WEATHER_', '').toLowerCase() : 'none',
       encounters: encounters.get(map.id) ?? [],
@@ -136,11 +140,12 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
  *
  * The layer above the sprites holds more than bridges: a tree's crown is on
  * it, which is how a player in the games walks behind the top of a tree, and
- * several lanes run along a row of crowns. Drawn over the companion those
- * would hide it every few steps for no reason anyone could see. A bridge is
+ * several lanes run along a row of crowns. Those are drawn over the lane's own
+ * block only — the companion's feet go behind the tree top, as a player's do,
+ * where it used to walk across it — and do not hold events back. A bridge is
  * the thing that is solid all the way up the band — Route 110's Cycling Road
  * crosses the whole window — so only a column solid for this many blocks is
- * taken to be one.
+ * taken to be one, and drawn whole.
  */
 const OVERPASS_BLOCKS = 4;
 
@@ -165,7 +170,9 @@ const ROOF_FILL = 0.95;
  *
  * @param {import('../lib/image.mjs').Raster} over
  * @param {number} groundY the bottom edge of the lane's row, in the band
- * @returns {import('../lib/image.mjs').Raster|null} null when nothing crosses it
+ * @returns {{overlay: import('../lib/image.mjs').Raster, blocking: import('../lib/image.mjs').Raster|null}|null}
+ *   what is drawn over the companion, and the part of it that hides it whole;
+ *   null when nothing crosses the lane
  */
 function keepOverLane(over, groundY) {
   const drawnIn = (column, bottom) => {
@@ -200,14 +207,28 @@ function keepOverLane(over, groundY) {
     (isDeck, index) =>
       isDeck || ((deck[index - 1] || deck[index + 1]) && drawnIn(index * METATILE_SIZE, groundY) > 0),
   );
-  if (!keep.some(Boolean)) return null;
-  keep.forEach((kept, index) => {
-    if (kept) return;
-    for (let y = 0; y < over.height; y++) {
-      for (let x = index * METATILE_SIZE; x < (index + 1) * METATILE_SIZE; x++) over.data[(y * over.width + x) * 4 + 3] = 0;
+  // A tree whose crown overhangs the lane from the row below: only the
+  // lane's own block of it is kept, so the companion walks behind the top of
+  // the tree as a player in the games does, feet hidden and the rest showing.
+  // Any of it at all: Fire Red's trees put only the tip of the crown on the
+  // layer, a sliver of the block, and the companion walked across that tip.
+  const crown = keep.map((kept, index) => !kept && drawnIn(index * METATILE_SIZE, groundY) > 0);
+  if (!keep.some(Boolean) && !crown.some(Boolean)) return null;
+
+  const blocking = keep.some(Boolean) ? { width: over.width, height: over.height, data: Uint8Array.from(over.data) } : null;
+  const clear = (raster, index, keepFrom = Infinity, keepTo = -Infinity) => {
+    for (let y = 0; y < raster.height; y++) {
+      if (y >= keepFrom && y < keepTo) continue;
+      for (let x = index * METATILE_SIZE; x < (index + 1) * METATILE_SIZE; x++) raster.data[(y * raster.width + x) * 4 + 3] = 0;
     }
+  };
+  keep.forEach((kept, index) => {
+    if (blocking && !kept) clear(blocking, index);
+    if (kept) return;
+    if (crown[index]) clear(over, index, groundY - METATILE_SIZE, groundY);
+    else clear(over, index);
   });
-  return over;
+  return { overlay: over, blocking };
 }
 
 /**

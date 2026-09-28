@@ -564,7 +564,9 @@ export function fieldScene(session) {
       // Held while a menu is open: the walk and the clocks carry on under one,
       // but an event part way through does not get to reach its battle and
       // push a fight on top of the bag the player is reading.
-      if (!menuOpen) events?.update(deltaMs, offset, app);
+      // And whatever is playing out on the road — a berry picked, a ball
+      // opened, the find held up — plays at the walk's pace while held.
+      if (!menuOpen) events?.update(deltaMs * boostPace(boost, HOLD_BOOST_WALK), offset, app);
       refreshArt(app);
       hud?.update(session);
     },

@@ -351,7 +351,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    * as it faints; a wild Pokémon has no trainer, and the row stays empty.
    */
   function updateFoeBalls() {
-    const standing = (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0);
+    // A wild Pokémon has no belt: the row said "one" over every wild battle.
+    const standing = trainer ? (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0) : 0;
     setChildren(
       foeBalls,
       Array.from({ length: standing }, () =>
