@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { gameData, itemOf, moveOf, speciesOf } from '../../app/renderer/core/data.mjs';
+import { gameData, itemOf, moveOf, speciesIdBySlug, speciesOf } from '../../app/renderer/core/data.mjs';
 import { ABILITIES } from '../../app/renderer/engine/abilities.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { hazardToll, TERRAIN } from '../../app/renderer/engine/field.mjs';
@@ -21,7 +21,7 @@ import {
   WILD_ITEM_ODDS,
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
-import { devolveToLevel, giveTrainerItems, pickStray, rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
+import { devolveToLevel, giveTrainerItems, isRare, pickStray, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
@@ -543,4 +543,29 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   }
   assert.ok(legends / rolls < 0.02, `${legends} legendaries in ${rolls}`);
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
+});
+
+test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', options, () => {
+  // PokeAPI flags none of them, so they walked the road as often as a Dratini.
+  for (const slug of ['great-tusk', 'iron-valiant', 'nihilego', 'poipole', 'articuno', 'mewtwo', 'mew']) {
+    assert.ok(isRare(speciesOf(/** @type {number} */ (speciesIdBySlug(slug)))), `${slug} is rare`);
+  }
+  assert.ok(!isRare(speciesOf(PIKACHU)));
+
+  const rng = new Rng(3);
+  const area = { id: 'test', tags: ['grass'] };
+  const rolls = 20000;
+  let rare = 0;
+  for (let roll = 0; roll < rolls; roll++) {
+    const species = speciesOf(pickStray(rng, area, 60));
+    if (isRare(species)) rare++;
+  }
+  // A hundred and twenty-nine rare species at a twentieth of the weight: under
+  // one stray in a hundred, where the thirty-one unflagged used to be three.
+  assert.ok(rare / rolls < 0.01, `${rare} rare strays in ${rolls}`);
+
+  // And they are not what an ordinary trainer of their type sends out.
+  for (const id of typePool({ tags: ['grass'] }, ['fairy', 'fighting', 'bug', 'steel'])) {
+    assert.ok(!isRare(speciesOf(id)), `${speciesOf(id)?.slug} in a trainer's pool`);
+  }
 });

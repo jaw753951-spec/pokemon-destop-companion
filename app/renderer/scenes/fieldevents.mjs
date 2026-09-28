@@ -279,7 +279,7 @@ function startBerry(session, spawnAt) {
     onGathered: (app) => {
       session.addItem(berry);
       state.prop.frame = 'bare';
-      state.carried = { icon: `items/${berry}.png`, sprite: null };
+      state.carried = { icon: `items/${berry}.png`, sprite: null, scale: CARRIED_BERRY_SCALE };
       loadImage(`items/${berry}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
       });
@@ -959,8 +959,16 @@ export function drawBall(context, prop, screenX, sinceOpened = 0) {
  */
 function drawCarried(context, carried, actorHeight) {
   if (!carried.sprite) return;
-  carried.sprite.draw(context, COMPANION_X, groundY() - actorHeight - 4);
+  carried.sprite.draw(context, COMPANION_X, groundY() - actorHeight - 4, { scale: carried.scale ?? 1 });
 }
+
+/**
+ * How big a picked berry is held up: half its icon, one screen pixel to each
+ * of its own. At full size a bag icon held over a Pokémon's head came out
+ * nearly the size of the Pokémon; half is as small as it goes while every
+ * pixel stays one pixel.
+ */
+const CARRIED_BERRY_SCALE = 0.5;
 
 /** @param {HTMLImageElement} image */
 function stillSprite(image) {

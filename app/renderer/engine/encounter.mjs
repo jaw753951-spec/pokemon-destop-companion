@@ -86,10 +86,39 @@ export const STRAY_CHANCE = 0.3;
 const STRAY_TERRAIN_WEIGHT = 3;
 
 /**
- * And how much rarer when it is a legendary or a mythical: out there, but a
+ * And how much rarer when it is a rare one ({@link isRare}): out there, but a
  * once-in-a-long-while meeting rather than a route's regular.
  */
 const STRAY_LEGEND_WEIGHT = 0.05;
+
+/**
+ * The Paradox Pokémon and the Ultra Beasts, which PokeAPI flags as neither
+ * legendary nor mythical — so they used to walk the road as often as a
+ * Dratini, and all thirty-one of them together seven times as often as every
+ * legendary and mythical put together.
+ */
+const RARE_SLUGS = new Set([
+  // Paradox, ancient
+  'great-tusk', 'scream-tail', 'brute-bonnet', 'flutter-mane', 'slither-wing', 'sandy-shocks',
+  'roaring-moon', 'walking-wake', 'gouging-fire', 'raging-bolt',
+  // Paradox, future
+  'iron-treads', 'iron-bundle', 'iron-hands', 'iron-jugulis', 'iron-moth', 'iron-thorns',
+  'iron-valiant', 'iron-leaves', 'iron-boulder', 'iron-crown',
+  // Ultra Beasts
+  'nihilego', 'buzzwole', 'pheromosa', 'xurkitree', 'celesteela', 'kartana', 'guzzlord',
+  'poipole', 'naganadel', 'stakataka', 'blacephalon',
+]);
+
+/**
+ * Whether a species is one the road only rarely turns up: a legendary — the
+ * lesser ones and the box art alike, which PokeAPI flags the same — a
+ * mythical, a Paradox Pokémon or an Ultra Beast.
+ *
+ * @param {{slug?: string, isLegendary?: boolean, isMythical?: boolean}|null|undefined} species
+ */
+export function isRare(species) {
+  return Boolean(species && (species.isLegendary || species.isMythical || RARE_SLUGS.has(species.slug ?? '')));
+}
 
 /**
  * A wild Pokémon from anywhere in the Pokédex, leaning towards the types the
@@ -106,7 +135,7 @@ export function pickStray(rng, area, level) {
     value: species.id,
     weight:
       (species.types.some((type) => wanted.has(type)) ? STRAY_TERRAIN_WEIGHT : 1) *
-      (species.isLegendary || species.isMythical ? STRAY_LEGEND_WEIGHT : 1),
+      (isRare(species) ? STRAY_LEGEND_WEIGHT : 1),
   }));
   const chosen = rng.weighted(entries) ?? 1;
   return evolveToLevel(devolveToLevel(chosen, level), level);
@@ -194,8 +223,9 @@ export function typePool(area, preferredTypes = []) {
 
   const pool = [];
   for (const species of Object.values(gameData().species)) {
-    // Legendaries and mythicals are not roadside encounters.
-    if (species.isLegendary || species.isMythical) continue;
+    // Legendaries, mythicals, Paradoxes and Ultra Beasts are not roadside
+    // encounters, nor what an ordinary trainer carries.
+    if (isRare(species)) continue;
     if (species.types.some((type) => wanted.has(type))) pool.push(species.id);
   }
   return pool.length ? pool : [1];

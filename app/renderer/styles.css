@@ -1540,18 +1540,82 @@ canvas {
   min-height: 0;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 8px;
   padding: 8px 10px;
 }
 
+/* The three things that pick a move, one tier each, highest first. Each
+   steps in under the one that outranks it and is drawn quieter than it, and
+   a notch in the colour of the tier above points down its rail: what that
+   tier leaves open falls to this one. */
+.auto-tier {
+  flex: none;
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 5px 8px 6px;
+  border-left: 3px solid var(--frame-light);
+  border-radius: 0 5px 5px 0;
+}
+
+.auto-tier + .auto-tier::before {
+  content: '';
+  position: absolute;
+  top: -8px;
+  left: -3px;
+  border-left: 7px solid transparent;
+  border-right: 7px solid transparent;
+  border-top: 6px solid var(--frame-light);
+  transform: translateX(-5.5px);
+}
+
+.auto-tier-1 {
+  border-left-color: var(--accent);
+  background: rgba(216, 68, 60, 0.08);
+}
+
+.auto-tier-2 {
+  margin-left: 14px;
+  border-left-color: var(--frame);
+  background: rgba(56, 74, 99, 0.07);
+}
+
+.auto-tier-2::before {
+  border-top-color: var(--accent) !important;
+}
+
+.auto-tier-3 {
+  margin-left: 28px;
+  background: rgba(56, 74, 99, 0.03);
+}
+
+.auto-tier-3::before {
+  border-top-color: var(--frame) !important;
+}
+
+.auto-modes {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 4px;
+}
+
+.auto-modes .chip {
+  padding: 4px 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* Four boxes fired left to right, with a notch between each pair saying so. */
 .auto-order {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
-  gap: 3px;
+  gap: 10px;
 }
 
 .auto-slot {
   -webkit-app-region: no-drag;
+  position: relative;
   min-height: 24px;
   padding: 2px 4px;
   border: 1px solid var(--frame-light);
@@ -1560,6 +1624,17 @@ canvas {
   font: inherit;
   font-size: 9px;
   cursor: pointer;
+}
+
+.auto-slot + .auto-slot::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: -8px;
+  border-top: 4px solid transparent;
+  border-bottom: 4px solid transparent;
+  border-left: 5px solid var(--frame-light);
+  transform: translateY(-50%);
 }
 
 .auto-slot.empty {
@@ -1576,12 +1651,21 @@ canvas {
   opacity: 0.55;
 }
 
+.auto-kinds {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 3px 12px;
+}
+
 .auto-kind {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
   gap: 6px;
+  font-size: 10px;
 }
 
 .auto-kind .label {
-  width: auto;
   color: var(--ink);
 }
 
