@@ -307,16 +307,19 @@ function startBerry(session, spawnAt) {
  * pipeline happened to finish downloading first: every one of those berries
  * grew on the same tree, and which tree that was changed between builds.
  *
- * Now a berry without a sheet is given one of the thirty by **its own name**,
- * so the roadside has the variety it looks like it should and a Roseli Berry
- * is on the same tree every time you meet one.
+ * A Hoenn berry without a sheet of its own grows on the one Emerald itself
+ * puts it on ({@link EMERALD_TREES}) — an Apicot on a Grepa tree. Those used to
+ * be hashed like the rest, and the Apicot's hash landed on the Kelpsy sheet,
+ * whose fruit is one blue dot in the middle of a big pink plant: the companion
+ * walked up to what looked like a tree with nothing on it.
  *
- * Only a sheet with fruit on it is handed out. The build marks a sheet whose
- * fruiting stage is the same picture as its flowering one — `fruit: null` —
- * and the renderer draws the fruiting frames of it all the same, so a Kasib
- * Berry that hashed onto one of those walked the companion up to a tree with
- * nothing on it. A berry's own sheet is passed over for the same reason; a
- * manifest from before the build checked (no `fruit` at all) is trusted.
+ * Every other berry without a sheet is given one by **its own name**, so the
+ * roadside has the variety it looks like it should and a Roseli Berry is on
+ * the same tree every time you meet one — out of the sheets whose fruit reads
+ * as fruit. {@link FAINT_FRUIT} are left out of that draw, and so is any sheet
+ * the build found no fruit on at all (`fruit: null`: its fruiting stage is the
+ * same picture as its flowering one). A manifest from before the build checked
+ * (no `fruit` at all) is trusted.
  *
  * @param {string} berry the item slug, e.g. `oran-berry`
  * @param {Record<string, any>} trees the sheets the build produced
@@ -330,16 +333,48 @@ export function treeFor(berry, trees) {
   // `oran-berry` is drawn by a tree sheet named `oran`.
   const own = berry.replace(/-berry$/, '');
   if (bears(own)) return own;
+  const emerald = EMERALD_TREES[own];
+  if (emerald && bears(emerald)) return emerald;
 
   const fruiting = Object.keys(trees).filter(bears).sort();
+  const clear = fruiting.filter((name) => !FAINT_FRUIT.has(name));
   // A build where no sheet has fruit still grows the berry on something.
-  const names = fruiting.length ? fruiting : Object.keys(trees).sort();
+  const names = clear.length ? clear : fruiting.length ? fruiting : Object.keys(trees).sort();
   if (names.length === 0) return null;
 
   let hash = 0;
   for (let index = 0; index < own.length; index++) hash = (hash * 31 + own.charCodeAt(index)) >>> 0;
   return names[hash % names.length];
 }
+
+/**
+ * The Hoenn berries Emerald draws on another berry's tree, as its
+ * `gBerryTreePicTablePointers` assigns them.
+ *
+ * @type {Record<string, string>}
+ */
+export const EMERALD_TREES = {
+  bluk: 'razz',
+  nanab: 'mago',
+  pinap: 'iapapa',
+  qualot: 'wepear',
+  magost: 'pomeg',
+  watmel: 'rabuta',
+  belue: 'hondew',
+  ganlon: 'hondew',
+  salac: 'aguav',
+  petaya: 'pomeg',
+  apicot: 'grepa',
+  starf: 'cornn',
+  enigma: 'durin',
+};
+
+/**
+ * Sheets whose fruit is a dot or two against a large plant: right for their
+ * own berry, which is what Emerald shows, but read as a bare tree when handed
+ * to a berry that merely hashed onto them.
+ */
+export const FAINT_FRUIT = new Set(['kelpsy', 'leppa', 'durin', 'spelon']);
 
 /**
  * A ball sits on the path. Which ball it is decides how good the item inside
