@@ -20,6 +20,7 @@ import {
   friendshipForLevels,
   gainFriendship,
   learnOnEvolution,
+  noteLearnedMoves,
   levelOf,
   maxHp,
   pendingEvolution,
@@ -1161,6 +1162,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         if (shell) app.toast(t('battle.shed', { name: nameOf(shell) }), 3200);
       }
     }
+
+    // Whatever this battle's levels and evolution taught, in the order it came.
+    noteLearnedMoves(session.active, session.machines);
 
     battle.release();
     onFinish({

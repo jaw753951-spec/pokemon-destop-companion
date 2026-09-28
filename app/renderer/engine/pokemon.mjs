@@ -45,6 +45,10 @@ import {
  *   move some evolution counts — Rage Fist, for a Primeape
  * @property {string} [standing] the shape a key item left it in — a Sky Forme
  *   Shaymin's, a fused Necrozma's — kept until the item is used again
+ * @property {string[]} [learned] every move it has come to be able to use, in
+ *   the order it came to — the newest last; see {@link noteLearnedMoves}
+ * @property {string[]} [newMoves] the ones among them not yet looked at in the
+ *   move list, which the Pokémon tab marks
  * @property {string} [forme] the alternate forme it is wearing, if any — the
  *   one it stands in (a held mask, a chosen Sky Forme) outside a battle, and
  *   whatever the battle has changed it into inside one, let go of after
@@ -144,6 +148,8 @@ export function createPokemon(rng, speciesId, level, options = {}) {
 
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
   pokemon.hp = maxHp(pokemon);
+  // What it knows on the day it is met is known, not new.
+  noteLearnedMoves(pokemon);
   return pokemon;
 }
 
@@ -491,6 +497,53 @@ export function availableMoves(pokemon, unlockedMachines = []) {
   // Dusk Mane has in no learnset at all.
   const fromForme = FORME_MOVES.get(pokemon.forme ?? '') ?? [];
   return [...new Set([...fromLevels, ...fromMachines, ...fromTutors, ...fromForme])].filter((move) => moveOf(move));
+}
+
+/**
+ * Write down any move the Pokémon has newly come to be able to use — from a
+ * level, an evolution, a machine unlocked, a shape a key item gave — in the
+ * order it came to, and mark the ones not in its four slots as new until the
+ * move list is looked at.
+ *
+ * A Pokémon with no record yet — one from a save older than the record, or
+ * one just met — has everything it can use written down as already known.
+ *
+ * @param {Pokemon} pokemon
+ * @param {string[]} [unlockedMachines]
+ */
+export function noteLearnedMoves(pokemon, unlockedMachines = []) {
+  const available = availableMoves(pokemon, unlockedMachines);
+  if (!Array.isArray(pokemon.learned)) {
+    pokemon.learned = available;
+    pokemon.newMoves = [];
+    return;
+  }
+  const known = new Set(pokemon.learned);
+  const equipped = new Set(pokemon.moves.map((slot) => slot.move));
+  const fresh = new Set(pokemon.newMoves ?? []);
+  for (const move of available) {
+    if (known.has(move)) continue;
+    pokemon.learned.push(move);
+    if (!equipped.has(move)) fresh.add(move);
+  }
+  // A move put in a slot, or one it can no longer use, is not waiting to be seen.
+  pokemon.newMoves = [...fresh].filter((move) => available.includes(move) && !equipped.has(move));
+}
+
+/**
+ * The moves a Pokémon can use, most recently learned first, as the move list
+ * shows them.
+ *
+ * @param {Pokemon} pokemon
+ * @param {string[]} [unlockedMachines]
+ */
+export function movesByRecency(pokemon, unlockedMachines = []) {
+  const order = pokemon.learned ?? [];
+  const rank = (move) => {
+    const index = order.lastIndexOf(move);
+    return index < 0 ? -1 : index;
+  };
+  return availableMoves(pokemon, unlockedMachines).sort((a, b) => rank(b) - rank(a));
 }
 
 /**

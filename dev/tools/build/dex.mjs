@@ -1536,38 +1536,38 @@ const REGIONS = {
 };
 
 /**
- * The Korean and English names PokeAPI does not have for a regional variety:
- * the Paldean Tauros breeds and the white-striped Basculin.
+ * The form names PokeAPI does not have for a variety, in the Korean games' own
+ * words (Scarlet/Violet's zkn_form) — the label the Pokédex puts under the
+ * name, since the name itself is the species' own everywhere.
  *
  * @type {Record<string, {ko: string, en: string}>}
  */
-const REGIONAL_NAMES = {
-  'tauros-paldea-combat-breed': { ko: '팔데아 켄타로스(컴뱃종)', en: 'Paldean Tauros (Combat Breed)' },
-  'tauros-paldea-blaze-breed': { ko: '팔데아 켄타로스(블레이즈종)', en: 'Paldean Tauros (Blaze Breed)' },
-  'tauros-paldea-aqua-breed': { ko: '팔데아 켄타로스(워터종)', en: 'Paldean Tauros (Aqua Breed)' },
-  'basculin-white-striped': { ko: '배쓰나이(백색근의 모습)', en: 'Basculin (White-Striped Form)' },
-  'urshifu-rapid-strike': { ko: '우라오스(연격의 태세)', en: 'Urshifu (Rapid Strike Style)' },
+const VARIETY_FORMS = {
+  'tauros-paldea-combat-breed': { ko: '팔데아의 모습(컴뱃종)', en: 'Paldean Form (Combat Breed)' },
+  'tauros-paldea-blaze-breed': { ko: '팔데아의 모습(블레이즈종)', en: 'Paldean Form (Blaze Breed)' },
+  'tauros-paldea-aqua-breed': { ko: '팔데아의 모습(워터종)', en: 'Paldean Form (Aqua Breed)' },
+  'basculin-white-striped': { ko: '백색근의 모습', en: 'White-Striped Form' },
+  'urshifu-rapid-strike': { ko: '연격의 태세', en: 'Rapid Strike Style' },
   // The varieties below are not regional, but they are Pokémon of their own
   // in the same way: their own types, stats, abilities or moves, met in the
   // wild or evolved into by a rule of their own (see `VARIANT_EVOLUTIONS`).
-  // The form names are the Korean games' own (Scarlet/Violet's zkn_form).
-  'lycanroc-midnight': { ko: '루가루암(한밤중의 모습)', en: 'Lycanroc (Midnight Form)' },
-  'lycanroc-dusk': { ko: '루가루암(황혼의 모습)', en: 'Lycanroc (Dusk Form)' },
-  'toxtricity-low-key': { ko: '스트린더(로우한 모습)', en: 'Toxtricity (Low Key Form)' },
-  'indeedee-female': { ko: '에써르(암컷의 모습)', en: 'Indeedee (Female)' },
-  'meowstic-female': { ko: '냐오닉스(암컷의 모습)', en: 'Meowstic (Female)' },
-  'oinkologne-female': { ko: '퍼퓨돈(암컷의 모습)', en: 'Oinkologne (Female)' },
-  'basculegion-female': { ko: '대쓰여너(암컷의 모습)', en: 'Basculegion (Female)' },
-  'basculin-blue-striped': { ko: '배쓰나이(청색근의 모습)', en: 'Basculin (Blue-Striped Form)' },
-  'ursaluna-bloodmoon': { ko: '다투곰(붉은 달)', en: 'Ursaluna (Bloodmoon)' },
-  'wormadam-sandy': { ko: '도롱마담(모래땅도롱)', en: 'Wormadam (Sandy Cloak)' },
-  'wormadam-trash': { ko: '도롱마담(슈레도롱)', en: 'Wormadam (Trash Cloak)' },
-  'pumpkaboo-small': { ko: '호바귀(작은 사이즈)', en: 'Pumpkaboo (Small Size)' },
-  'pumpkaboo-large': { ko: '호바귀(큰 사이즈)', en: 'Pumpkaboo (Large Size)' },
-  'pumpkaboo-super': { ko: '호바귀(특대 사이즈)', en: 'Pumpkaboo (Super Size)' },
-  'gourgeist-small': { ko: '펌킨인(작은 사이즈)', en: 'Gourgeist (Small Size)' },
-  'gourgeist-large': { ko: '펌킨인(큰 사이즈)', en: 'Gourgeist (Large Size)' },
-  'gourgeist-super': { ko: '펌킨인(특대 사이즈)', en: 'Gourgeist (Super Size)' },
+  'lycanroc-midnight': { ko: '한밤중의 모습', en: 'Midnight Form' },
+  'lycanroc-dusk': { ko: '황혼의 모습', en: 'Dusk Form' },
+  'toxtricity-low-key': { ko: '로우한 모습', en: 'Low Key Form' },
+  'indeedee-female': { ko: '암컷의 모습', en: 'Female' },
+  'meowstic-female': { ko: '암컷의 모습', en: 'Female' },
+  'oinkologne-female': { ko: '암컷의 모습', en: 'Female' },
+  'basculegion-female': { ko: '암컷의 모습', en: 'Female' },
+  'basculin-blue-striped': { ko: '청색근의 모습', en: 'Blue-Striped Form' },
+  'ursaluna-bloodmoon': { ko: '붉은 달', en: 'Bloodmoon' },
+  'wormadam-sandy': { ko: '모래땅도롱', en: 'Sandy Cloak' },
+  'wormadam-trash': { ko: '슈레도롱', en: 'Trash Cloak' },
+  'pumpkaboo-small': { ko: '작은 사이즈', en: 'Small Size' },
+  'pumpkaboo-large': { ko: '큰 사이즈', en: 'Large Size' },
+  'pumpkaboo-super': { ko: '특대 사이즈', en: 'Super Size' },
+  'gourgeist-small': { ko: '작은 사이즈', en: 'Small Size' },
+  'gourgeist-large': { ko: '큰 사이즈', en: 'Large Size' },
+  'gourgeist-super': { ko: '특대 사이즈', en: 'Super Size' },
 };
 
 /**
@@ -1651,9 +1651,11 @@ async function addRegionalSpecies(out, pool) {
             ...base,
             id,
             slug: pokemon.name,
-            name: REGIONAL_NAMES[pokemon.name]
-              ? { ...base.name, ...REGIONAL_NAMES[pokemon.name] }
-              : regionalName(base.name, region, formName),
+            // The species' own name, as every screen of the games shows it —
+            // an Alolan Raichu is a Raichu on its nameplate — with the form
+            // beside it, for the Pokédex to put under the name.
+            name: { ...base.name },
+            form: varietyForm(pokemon.name, region, formName),
             types: pokemon.types.sort((a, b) => a.slot - b.slot).map((entry) => entry.type.name),
             stats,
             abilities: pokemon.abilities.map((entry) => ({ name: entry.ability.name, hidden: entry.is_hidden })),
@@ -1686,25 +1688,23 @@ async function addRegionalSpecies(out, pool) {
 }
 
 /**
- * "알로라 식스테일", "Alolan Vulpix"; a Paldean Tauros adds its breed, and
- * the White-Striped Basculin its stripe, as the games do.
+ * The form label a variety carries, as the games' Pokédex labels it: "알로라의
+ * 모습", "Alolan Form"; a Paldean Tauros's breed, a Pumpkaboo's size.
  *
- * @param {Record<string, string>} base the species' own name bundle
+ * @param {string} slug
  * @param {string|null} region
- * @param {Record<string, string>} formName the variety's form name bundle
+ * @param {Record<string, string>} formName PokeAPI's form name bundle
+ * @returns {Record<string, string>}
  */
-function regionalName(base, region, formName) {
+function varietyForm(slug, region, formName) {
   /** @type {Record<string, string>} */
   const out = {};
-  for (const [code, name] of Object.entries(base)) {
-    const prefix = region ? REGIONS[region]?.[code === 'ko' ? 'ko' : 'en'] : null;
-    const extra = formName[code] && !/(모습|Form)$/.test(formName[code]) ? formName[code] : '';
-    // A breed or a stripe names the Pokémon more exactly than the region.
-    if (extra && !prefix) out[code] = code === 'ko' ? `${name}(${extra})` : `${name} (${extra})`;
-    else if (extra) out[code] = code === 'ko' ? `${prefix} ${name}(${extra.replace(/^팔데아\s*/, '')})` : `${prefix} ${name} (${extra.replace(/^Paldean\s*/, '')})`;
-    else out[code] = prefix ? `${prefix} ${name}` : name;
+  for (const [code, text] of Object.entries(formName)) if (text) out[code] = text;
+  if (region && REGIONS[region]) {
+    out.ko = `${REGIONS[region].ko}의 모습`;
+    out.en = `${REGIONS[region].en} Form`;
   }
-  return out;
+  return { ...out, ...(VARIETY_FORMS[slug] ?? {}) };
 }
 
 /**

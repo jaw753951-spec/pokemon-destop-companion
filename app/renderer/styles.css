@@ -1156,6 +1156,26 @@ canvas {
 .status-mark.frz { background: #48a8d8; }
 .status-mark.confusion { background: #d0609c; }
 
+/* Something new behind it: a red dot in the corner, as a phone badges an app. */
+.new-dot {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #e8403a;
+  box-shadow: 0 0 0 1px #fff;
+  pointer-events: none;
+}
+
+.new-dot.inline {
+  position: static;
+  display: inline-block;
+  margin-left: 4px;
+  vertical-align: 2px;
+}
+
 .box-space .shiny-mark {
   position: absolute;
   top: 0;
@@ -1184,6 +1204,7 @@ canvas {
 
 .move-slot {
   -webkit-app-region: no-drag;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: flex-start;
@@ -1814,6 +1835,12 @@ canvas {
 .dex-detail-name {
   font-size: 12px;
   font-weight: 700;
+}
+
+.dex-detail-form {
+  margin-top: -2px;
+  color: var(--ink-soft);
+  font-size: 10px;
 }
 
 .dex-champion-mark {

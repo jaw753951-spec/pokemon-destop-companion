@@ -586,6 +586,29 @@ test('the same wild Pokémon twice running is drawn again', options, () => {
   assert.ok(again / rolls < 0.2, `${again} Spinda after a Spinda in ${rolls}`);
 });
 
+test('a move learned since the last look is new until the move list is opened, and listed first', options, async () => {
+  const { noteLearnedMoves, movesByRecency } = await import('../../app/renderer/engine/pokemon.mjs');
+  const { experienceForLevel } = await import('../../app/renderer/engine/stats.mjs');
+  const charmander = createPokemon(new Rng(3), 4, 5);
+  // Met today: nothing it knows is new.
+  assert.deepEqual(charmander.newMoves, []);
+
+  charmander.experience = experienceForLevel(speciesOf(4).growthRate, 20);
+  noteLearnedMoves(charmander, []);
+  const equipped = new Set(charmander.moves.map((slot) => slot.move));
+  const learnedSince = (speciesOf(4).learnset.level ?? []).filter(([at]) => at > 5 && at <= 20).map(([, move]) => move);
+  const waiting = learnedSince.filter((move) => !equipped.has(move));
+  assert.ok(waiting.length > 0, 'a level-20 Charmander has learned something since 5');
+  assert.deepEqual([...charmander.newMoves].sort(), [...new Set(waiting)].sort());
+
+  // The newest is at the top of the list.
+  const listed = movesByRecency(charmander, []);
+  assert.equal(listed[0], learnedSince.at(-1));
+  // And a second look finds nothing new that was not new before.
+  noteLearnedMoves(charmander, []);
+  assert.deepEqual([...charmander.newMoves].sort(), [...new Set(waiting)].sort());
+});
+
 test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {
   const { recommendedBerries } = await import('../../app/renderer/engine/items.mjs');
   const charmander = fixed(4, 50); // Fire: weak to Water, Ground and Rock

@@ -134,7 +134,8 @@ export function prompt(app, title, options = {}) {
  * @template T
  * @param {import('../core/app.mjs').App} app
  * @param {string} title
- * @param {Array<{value: T, label: string, detail?: string}>} entries
+ * @param {Array<{value: T, label: string, detail?: string, fresh?: boolean}>} entries `fresh` marks
+ *   one with the red new-thing dot
  * @param {{empty?: string}} [options] what to say when there is nothing to choose
  * @returns {Promise<T|null>}
  */
@@ -160,7 +161,7 @@ export function chooseFromList(app, title, entries, options = {}) {
                   },
                   [
                     el('span.lines', {}, [
-                      el('span.headline', { text: entry.label }),
+                      el('span.headline', {}, [entry.label, entry.fresh ? el('i.new-dot.inline', { 'aria-hidden': 'true' }) : null]),
                       entry.detail ? el('span.meta', { text: entry.detail }) : null,
                     ]),
                   ],
