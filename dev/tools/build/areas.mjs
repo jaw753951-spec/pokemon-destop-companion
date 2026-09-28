@@ -142,11 +142,20 @@ const OVERPASS_BLOCKS = 4;
 const OVERPASS_FILL = 0.6;
 
 /**
- * The part of a map's over-the-sprites layer that is a bridge over the lane.
+ * How much of the lane's block, and the one below, a roof fills: all of it,
+ * where the rounded crowns of a tree line overhanging the lane fill about
+ * four fifths.
+ */
+const ROOF_FILL = 0.95;
+
+/**
+ * The part of a map's over-the-sprites layer that is a bridge over the lane,
+ * or a roof overhanging it.
  *
  * A block column is kept, top to bottom, when its layer is solid from the
  * block the companion's feet stand in up through {@link OVERPASS_BLOCKS}
- * blocks; every other column is cleared.
+ * blocks, or solid in that block and the one below it; every other column is
+ * cleared.
  *
  * @param {import('../lib/image.mjs').Raster} over
  * @param {number} groundY the bottom edge of the lane's row, in the band
@@ -163,11 +172,21 @@ function keepOverLane(over, groundY) {
     return drawn / (METATILE_SIZE * METATILE_SIZE);
   };
   const columns = Math.floor(over.width / METATILE_SIZE);
+  const solid = (index, block, fill = OVERPASS_FILL) =>
+    drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) >= fill;
   const deck = Array.from({ length: columns }, (_, index) => {
-    for (let block = 0; block < OVERPASS_BLOCKS; block++) {
-      if (drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) < OVERPASS_FILL) return false;
-    }
-    return true;
+    // A bridge: solid from the lane all the way up.
+    let bridge = true;
+    for (let block = 0; block < OVERPASS_BLOCKS && bridge; block++) bridge = solid(index, block);
+    if (bridge) return true;
+    // A roof: a building whose roof overhangs the lane from below, solid in
+    // the lane's own block and on down into the building under it. Route 7's
+    // lane runs along the top of a house's roof, and the companion walked
+    // across the roof where a player in the games walks behind its edge. A
+    // roof's edge is a straight line filling the whole block; a tree line's
+    // crowns overhang the same way but round, never filling it — see
+    // `ROOF_FILL` — and are left out for the reason `OVERPASS_BLOCKS` gives.
+    return solid(index, 0, ROOF_FILL) && solid(index, -1, ROOF_FILL);
   });
   // The railings either side of the deck are thinner than the deck, and are
   // as much the bridge as it is.
