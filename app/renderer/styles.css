@@ -1550,29 +1550,16 @@ canvas {
 }
 
 /* The three things that pick a move, one tier each, highest first. All
-   three start on one line; each is drawn quieter than the one that outranks
-   it, and a notch in the colour of the tier above points down its rail:
-   what that tier leaves open falls to this one. */
+   three start on one line, and each is drawn quieter than the one that
+   outranks it. */
 .auto-tier {
   flex: none;
-  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
   padding: 5px 8px 6px;
   border-left: 3px solid var(--frame-light);
   border-radius: 0 5px 5px 0;
-}
-
-.auto-tier + .auto-tier::before {
-  content: '';
-  position: absolute;
-  top: -8px;
-  left: -3px;
-  border-left: 7px solid transparent;
-  border-right: 7px solid transparent;
-  border-top: 6px solid var(--frame-light);
-  transform: translateX(-5.5px);
 }
 
 .auto-tier-1 {
@@ -1585,16 +1572,8 @@ canvas {
   background: rgba(56, 74, 99, 0.07);
 }
 
-.auto-tier-2::before {
-  border-top-color: var(--accent) !important;
-}
-
 .auto-tier-3 {
   background: rgba(56, 74, 99, 0.03);
-}
-
-.auto-tier-3::before {
-  border-top-color: var(--frame) !important;
 }
 
 .auto-modes {
