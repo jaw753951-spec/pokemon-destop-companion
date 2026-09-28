@@ -5,8 +5,8 @@
  * mode, which says how the move order is used and can override it; the move
  * order laid out by hand; and which kinds of move it may reach for, each under
  * a condition, for whatever the first two leave open. The screen stacks them
- * in that order, each tier stepped in under the one that outranks it, so the
- * ranking reads off the layout without a word of it being written.
+ * in that order on one left edge, each tier quieter than the one above it,
+ * so the ranking reads off the layout without a word of it being written.
  *
  * Everything here edits the policy the battle engine reads, so the effect of a
  * change is immediate.

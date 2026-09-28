@@ -1214,10 +1214,14 @@ function nameplate(pokemon) {
       return;
     }
     const species = speciesOf(next.speciesId);
-    const gender = next.gender ? t(`pokemon.gender.${next.gender}`) : '';
     const shiny = next.shiny ? SHINY_MARK : '';
     const name = next.nickname || localized(species?.name, '');
-    node.textContent = `${name}${gender}${shiny}  ${t('slot.level', { level: levelOf(next) })}`;
+    // The ♂ and ♀ in their own colours, as the games' nameplates draw them.
+    setChildren(node, [
+      name,
+      next.gender ? el(`span.gender-mark.${next.gender}`, { text: t(`pokemon.gender.${next.gender}`) }) : null,
+      `${shiny}  ${t('slot.level', { level: levelOf(next) })}`,
+    ]);
   };
 
   set(pokemon);
