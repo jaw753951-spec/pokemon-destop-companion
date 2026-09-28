@@ -11,7 +11,7 @@
 import { FIELD_ZOOM } from '../../shared/constants.mjs';
 import { loadSprite } from '../core/assets.mjs';
 import { el } from '../core/dom.mjs';
-import { fieldArtOf } from '../core/data.mjs';
+import { artOf } from '../core/data.mjs';
 import { actorScale, drawWalker, IDLE_BOB_HEIGHT } from '../render/field.mjs';
 
 /**
@@ -20,31 +20,34 @@ import { actorScale, drawWalker, IDLE_BOB_HEIGHT } from '../render/field.mjs';
  *   is screen pixels per field pixel — the field's own two by default, so the
  *   Pokémon is the size it walks at; `maxHeight` brings one too tall for the
  *   space it is given down a whole step of zoom at a time, so it stays made of
- *   whole pixels
- * @returns {HTMLElement|null} null when the species has no field art
+ *   whole pixels, and no further than one screen pixel to each of its own
+ * @returns {HTMLElement|null} null when the species has no art
  */
 export function walkerPortrait(pokemon, { zoom = FIELD_ZOOM, maxHeight = Infinity, label = '' } = {}) {
-  const art = fieldArtOf(pokemon);
+  const art = artOf(pokemon);
   if (!art) return null;
 
   const canvas = /** @type {HTMLCanvasElement} */ (el('canvas.walker-portrait', { role: 'img', 'aria-label': label }));
   loadSprite(art.path, art.meta)
     .then((sprite) => {
       const scale = actorScale(sprite, pokemon);
-      const width = Math.round(sprite.width * scale);
-      const height = Math.round(sprite.height * scale);
+      const width = sprite.width * scale;
+      const height = sprite.height * scale;
       // Room under the feet for the shadow, which is as deep as drawShadow
       // makes it for a sprite this wide.
       const below = Math.ceil(Math.max(2, width * 0.15)) + 1;
       // And room over the head for the bob to rise into.
-      const above = Math.ceil(IDLE_BOB_HEIGHT * scale);
+      const above = IDLE_BOB_HEIGHT;
       const fieldWidth = width + 2;
       const fieldHeight = above + height + below;
 
+      // A step of zoom is one screen pixel more or less to each art pixel,
+      // which at the road's half scale is two to each field pixel.
+      const step = Math.max(1, 1 / scale);
       let fit = zoom;
-      while (fit > 1 && fieldHeight * fit > maxHeight) fit -= 1;
-      canvas.width = fieldWidth * fit;
-      canvas.height = fieldHeight * fit;
+      while (fit - step >= step && fieldHeight * fit > maxHeight) fit -= step;
+      canvas.width = Math.ceil(fieldWidth * fit);
+      canvas.height = Math.ceil(fieldHeight * fit);
       canvas.style.width = `${canvas.width}px`;
       canvas.style.height = `${canvas.height}px`;
 

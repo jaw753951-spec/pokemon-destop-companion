@@ -104,12 +104,12 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   for (const entry of Object.values(species)) {
     const sprite = sprites[entry.id];
     // The pictures come from the copies in data/vendor, so a gap is a source
-    // that went missing: every species and forme has its picture and the
-    // half of it the road draws, in both palettes.
-    if (!sprite?.art || !sprite.field) noSprite.push(entry.id);
+    // that went missing: every species and forme has its picture, in both
+    // palettes.
+    if (!sprite?.art) noSprite.push(entry.id);
     if (sprite?.art && !sprite.shiny?.art) noShiny.push(entry.id);
     for (const form of entry.forms ?? []) {
-      if (!sprite?.[`art-form-${form.slug}`] || !sprite?.[`field-form-${form.slug}`]) noWalk.push(`${entry.id} (${form.slug})`);
+      if (!sprite?.[`art-form-${form.slug}`]) noWalk.push(`${entry.id} (${form.slug})`);
       else if (!sprite.shiny?.[`art-form-${form.slug}`]) noShiny.push(`${entry.id} (${form.slug})`);
     }
     if (!entry.learnset?.level?.length) noLearnset.push(entry.id);

@@ -11,12 +11,14 @@
  * PokeAPI files beside the official ones under the same numbers. One folder,
  * one style, one density, every shiny and every female drawn.
  *
- * Two pictures come out of each: the sprite as it is (`art`), for the box,
- * the battle and the Pokémon's tab, and the same sprite halved as pixel art
- * (`field`), for the road — a battle sprite at its own size stands half the
- * height of the field, where the overworld draws its people a tile or two
- * tall. Both face left, as the sprites do; the screens that want them facing
- * right mirror them.
+ * One picture comes out of each: the sprite cut to what is drawn in it
+ * (`art`), for every screen — the road draws it at half a battle's size. It
+ * faces left, as the sprites do; the screens that want it facing right mirror
+ * it.
+ *
+ * There used to be a second, the sprite halved as pixel art for the road. A
+ * battle sprite's detail is one pixel wide, and keeping one pixel of every
+ * four broke its outline and blotted its face, however the four were read.
  *
  * Every file used is kept in `data/vendor/pokeapi/`, pinned to a commit, so a
  * picture cannot vanish from the game the day it changes upstream.
@@ -27,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 
 import { writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { crop, opaqueBounds, shrinkPixelArt } from '../lib/image.mjs';
+import { crop, opaqueBounds } from '../lib/image.mjs';
 import { saveVendored, vendored } from '../lib/vendor.mjs';
 import { MAX_SPECIES } from '../sources.mjs';
 
@@ -68,7 +70,7 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
   const unshiny = [];
 
   /**
-   * Write one picture and its half, and measure both into the manifest.
+   * Write one picture, and measure it into the manifest.
    *
    * @param {number} id
    * @param {string} key `''`, `-female` or `-form-<forme>`
@@ -80,11 +82,8 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
     const into = shiny ? entry.shiny : entry;
     const tail = shiny ? '-shiny' : '';
     const full = trimmed(decodePng(png));
-    const half = trimmed(shrinkPixelArt(full));
     await writeOut(join(out, String(id), `art${key}${tail}.png`), encodePng(full.width, full.height, full.data));
-    await writeOut(join(out, String(id), `field${key}${tail}.png`), encodePng(half.width, half.height, half.data));
     into[`art${key}`] = { width: full.width, height: full.height };
-    into[`field${key}`] = { width: half.width, height: half.height };
   };
 
   /**

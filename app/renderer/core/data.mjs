@@ -170,32 +170,18 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * picture is worse than a missing sparkle.
  *
  * The picture is still and faces left, as the sprites do; the screens move it
- * rather than animating it, and mirror it to face right.
+ * rather than animating it, and mirror it to face right. The road draws it
+ * too, at half the size a battle does, rather than a halved copy of it: a
+ * 96-pixel sprite cut to half its pixels loses its outline and its face.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
  * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
  */
-export const artOf = (pokemon) => pictureOf(pokemon, 'art');
-
-/**
- * The same picture halved, as pixel art, for the road: a battle sprite at its
- * own size stands half the field's height, where the overworld draws its
- * people a tile or two tall.
- *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
- */
-export const fieldArtOf = (pokemon) => pictureOf(pokemon, 'field');
-
-/**
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
- * @param {'art'|'field'} kind
- * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
- */
-function pictureOf(pokemon, kind) {
+export function artOf(pokemon) {
   if (!pokemon) return null;
   const entry = gameData().sprites[pokemon.speciesId];
   if (!entry) return null;
-  const key = `${kind}${shapeOf(pokemon, entry)}`;
+  const key = `art${shapeOf(pokemon, entry)}`;
   const shiny = pokemon.shiny ? entry.shiny?.[key] : null;
   const meta = shiny ?? entry[key];
   if (!meta) return null;

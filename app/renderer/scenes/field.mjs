@@ -15,7 +15,7 @@ import {
   timeOfDay,
 } from '../../shared/constants.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
-import { fieldArtOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
+import { artOf, gameData, speciesOf, spriteKey } from '../core/data.mjs';
 import { walkSteps } from '../engine/pokemon.mjs';
 
 import { name as localized, t } from '../core/i18n.mjs';
@@ -165,10 +165,10 @@ export function fieldScene(session) {
     const speciesId = spriteKey(session.active);
     if (speciesId !== loadedSpriteId) {
       loadedSpriteId = speciesId;
-      // Its picture halved for the road, at the map's own density and sized
-      // to the Pokémon, so a Wurmple stays ankle-high and a Wailord fills the
-      // road without either being scaled to get there.
-      const art = fieldArtOf(session.active);
+      // Its battle picture, drawn at half a battle's size on the road and
+      // sized to the Pokémon, so a Wurmple stays ankle-high and a Wailord
+      // fills the road.
+      const art = artOf(session.active);
       if (art) {
         loadSprite(art.path, art.meta)
           .then((sprite) => {

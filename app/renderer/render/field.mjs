@@ -7,8 +7,8 @@
  * size, which puts about fifteen tiles across the window — the framing a Game
  * Boy Advance actually had, instead of twice as much map at half the size. The
  * map fills that frame, because a letterboxed strip reads as scenery instead
- * of a place. The companion is its one picture, cut from the PMD Sprite
- * Collab's art, drawn at one density for the whole dex and at one scale here.
+ * of a place. The companion is its one picture, its Black and White sprite,
+ * drawn at one density for the whole dex and at one scale here.
  * And its hop is driven by distance travelled rather than by the clock, so the
  * sprite is tied to the ground the way a stepped tile-grid sprite is — speed
  * up the walk and it hops faster, stop and it settles into its standing bob.
@@ -60,17 +60,19 @@ export function setGroundY(value) {
 export const ACTOR_SCALE = 1.5;
 
 /**
- * How much larger than its own art a Pokémon is drawn on the field: not at
- * all, for every one of them.
+ * How much larger than its own art a Pokémon is drawn on the field: half, for
+ * every one of them, so each art pixel lands on one screen pixel of the
+ * window's 480x270 where a map pixel lands on two.
  *
- * The field used to draw each species from its box icon at a scale worked out
- * from its Pokédex height, so no two Pokémon were made of the same size of
- * pixel and hardly any of them of whole ones. They walk in the PMD Sprite
- * Collab's art now, which is drawn to one density and already sized to the
- * Pokémon, so there is nothing left to correct for: one scale for the whole
- * dex, and the field's own zoom makes each art pixel two screen pixels.
+ * The field used to draw a copy of the art halved as pixel art, to keep its
+ * pixels the map's size. A battle sprite is drawn with one-pixel detail — a
+ * pupil, a highlight, an outline in the colour of what it outlines — and
+ * halving it kept a quarter of its pixels: outlines broke off, eyes became
+ * red blots and Pikachu lost its face. The sprite itself at half size is the
+ * same size on the road and loses nothing. One scale for the whole dex, since
+ * the art is already sized to the Pokémon.
  */
-export const POKEMON_SCALE = 1;
+export const POKEMON_SCALE = 1 / FIELD_ZOOM;
 
 /**
  * What to draw a Pokémon's field art at: {@link POKEMON_SCALE}, whoever it is.
@@ -147,14 +149,14 @@ export const STRIDE = 8;
 const WALK_CYCLE = [{ lift: 0 }, { lift: 1 }, { lift: 0 }, { lift: 1 }];
 
 /**
- * The bob a Pokémon makes standing where it is, in art pixels and
- * milliseconds.
+ * The bob a Pokémon makes standing where it is, in the pixels of whatever it
+ * is drawn in — the field's, or a battle's — and milliseconds.
  *
  * Every Pokémon is one still picture, and one that holds perfectly still
  * reads as the game having frozen. It rises and falls on the spot the way a
  * companion gathering berries does: up only, since it cannot sink into the
- * ground, and by whole art pixels, so the bob never leaves it made of pixels
- * of two sizes. The road, a battle and its tab all use the same one.
+ * ground, and by whole pixels of the space it stands in, so it steps as the
+ * map and the battle do. The road, a battle and its tab all use the same one.
  */
 const IDLE_BOB_PX = 2;
 const IDLE_BOB_MS = 460;
@@ -163,7 +165,7 @@ const IDLE_BOB_MS = 460;
  * How far off the ground a standing Pokémon is this far into standing.
  *
  * @param {number} elapsed milliseconds
- * @returns {number} art pixels
+ * @returns {number} pixels
  */
 export const idleBob = (elapsed) => Math.round(Math.abs(Math.sin((elapsed / IDLE_BOB_MS) * Math.PI)) * IDLE_BOB_PX);
 
@@ -330,21 +332,24 @@ export function drawWalker(
   sprite,
   { x, y, distance, moving, facing = 'right', scale = POKEMON_SCALE, lift: raised = 0, time = 0 },
 ) {
-  const hop = moving ? walkFrame(distance).lift : raised ? 0 : Math.round(idleBob(time) * scale);
+  const hop = moving ? walkFrame(distance).lift : raised ? 0 : idleBob(time);
   const flip = (sprite.facing ?? 'left') !== facing;
 
-  // Whole pixels in the field's own space: a sprite whose scale leaves it half
-  // a pixel wide lands on a half pixel at one edge and a whole one at the
-  // other, and the hop then makes that edge shimmer.
-  const width = Math.round(sprite.width * scale);
-  const height = Math.round(sprite.height * scale);
+  // On whole screen pixels, which at half scale are half-pixels of the
+  // field's own space: a sprite rounded to whole field pixels there would be
+  // squeezed a pixel on every odd side, and one left on a stray fraction
+  // lands on a half pixel at one edge and a whole one at the other, which the
+  // hop then makes shimmer.
+  const snap = (value) => Math.round(value * FIELD_ZOOM) / FIELD_ZOOM;
+  const width = snap(sprite.width * scale);
+  const height = snap(sprite.height * scale);
   // The shadow stays on the ground whatever the sprite is doing above it,
   // which is what makes a bob read as leaving the ground rather than as the
   // whole thing sliding up the screen.
   drawShadow(context, x, y, width);
 
-  const left = Math.round(x - width / 2);
-  const top = Math.round(y - height - hop - raised);
+  const left = snap(x - width / 2);
+  const top = snap(y - height - hop - raised);
 
   context.save();
   if (flip) {

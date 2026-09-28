@@ -42,8 +42,9 @@ test('every Pokémon is drawn at one scale, so all of them share one size of pix
     actorScale(sprite(20, 20), { speciesId: 999 }),
   ];
   assert.deepEqual(new Set(scales), new Set([POKEMON_SCALE]));
-  // And a whole number of screen pixels per art pixel.
-  assert.ok(Number.isInteger(POKEMON_SCALE * FIELD_ZOOM));
+  // And a whole number of screen pixels per art pixel: one, the sprite as it
+  // is, rather than a copy with half its pixels thrown away.
+  assert.equal(POKEMON_SCALE * FIELD_ZOOM, 1);
 });
 
 test('a bigger Pokémon is bigger because its art is', () => {
@@ -52,9 +53,9 @@ test('a bigger Pokémon is bigger because its art is', () => {
 });
 
 test('a battle draws both sides in whole screen pixels, and shrinks nothing to fit', () => {
-  // Both sides at the road's own size of pixel.
-  assert.equal(BATTLE_SCALE * FIELD_ZOOM, POKEMON_SCALE * FIELD_ZOOM);
-
+  // Both sides at the map's own size of pixel, twice the road's Pokémon.
+  assert.equal(BATTLE_SCALE * FIELD_ZOOM, 2);
+  assert.equal(BATTLE_SCALE, POKEMON_SCALE * 2);
 });
 
 test('a strip that times its frames unequally plays them for their own lengths', () => {
