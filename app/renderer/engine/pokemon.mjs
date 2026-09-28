@@ -47,6 +47,8 @@ import {
  *   Shaymin's, a fused Necrozma's — kept until the item is used again
  * @property {string[]} [learned] every move it has come to be able to use, in
  *   the order it came to — the newest last; see {@link noteLearnedMoves}
+ * @property {boolean} [favorite] marked a favourite in the box, which keeps
+ *   the box's top rows
  * @property {string[]} [newMoves] the ones among them not yet looked at in the
  *   move list, which the Pokémon tab marks
  * @property {string} [forme] the alternate forme it is wearing, if any — the

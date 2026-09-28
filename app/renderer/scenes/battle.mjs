@@ -14,7 +14,7 @@ import { button, el, setChildren, SHINY_MARK, statusMark } from '../core/dom.mjs
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, shedAfterEvolving, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
@@ -33,7 +33,9 @@ import { abilityName, afterBattle } from '../engine/abilities.mjs';
 const PICKUP_CHANCE = 0.1;
 import { BATTLE_SCALE, Battler, battlerArt, mirrorFor } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
+import { alreadyOwned } from '../engine/shop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
+import { drawWeather } from '../render/weather.mjs';
 
 /**
  * How long each log entry holds the screen.
@@ -232,6 +234,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       if (battler) {
         battler.visible = true;
         battler.setPose('emerge');
+        // A shiny sparkles as it comes out of its ball, as it does in the games.
+        if (entry.pokemon?.shiny) battler.showStatus('shiny');
       }
       app.audio.blip('confirm');
       if (entry.pokemon && entry.side === 'player') app.audio.playCry(entry.pokemon.speciesId);
@@ -283,6 +287,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
   const message = el('div.battle-message');
   const conditions = el('div.battle-field');
+  /** The weather the field is drawn under, as far as the playback has got. */
+  let shownWeather = /** @type {string|null} */ (null);
   const playerPlate = nameplate(session.active);
   const foePlate = nameplate(shownFoe);
   const playerBar = healthBar();
@@ -387,8 +393,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       app.audio.playCry(battle.foe?.pokemon.speciesId ?? session.active.speciesId);
 
       // A shiny gets a line of its own, after the one that says what turned
-      // up: in the cartridges it is a sparkle and a chime, and here it is the
-      // only thing that would tell a player what they are looking at.
+      // up, with the cartridges' sparkle bursting round it and a chime.
       queue = [
         { kind: 'intro', data: {} },
         ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
@@ -484,6 +489,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         foeBattler?.draw(field);
         playerBattler?.draw(field);
         drawTosses(field);
+        // The sky over the fight: rain streaking across it, sand blowing, hail
+        // and snow falling, a warm wash of sun — over the Pokémon, as on the road.
+        drawWeather(field, shownWeather, performance.now());
       });
 
       if (step < 1) drawEntryShutters(context, step);
@@ -537,14 +545,26 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     app.audio.blip('select');
 
     const usable = healingItems(session, session.active);
+    // And what cures the condition it is under, as the games' bag offers in a
+    // fight: an Antidote for a poison, a Full Heal for anything.
+    const status = session.active.status;
+    const healing = new Set(usable.map((entry) => entry.slug));
+    const cures = statusCures(session, session.active).filter((entry) => !healing.has(entry.slug));
     const chosen = await chooseFromList(
       app,
       t('battle.bag'),
-      usable.map(({ slug, count, item, restores }) => ({
-        value: slug,
-        label: localized(item.name, slug),
-        detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
-      })),
+      [
+        ...usable.map(({ slug, count, item, restores }) => ({
+          value: slug,
+          label: localized(item.name, slug),
+          detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
+        })),
+        ...cures.map(({ slug, count, item }) => ({
+          value: slug,
+          label: localized(item.name, slug),
+          detail: `${t('items.count', { count })}  ·  ${t('battle.cures', { status: t(`status.${status}.short`) })}`,
+        })),
+      ],
       { empty: t('battle.noItems') },
     );
 
@@ -850,8 +870,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       case 'shiny':
         say(t('battle.shiny'));
+        foeBattler?.showStatus('shiny');
         app.audio.blip('confirm');
-        break;
+        return BEAT_MS.status;
 
       case 'ability':
         say(t('battle.ability', {
@@ -1117,7 +1138,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // Black and White: the counter that made it worse is a battle's.
     session.active.toxic = false;
     if (battle.outcome === 'won' && abilityName(session.active) === 'pickup' && session.rng.chance(PICKUP_CHANCE)) {
-      const pool = gameData().itemTiers?.['poke-ball'] ?? [];
+      const pool = (gameData().itemTiers?.['poke-ball'] ?? []).filter((slug) => !alreadyOwned(session, slug));
       const found = pool.length ? session.rng.pick(pool) : null;
       if (found) {
         session.addItem(found);
@@ -1206,6 +1227,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    */
   function updateField() {
     const field = battle.field;
+    shownWeather = field.weather ?? null;
     setChildren(conditions, [
       field.weather
         ? el('span.field-chip', { text: t(`weather.${field.weather}.name`), title: t(`weather.${field.weather}.start`) })

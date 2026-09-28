@@ -23,7 +23,7 @@ import {
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
 import { devolveToLevel, giveTrainerItems, isRare, pickSpecies, pickStray, rollTrainer, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
-import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import { defaultAutoBattle, Session } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
   hasVolatile,
@@ -607,6 +607,63 @@ test('a move learned since the last look is new until the move list is opened, a
   // And a second look finds nothing new that was not new before.
   noteLearnedMoves(charmander, []);
   assert.deepEqual([...charmander.newMoves].sort(), [...new Set(waiting)].sort());
+});
+
+test('the box has no limit, and favourites keep its top rows in the order they were marked', options, () => {
+  const mons = [1, 4, 7, 25, 133].map((id) => fixed(id, 5));
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(152, 5), box: mons.slice() } } });
+  const order = () => session.box.map((pokemon) => pokemon?.speciesId ?? null);
+
+  // A hundred and fifty more still find room.
+  for (let index = 0; index < 150; index++) assert.equal(session.storeInBox(fixed(10, 2)), true);
+  assert.equal(session.boxFull, false);
+  session.box = session.box.slice(0, 5);
+
+  session.toggleFavorite(3); // Pikachu first
+  session.toggleFavorite(4); // then Eevee
+  assert.deepEqual(order(), [25, 133, 1, 4, 7]);
+  assert.ok(session.box[0]?.favorite && session.box[1]?.favorite);
+  // Unmarked, it goes back to the first space after the favourites.
+  session.toggleFavorite(0);
+  assert.deepEqual(order(), [133, 25, 1, 4, 7]);
+  assert.equal(session.box[1]?.favorite, undefined);
+  // A new catch takes the first free space after the favourites.
+  session.box[2] = null;
+  session.storeInBox(fixed(39, 5));
+  assert.deepEqual(order(), [133, 25, 39, 4, 7]);
+});
+
+test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {
+  const { alreadyOwned, buy, isConsumable, lossFor, priceOf, prizeFor, shopStock } = await import('../../app/renderer/engine/shop.mjs');
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(4, 20), box: [] } } });
+  assert.equal(session.money, 3000, 'a journey starts with the games\' 3,000');
+
+  assert.equal(priceOf('potion'), 200);
+  assert.equal(priceOf('master-ball'), null);
+  assert.equal(priceOf('red-orb'), null, 'a legendary\'s own item is not sold');
+  assert.ok(shopStock().length > 300);
+
+  // A potion is bought by the dozen; a Leftovers once.
+  assert.equal(isConsumable('potion'), true);
+  assert.equal(isConsumable('leftovers'), false);
+  assert.equal(buy(session, 'potion', 5), 'bought');
+  assert.equal(session.countOf('potion'), 5);
+  assert.equal(session.money, 2000);
+  session.money = 50000;
+  assert.equal(buy(session, 'leftovers', 3), 'bought');
+  assert.equal(session.countOf('leftovers'), 1);
+  assert.equal(buy(session, 'leftovers'), 'owned');
+  // Handed to the companion, it is still had.
+  session.removeItem('leftovers');
+  session.active.heldItem = 'leftovers';
+  assert.equal(alreadyOwned(session, 'leftovers'), true);
+  session.money = 100;
+  assert.equal(buy(session, 'super-potion'), 'poor');
+
+  // Forty a level of the last Pokémon; losing costs by level and badges.
+  assert.equal(prizeFor([fixed(1, 8), fixed(1, 12)], 'trainer'), 480);
+  session.money = 10000;
+  assert.equal(lossFor(session), 8 * 20);
 });
 
 test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {

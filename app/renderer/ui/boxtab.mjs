@@ -2,18 +2,21 @@
  * The Box tab: every Pokémon caught so far, in the grid the main series uses.
  *
  * Selecting one offers the same four actions the games do — take it along,
- * move it to another space, release it, or back out.
+ * move it to another space, release it, or back out — and a fifth: marking it
+ * a favourite, which keeps it in the top rows under a yellow star.
+ *
+ * The box has no limit: it grows a row at a time as it fills.
  */
 import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
 import { el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { BOX_LIMIT } from '../../shared/constants.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
 import { chooseAction, confirm } from './dialog.mjs';
 
-/** The whole box is shown, empty spaces and all, so its size is visible. */
-const MIN_SPACES = BOX_LIMIT;
+/** Spaces to a row, as the grid lays them out, and the rows always shown. */
+const ROW = 10;
+const MIN_ROWS = 5;
 
 /**
  * @param {import('../core/app.mjs').App} app
@@ -23,7 +26,8 @@ const MIN_SPACES = BOX_LIMIT;
  * @returns {HTMLElement}
  */
 export function boxTab(app, session, refresh, state) {
-  const spaces = Math.min(BOX_LIMIT, Math.max(MIN_SPACES, session.box.length + 1));
+  // Every space in use and at least one free one, in whole rows.
+  const spaces = Math.max(MIN_ROWS, Math.ceil((session.box.length + 1) / ROW)) * ROW;
   const grid = el('div.box-grid');
 
   for (let index = 0; index < spaces; index++) {
@@ -33,7 +37,7 @@ export function boxTab(app, session, refresh, state) {
   return el('div.tab-body.box-tab', {}, [
     state.moving !== null && state.moving !== undefined
       ? el('div.box-hint', { text: t('box.moveTarget') })
-      : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length, limit: BOX_LIMIT }) }),
+      : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
     scrollable(grid),
   ]);
 }
@@ -79,6 +83,7 @@ function space(app, session, index, refresh, state) {
   }, [
     el('img', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
     shinyMark(pokemon, t('pokemon.shiny')),
+    pokemon.favorite ? el('i.favorite-mark', { title: t('box.favorite') }) : null,
   ]);
 }
 
@@ -97,8 +102,16 @@ async function openMenu(app, session, index, refresh, state) {
   const choice = await chooseAction(app, label, [
     { value: 'switch', label: t('box.switch') },
     { value: 'move', label: t('box.move') },
+    { value: 'favorite', label: pokemon.favorite ? t('box.unfavorite') : t('box.makeFavorite') },
     { value: 'release', label: t('box.release'), danger: true },
   ]);
+
+  if (choice === 'favorite') {
+    app.audio.blip('confirm');
+    session.toggleFavorite(index);
+    refresh();
+    return;
+  }
 
   if (choice === 'switch') {
     session.switchActive(index);

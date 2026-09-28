@@ -5,13 +5,14 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, BOX_LIMIT, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { gameData } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
 import { settleForme } from './forms.mjs';
+import { STARTING_MONEY } from './shop.mjs';
 
 /** How often moving on to a new area crosses to the other region. */
 export const REGION_CROSSING_CHANCE = 0.2;
@@ -54,6 +55,8 @@ export class Session {
     this.badges = [...(save.progress?.badges ?? [])];
     this.champion = Boolean(save.progress?.champion);
     this.trainerWins = save.progress?.trainerWins ?? 0;
+    /** The purse: what trainers pay out and the shop takes. */
+    this.money = Number.isFinite(save.progress?.money) ? save.progress.money : STARTING_MONEY;
     this.playtime = save.progress?.playtime ?? 0;
     /** @type {string[]} move slugs unlocked by using TMs */
     this.machines = [...(save.progress?.machines ?? [])];
@@ -216,17 +219,43 @@ export class Session {
    * @returns {boolean} whether the box had room
    */
   storeInBox(pokemon) {
-    const index = this.box.findIndex((entry) => !entry);
+    // The first free space after the favourites, which keep the top rows.
+    const favourites = this.box.findIndex((entry) => !entry?.favorite);
+    const index = this.box.findIndex((entry, at) => !entry && at >= Math.max(0, favourites));
     if (index >= 0) this.box[index] = pokemon;
-    else if (this.box.length < BOX_LIMIT) this.box.push(pokemon);
-    else return false;
+    else this.box.push(pokemon);
     this.markCaught(pokemon.speciesId);
     return true;
   }
 
-  /** Whether every space in the box is taken. */
+  /** Whether the box has no room: never, since it holds as many as are caught. */
   get boxFull() {
-    return this.box.filter(Boolean).length >= BOX_LIMIT;
+    return false;
+  }
+
+  /**
+   * Mark a Pokémon in the box as a favourite, or take the mark off. A
+   * favourite goes to the top of the box, after the favourites already there
+   * in the order they were marked; one no longer a favourite goes back to the
+   * first space after them.
+   *
+   * @param {number} index
+   * @returns {boolean} whether it is a favourite now
+   */
+  toggleFavorite(index) {
+    const pokemon = this.box[index];
+    if (!pokemon) return false;
+    this.box.splice(index, 1);
+    if (pokemon.favorite) delete pokemon.favorite;
+    else pokemon.favorite = true;
+    // Either way it lands right after the favourites: the last of them when
+    // just marked, the first of the rest when just unmarked. The favourites
+    // are kept together at the front, and anything else in their run — an
+    // empty space left by a release — moves along behind them.
+    const front = this.box.filter((entry) => entry?.favorite);
+    const rest = this.box.filter((entry) => !entry?.favorite);
+    this.box = [...front, pokemon, ...rest];
+    return Boolean(pokemon.favorite);
   }
 
   /**
@@ -269,6 +298,7 @@ export class Session {
         badges: this.badges,
         champion: this.champion,
         trainerWins: this.trainerWins,
+        money: this.money,
         playtime: Math.round(this.playtime),
         areaId: this.area?.id ?? null,
         eventsHere: this.eventsHere,

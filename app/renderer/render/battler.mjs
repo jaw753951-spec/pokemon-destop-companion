@@ -90,6 +90,8 @@ const STATUS_EFFECTS = {
   slp: { tint: '#8890a8', strength: 0.25, main: '#ffffff', light: '#ffffff', shadow: '#485078' },
   frz: { tint: '#80d0f0', strength: 0.5, main: '#a8e8ff', light: '#ffffff', shadow: '#3888b8' },
   confusion: { tint: '#f0a0c8', strength: 0.2, main: '#f8d840', light: '#fff8c0', shadow: '#b07800' },
+  // Not a condition: the sparkle a shiny Pokémon comes out in.
+  shiny: { tint: '#ffffff', strength: 0.35, main: '#fff4a0', light: '#ffffff', shadow: '#d0a000' },
 };
 
 /* The effects' little drawings, a character a field pixel (see `drawStatus`). */
@@ -378,6 +380,22 @@ export class Battler {
           const x = left + width * (0.15 + ((index * 43) % 70) / 100);
           const y = top + height * (0.15 + ((index * 29) % 70) / 100);
           stamp(step < 0.3 || step > 0.7 ? GLINT_SMALL : GLINT, x, y);
+        }
+        break;
+      }
+      case 'shiny': {
+        // Stars bursting outward from the Pokémon in a ring, twice, as the
+        // games' sparkle does, shrinking as they fly.
+        for (let wave = 0; wave < 2; wave++) {
+          const step = (progress - wave * 0.3) / 0.6;
+          if (step <= 0 || step >= 1) continue;
+          for (let index = 0; index < 8; index++) {
+            const angle = (index / 8) * Math.PI * 2 + wave * 0.4;
+            const reach = 6 + step * Math.max(18, width * 0.55);
+            const x = this.x + Math.cos(angle) * reach;
+            const y = top + height / 2 + Math.sin(angle) * reach * 0.8;
+            stamp(step < 0.6 ? STAR : GLINT_SMALL, x, y);
+          }
         }
         break;
       }

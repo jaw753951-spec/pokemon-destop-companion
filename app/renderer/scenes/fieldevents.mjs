@@ -12,6 +12,7 @@ import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
+import { alreadyOwned } from '../engine/shop.mjs';
 import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
@@ -334,7 +335,9 @@ export function treeFor(berry, trees) {
 function startBall(session, spawnAt) {
   const tier = session.rng.weighted(BALL_TIERS.map((entry) => ({ value: entry, weight: entry.chance })))
     ?? BALL_TIERS[0];
-  const pool = gameData().itemTiers[tier.ball] ?? [];
+  // A kept item — a Leftovers, a TM — is only ever found once: a second
+  // would be a thing with nothing to do.
+  const pool = (gameData().itemTiers[tier.ball] ?? []).filter((slug) => !alreadyOwned(session, slug));
   // Now and then, the item the travelling legendary is waiting on.
   const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 

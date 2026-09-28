@@ -354,6 +354,7 @@ function applyUse(pokemon, item, choice = {}) {
   if (use.status && pokemon.status && (use.status === 'any' || use.status === pokemon.status)) {
     pokemon.status = null;
     pokemon.statusTurns = 0;
+    pokemon.toxic = false;
     changed = true;
   }
 
@@ -718,7 +719,32 @@ export function healAfterBattle(session, pokemon, target) {
     if (!throwItem(session, pick.slug, pokemon)) break;
     used.set(pick.slug, (used.get(pick.slug) ?? 0) + 1);
   }
+  // A full top-up is a full recovery: the condition goes too, with the
+  // narrowest cure the bag has for it.
+  if (target === 'full' && pokemon.status) {
+    const cure = statusCures(session, pokemon)[0];
+    if (cure && throwItem(session, cure.slug, pokemon)) used.set(cure.slug, (used.get(cure.slug) ?? 0) + 1);
+  }
   return [...used].map(([slug, count]) => ({ slug, count }));
+}
+
+/**
+ * The medicine in the bag that would cure this Pokémon's status condition,
+ * narrowest first: the cure for exactly this condition, then one for any, and
+ * one that heals as well last — an Antidote before a Full Heal before a Full
+ * Restore, which is worth keeping for when the health is wanted too.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {Array<{slug: string, count: number, item: any}>}
+ */
+export function statusCures(session, pokemon) {
+  if (!pokemon.status || pokemon.hp <= 0) return [];
+  const rank = (use) => (use.hp !== undefined ? 2 : use.status === 'any' ? 1 : 0);
+  return session
+    .pocket('medicine')
+    .filter(({ item }) => item.use?.status && (item.use.status === 'any' || item.use.status === pokemon.status))
+    .sort((a, b) => rank(a.item.use) - rank(b.item.use) || (a.item.cost ?? 0) - (b.item.cost ?? 0) || a.slug.localeCompare(b.slug));
 }
 
 /**

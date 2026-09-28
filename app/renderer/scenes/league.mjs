@@ -17,6 +17,7 @@ import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { evolveToLevel, giveTrainerItems } from '../engine/encounter.mjs';
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
+import { earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { battleScene } from './battle.mjs';
 
 /**
@@ -120,10 +121,11 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     const round = rounds[index];
     const last = index === rounds.length - 1;
 
+    const foes = buildParty(session, round, LEVEL_STEP[Math.min(index, LEVEL_STEP.length - 1)]);
     app.push(
       battleScene({
         session,
-        foes: buildParty(session, round, LEVEL_STEP[Math.min(index, LEVEL_STEP.length - 1)]),
+        foes,
         trainer: round,
         backdrop: backdropForLeagueRound(index, rounds.length),
         music: gameData().bgm.cues[last ? 'battleChampion' : 'battleEliteFour'],
@@ -138,10 +140,19 @@ export function leagueScene({ session, onLeave, onCrowned }) {
             // A loss ends the challenge rather than the run: the companion is
             // sent back to the field on its last hit point, and to the rest
             // stop the field will now put in its way.
+            const paid = lossFor(session);
+            if (paid > 0) earn(session, -paid);
             session.blackOut();
-            app.toast(t('battle.lost'));
+            app.toast([t('battle.lost'), paid > 0 ? t('money.paid', { amount: formatMoney(paid) }) : null].filter(Boolean).join('\n'));
             onLeave();
             return;
+          }
+
+          // The League pays the best prizes there are.
+          const prize = prizeFor(foes, 'league');
+          if (prize > 0) {
+            earn(session, prize);
+            app.toast(t('money.prize', { amount: formatMoney(prize) }), 2600);
           }
 
           // Every round is followed by a full restore, as the games' league does.

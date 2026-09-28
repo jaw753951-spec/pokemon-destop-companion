@@ -13,6 +13,7 @@ import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
  *   onInventory: () => void,
  *   onPokedex: () => void,
  *   onSettings: () => void,
+ *   onShop: () => void,
  *   onLeague: () => void,
  *   onTraySelect: (index: number) => void,
  * }} handlers
@@ -88,14 +89,20 @@ export function createHud(handlers) {
     button(t('field.settings'), handlers.onSettings, { className: 'small' }),
   ]);
 
-  const areaBadge = el('div.hud-window', {
+  // The shop, open from anywhere on the road, beside where the road is named.
+  const areaBadge = el('div', {
     style: {
       position: 'absolute',
       right: '6px',
       bottom: '6px',
-      padding: '2px 8px',
+      display: 'flex',
+      alignItems: 'center',
+      gap: '4px',
     },
-  }, [areaLabel]);
+  }, [
+    button(t('field.shop'), handlers.onShop, { className: 'small' }),
+    el('div.hud-window', { style: { padding: '2px 8px' } }, [areaLabel]),
+  ]);
 
   const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge, leagueButton]);
   for (const node of [status, tray, buttons, areaBadge, leagueButton]) node.style.pointerEvents = 'auto';

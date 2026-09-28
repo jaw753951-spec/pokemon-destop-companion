@@ -1182,6 +1182,21 @@ canvas {
   right: 2px;
 }
 
+/* A favourite: a yellow star on the space's top-left corner, where the catch
+   tray puts its Poké Ball. */
+.favorite-mark {
+  position: absolute;
+  top: -4px;
+  left: -4px;
+  z-index: 1;
+  width: 11px;
+  height: 11px;
+  background: #f6c630;
+  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
+  filter: drop-shadow(0 0 0.5px #7a5a00) drop-shadow(0 0 0.5px #7a5a00);
+  pointer-events: none;
+}
+
 .type-chip {
   padding: 1px 7px;
   border-radius: 7px;
@@ -1361,6 +1376,26 @@ canvas {
   color: var(--ink);
 }
 
+.shop-money {
+  margin-right: 6px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.shop-buy {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.shop-count {
+  min-width: 26px;
+  text-align: center;
+  font-size: 11px;
+  font-weight: 700;
+}
+
 .item-inspector {
   flex: 2;
   min-width: 0;
@@ -1519,6 +1554,8 @@ canvas {
   grid-template-columns: repeat(10, 1fr);
   gap: 2px;
   align-content: start;
+  /* Room round the edge for the favourite star, which sits on the corner. */
+  padding: 4px 4px 2px;
 }
 
 .box-space {
