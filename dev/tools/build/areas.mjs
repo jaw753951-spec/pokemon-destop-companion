@@ -228,41 +228,79 @@ function musicFor(constant, game) {
 }
 
 /**
- * Land encounter tables from the decompilation, flattened to
- * `{species, minLevel, maxLevel, weight}` per map.
+ * Encounter tables from the decompilation, flattened to
+ * `{species, minLevel, maxLevel, weight}` per map, `weight` being the
+ * species' share of the map's encounters in per cent.
+ *
+ * The share is the cartridge's own: a table is twelve land slots at 20, 20,
+ * 10, 10, 10, 10, 5, 5, 4, 4, 1 and 1 per cent, and a species is the sum of
+ * the slots it fills. This used to keep only the list of species, so every
+ * Pokémon a map named was drawn as often as every other — Route 113's
+ * Skarmory, one slot in twenty, as often as its Spinda, seven in ten.
+ *
+ * Only the Pokémon met walking count where a map has any: the companion
+ * keeps to the ground, so what lives in the water or under a rod is not on
+ * its road. A map with no ground table at all — a sea route, a flooded
+ * cave's mouth — falls back on surfing and fishing, half and half.
  *
  * Fire Red files each map twice, once per version; the two are merged, so a
- * route has both games' Pokémon on it.
+ * route has both games' Pokémon on it, each version's table counting for
+ * half.
  *
  * @param {string} base the decompilation's URL
- * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number}>>>}
+ * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>>}
  */
 async function loadEncounterTables(base) {
   const data = await fetchJson(`${base}/src/data/wild_encounters.json`);
   const group = data.wild_encounter_groups.find((entry) => entry.label === 'gWildMonHeaders');
-  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number}>>} */
+  /** @type {Record<string, number[]>} each method's slot rates, in per cent */
+  const rates = Object.fromEntries(group.fields.map((field) => [field.type, field.encounter_rates]));
+
+  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number}>>} */
   const byMap = new Map();
+  /** @type {Map<string, number>} how many tables each map has, so versions share it */
+  const tables = new Map();
 
   for (const entry of group.encounters) {
-    /** @type {Map<string, {species: string, minLevel: number, maxLevel: number}>} */
-    const merged = new Map((byMap.get(entry.map) ?? []).map((mon) => [mon.species, { ...mon }]));
-    for (const field of ['land_mons', 'water_mons', 'rock_smash_mons', 'fishing_mons']) {
-      for (const mon of entry[field]?.mons ?? []) {
+    const methods = entry.land_mons ? ['land_mons'] : ['water_mons', 'fishing_mons'].filter((field) => entry[field]);
+    if (!methods.length) continue;
+    const merged = byMap.get(entry.map) ?? new Map();
+    byMap.set(entry.map, merged);
+    tables.set(entry.map, (tables.get(entry.map) ?? 0) + 1);
+
+    for (const field of methods) {
+      const slots = entry[field].mons ?? [];
+      const slotRates = rates[field] ?? [];
+      // Fishing's rates are three rods' worth, each summing to a hundred.
+      const total = slotRates.slice(0, slots.length).reduce((sum, rate) => sum + rate, 0) || 1;
+      slots.forEach((mon, slot) => {
         // `SPECIES_NIDORAN_F` -> `nidoran-f`, matching PokeAPI's slugs.
         const species = mon.species.replace('SPECIES_', '').toLowerCase().replace(/_/g, '-');
+        const share = ((slotRates[slot] ?? 0) / total) * (100 / methods.length);
         const existing = merged.get(species);
         if (existing) {
           existing.minLevel = Math.min(existing.minLevel, mon.min_level);
           existing.maxLevel = Math.max(existing.maxLevel, mon.max_level);
+          existing.weight += share;
         } else {
-          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level });
+          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share });
         }
-      }
+      });
     }
-    // A map can appear twice (different versions); both tables are kept.
-    byMap.set(entry.map, [...merged.values()]);
   }
-  return byMap;
+
+  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>} */
+  const out = new Map();
+  for (const [map, merged] of byMap) {
+    const versions = tables.get(map) ?? 1;
+    out.set(
+      map,
+      [...merged.values()]
+        .map((mon) => ({ ...mon, weight: Math.round((mon.weight / versions) * 100) / 100 }))
+        .sort((a, b) => b.weight - a.weight),
+    );
+  }
+  return out;
 }
 
 /**

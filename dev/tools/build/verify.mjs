@@ -160,6 +160,9 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
     }
     note(!area.music || Boolean(bgm.tracks[area.music]), `area ${area.id}: music ${area.music} was not built`);
     note(area.encounters.length > 0, `area ${area.id}: no wild encounters`);
+    // Each species carries its share of the table, and the shares make the whole.
+    const shares = area.encounters.reduce((sum, encounter) => sum + (encounter.weight ?? 0), 0);
+    note(Math.abs(shares - 100) < 1, `area ${area.id}: encounter shares add up to ${shares.toFixed(1)}, not 100`);
   }
 
   // Every encounter must name a species we actually shipped.

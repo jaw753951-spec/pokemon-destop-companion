@@ -68,6 +68,8 @@ export class Session {
     this.itemPolicy = normalizeItemPolicy(save.items);
     /** @type {string|null} */
     this.leagueRegion = save.progress?.leagueRegion ?? null;
+    /** The species the last wild Pokémon was, so the next is not the same again. */
+    this.lastWildSpecies = /** @type {number|null} */ (null);
 
     this.area = this.findArea(save.progress?.areaId) ?? gameData().areas[0];
     /** How many events are left before the road moves on to somewhere else. */

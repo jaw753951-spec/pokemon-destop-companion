@@ -52,14 +52,22 @@ export function spreadFor(level) {
 /**
  * Roll a wild Pokémon for the area the companion is in.
  *
+ * One that comes out the same species as the last is drawn again, once. A
+ * route's commonest Pokémon is common — Route 113 is mostly Spinda — but
+ * three of it in a row reads as the game stuck rather than the route being
+ * what it is. The second draw stands, so a route of one Pokémon still has it.
+ *
  * @param {import('../core/rng.mjs').Rng} rng
  * @param {any} area
  * @param {import('./pokemon.mjs').Pokemon} companion
+ * @param {number|null} [previous] the species of the wild Pokémon met last
  * @returns {import('./pokemon.mjs').Pokemon}
  */
-export function rollWildPokemon(rng, area, companion) {
+export function rollWildPokemon(rng, area, companion, previous = null) {
   const level = rollLevel(rng, companion);
-  const speciesId = rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level);
+  const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
+  let speciesId = draw();
+  if (previous !== null && speciesId === previous) speciesId = draw();
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
@@ -186,24 +194,36 @@ export function rollLevel(rng, companion) {
  */
 export function pickSpecies(rng, area, level, preferredTypes = []) {
   const fromTable = areaSpecies(area);
-  const pool = preferredTypes.length ? filterByType(fromTable, preferredTypes) : fromTable;
+  const pool = preferredTypes.length ? fromTable.filter((entry) => filterByType([entry.value], preferredTypes).length) : fromTable;
 
   const chosen = pool.length
-    ? rng.pick(pool)
+    ? rng.weighted(pool) ?? pool[0].value
     : rng.pick(typePool(area, preferredTypes)) ?? 1;
 
   return evolveToLevel(chosen, level);
 }
 
 /**
- * Pokédex numbers the area's own encounter table names.
+ * The Pokémon the area's own encounter table names, each weighted by how
+ * often the cartridge meets it there — softened.
+ *
+ * The table's own shares (the `areas` build step
+ * reads them off the slots) make a route's rare Pokémon rare: Route 113's
+ * Skarmory is one encounter in twenty, and its Absol, Kecleon and Clefairy
+ * the same. Taken as they are, they also let one Pokémon swamp a route: the
+ * same Spinda seven times in ten. The square root keeps the order and most
+ * of the gap — Spinda, Slugma and Skarmory at 70, 25 and 5 come out 54, 32
+ * and 14 — without the road being the one Pokémon.
+ *
+ * A table from before the shares were kept weighs every species alike.
+ *
  * @param {any} area
- * @returns {number[]}
+ * @returns {Array<{value: number, weight: number}>}
  */
 export function areaSpecies(area) {
   return (area?.encounters ?? [])
-    .map((encounter) => speciesIdBySlug(encounter.species))
-    .filter((id) => id && speciesOf(id));
+    .map((encounter) => ({ value: speciesIdBySlug(encounter.species), weight: Math.sqrt(encounter.weight ?? 1) }))
+    .filter((entry) => entry.value && speciesOf(entry.value));
 }
 
 /**

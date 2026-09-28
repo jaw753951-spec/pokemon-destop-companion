@@ -21,7 +21,7 @@ import {
   WILD_ITEM_ODDS,
   WILD_ITEM_ODDS_COMPOUND_EYES,
 } from '../../app/renderer/engine/pokemon.mjs';
-import { devolveToLevel, giveTrainerItems, isRare, pickStray, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
+import { devolveToLevel, giveTrainerItems, isRare, pickSpecies, pickStray, rollWildPokemon, typePool } from '../../app/renderer/engine/encounter.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import {
   addVolatile,
@@ -543,6 +543,44 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   }
   assert.ok(legends / rolls < 0.02, `${legends} legendaries in ${rolls}`);
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
+});
+
+test('a route meets its Pokémon about as often as the cartridge does, softened', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
+  const share = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.weight]));
+  // Emerald's own slots: Spinda seven in ten, Slugma a quarter, Skarmory one in twenty.
+  assert.deepEqual(share, { spinda: 70, slugma: 25, skarmory: 5 });
+
+  // What lives in the water is not on the road: no Magikarp on Route 103.
+  const lake = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
+  assert.ok(!lake.encounters.some((encounter) => encounter.species === 'magikarp'));
+
+  const rng = new Rng(5);
+  const counts = new Map();
+  const rolls = 20000;
+  for (let roll = 0; roll < rolls; roll++) {
+    const slug = speciesOf(pickSpecies(rng, route, 15))?.slug;
+    counts.set(slug, (counts.get(slug) ?? 0) + 1);
+  }
+  const of = (slug) => (counts.get(slug) ?? 0) / rolls;
+  // The square roots of 70, 25 and 5, as shares: 54, 32 and 14.
+  assert.ok(Math.abs(of('spinda') - 0.54) < 0.02, `spinda ${of('spinda')}`);
+  assert.ok(Math.abs(of('skarmory') - 0.14) < 0.02, `skarmory ${of('skarmory')}`);
+});
+
+test('the same wild Pokémon twice running is drawn again', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
+  const companion = fixed(PIKACHU, 15);
+  const rng = new Rng(8);
+  const spinda = /** @type {number} */ (speciesIdBySlug('spinda'));
+  let again = 0;
+  const rolls = 5000;
+  for (let roll = 0; roll < rolls; roll++) {
+    if (rollWildPokemon(rng, route, companion, spinda).speciesId === spinda) again++;
+  }
+  // A Spinda is 0.7 x 0.54, about 38 in a hundred; after a Spinda it has to
+  // come up twice, about 14.
+  assert.ok(again / rolls < 0.2, `${again} Spinda after a Spinda in ${rolls}`);
 });
 
 test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', options, () => {

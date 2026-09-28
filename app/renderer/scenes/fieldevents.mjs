@@ -625,7 +625,8 @@ function restAndResupply(session, app) {
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active);
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies);
+  session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 
   const state = {
