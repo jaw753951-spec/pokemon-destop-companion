@@ -1077,10 +1077,13 @@ canvas {
  * play a chime; a star in the same place says it at the size these screens
  * work at.
  */
+/* A shiny: the red star the games' summary screens have put beside it since
+   Diamond and Pearl — red, too, so it is never taken for the box's yellow
+   favourite star. */
 .shiny-mark {
-  color: #d8a21f;
+  color: #e0302c;
   font-size: 9px;
-  text-shadow: 0 0 2px rgba(255, 233, 150, 0.9);
+  text-shadow: 0 0 1px #fff, 0 0 2px rgba(255, 255, 255, 0.9);
 }
 
 /* ♂ and ♀ beside a name, which infatuation and Rivalry both read — blue

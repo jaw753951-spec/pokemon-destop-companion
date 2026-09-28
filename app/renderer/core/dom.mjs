@@ -127,9 +127,8 @@ export function scrollable(node) {
 /**
  * The mark a shiny Pokémon is shown with.
  *
- * The cartridges draw a small sparkle beside the name and play a chime; the
- * sparkle is a sprite this project does not ship, and a star in the same place
- * says the same thing at the size these screens work at.
+ * The red star the games' summary screens put beside a shiny, from Diamond and
+ * Pearl through Sun and Moon.
  */
 export const SHINY_MARK = '★';
 

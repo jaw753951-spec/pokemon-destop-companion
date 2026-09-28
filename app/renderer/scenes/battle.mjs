@@ -10,7 +10,7 @@ import { environmentType, weatherForArea } from '../../shared/area-tags.mjs';
 import { loadImage, loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { abilityOf, gameData, moveOf, speciesOf, spriteKey } from '../core/data.mjs';
-import { button, el, setChildren, SHINY_MARK, statusMark } from '../core/dom.mjs';
+import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
@@ -1273,14 +1273,13 @@ function nameplate(pokemon) {
       return;
     }
     const species = speciesOf(next.speciesId);
-    const shiny = next.shiny ? SHINY_MARK : '';
     const name = next.nickname || localized(species?.name, '');
     // The ♂ and ♀ in their own colours, as the games' nameplates draw them.
     const condition = status === undefined ? next.status : status;
     setChildren(node, [
       name,
       next.gender ? el(`span.gender-mark.${next.gender}`, { text: t(`pokemon.gender.${next.gender}`) }) : null,
-      shiny,
+      shinyMark(next, t('pokemon.shiny')),
       statusMark(condition, t(`status.${condition}.short`)),
       confused ? statusMark('confusion', t('status.confusion.short')) : null,
       `  ${t('slot.level', { level: levelOf(next) })}`,
