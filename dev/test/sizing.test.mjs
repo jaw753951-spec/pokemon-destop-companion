@@ -112,3 +112,26 @@ test('every berry grows on a tree, and always the same one', () => {
   // And a build with no berry trees at all says so rather than throwing.
   assert.equal(treeFor('oran-berry', {}), null);
 });
+
+test('no berry grows on a tree the build found no fruit on', () => {
+  const fruit = [4, 5];
+  const trees = { cheri: { fruit }, oran: { fruit: null }, pecha: { fruit }, sitrus: { fruit: null } };
+  const berries = ['kasib', 'roseli', 'babiri', 'occa', 'passho', 'wacan', 'rindo', 'yache', 'chople', 'oran', 'sitrus'];
+  for (const name of berries) {
+    const tree = treeFor(`${name}-berry`, trees);
+    assert.ok(tree === 'cheri' || tree === 'pecha', `${name} landed on the bare ${tree}`);
+  }
+  // Its own tree still wins when it has fruit on it.
+  assert.equal(treeFor('pecha-berry', trees), 'pecha');
+});
+
+test('a Hoenn berry grows on the tree Emerald gives it, and no other berry on a faint one', () => {
+  const fruit = [4, 5];
+  const trees = Object.fromEntries(['grepa', 'kelpsy', 'leppa', 'durin', 'spelon', 'cheri', 'pecha'].map((name) => [name, { fruit }]));
+  assert.equal(treeFor('apicot-berry', trees), 'grepa');
+  assert.equal(treeFor('kelpsy-berry', trees), 'kelpsy', 'a faint sheet is still its own berry’s');
+  for (const name of ['kasib', 'roseli', 'babiri', 'occa', 'passho', 'wacan', 'rindo', 'yache', 'chople', 'haban']) {
+    const tree = treeFor(`${name}-berry`, trees);
+    assert.ok(!['kelpsy', 'leppa', 'durin', 'spelon'].includes(tree), `${name} landed on the faint ${tree}`);
+  }
+});

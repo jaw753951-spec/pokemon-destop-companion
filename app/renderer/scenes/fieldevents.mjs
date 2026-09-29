@@ -6,17 +6,20 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, LEADER_ENCOUNTER_CHANCE, TRAINER_WINS_FOR_LEADER } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, leaderOdds } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { alreadyOwned } from '../engine/shop.mjs';
-import { evolveToLevel, giveTrainerItems, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
+import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, waterDrop } from '../render/field.mjs';
+
+/** How far either side of a Swimmer's spot must be water, in field pixels: about its own half-width. */
+const SWIMMER_HALF_WIDTH = 10;
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -307,26 +310,74 @@ function startBerry(session, spawnAt) {
  * pipeline happened to finish downloading first: every one of those berries
  * grew on the same tree, and which tree that was changed between builds.
  *
- * Now a berry without a sheet is given one of the thirty by **its own name**,
- * so the roadside has the variety it looks like it should and a Roseli Berry
- * is on the same tree every time you meet one.
+ * A Hoenn berry without a sheet of its own grows on the one Emerald itself
+ * puts it on ({@link EMERALD_TREES}) — an Apicot on a Grepa tree. Those used to
+ * be hashed like the rest, and the Apicot's hash landed on the Kelpsy sheet,
+ * whose fruit is one blue dot in the middle of a big pink plant: the companion
+ * walked up to what looked like a tree with nothing on it.
+ *
+ * Every other berry without a sheet is given one by **its own name**, so the
+ * roadside has the variety it looks like it should and a Roseli Berry is on
+ * the same tree every time you meet one — out of the sheets whose fruit reads
+ * as fruit. {@link FAINT_FRUIT} are left out of that draw, and so is any sheet
+ * the build found no fruit on at all (`fruit: null`: its fruiting stage is the
+ * same picture as its flowering one). A manifest from before the build checked
+ * (no `fruit` at all) is trusted.
  *
  * @param {string} berry the item slug, e.g. `oran-berry`
  * @param {Record<string, any>} trees the sheets the build produced
  * @returns {string|null}
  */
 export function treeFor(berry, trees) {
+  const bears = (/** @type {string} */ name) => {
+    const meta = trees[name];
+    return Boolean(meta) && (!('fruit' in meta) || (Array.isArray(meta.fruit) && meta.fruit.length > 0));
+  };
   // `oran-berry` is drawn by a tree sheet named `oran`.
   const own = berry.replace(/-berry$/, '');
-  if (trees[own]) return own;
+  if (bears(own)) return own;
+  const emerald = EMERALD_TREES[own];
+  if (emerald && bears(emerald)) return emerald;
 
-  const names = Object.keys(trees).sort();
+  const fruiting = Object.keys(trees).filter(bears).sort();
+  const clear = fruiting.filter((name) => !FAINT_FRUIT.has(name));
+  // A build where no sheet has fruit still grows the berry on something.
+  const names = clear.length ? clear : fruiting.length ? fruiting : Object.keys(trees).sort();
   if (names.length === 0) return null;
 
   let hash = 0;
   for (let index = 0; index < own.length; index++) hash = (hash * 31 + own.charCodeAt(index)) >>> 0;
   return names[hash % names.length];
 }
+
+/**
+ * The Hoenn berries Emerald draws on another berry's tree, as its
+ * `gBerryTreePicTablePointers` assigns them.
+ *
+ * @type {Record<string, string>}
+ */
+export const EMERALD_TREES = {
+  bluk: 'razz',
+  nanab: 'mago',
+  pinap: 'iapapa',
+  qualot: 'wepear',
+  magost: 'pomeg',
+  watmel: 'rabuta',
+  belue: 'hondew',
+  ganlon: 'hondew',
+  salac: 'aguav',
+  petaya: 'pomeg',
+  apicot: 'grepa',
+  starf: 'cornn',
+  enigma: 'durin',
+};
+
+/**
+ * Sheets whose fruit is a dot or two against a large plant: right for their
+ * own berry, which is what Emerald shows, but read as a bare tree when handed
+ * to a berry that merely hashed onto them.
+ */
+export const FAINT_FRUIT = new Set(['kelpsy', 'leppa', 'durin', 'spelon']);
 
 /**
  * A ball sits on the path. Which ball it is decides how good the item inside
@@ -668,7 +719,11 @@ function startWild(session, spawnAt) {
 function startTrainer(session, spawnAt) {
   const classes = gameData().trainerClasses ?? [];
   const leader = shouldSummonLeader(session) ? pickLeader(session) : null;
-  const { trainerClass, party } = rollTrainer(session.rng, session.area, session.active, classes);
+  // A Swimmer is only met where there is water beside the lane, and swims
+  // in it rather than standing on the road.
+  const drop = waterDrop(session.area, COMPANION_X + spawnAt, SWIMMER_HALF_WIDTH);
+  const { trainerClass, party } = rollTrainer(session.rng, session.area, session.active, classes, { onWater: drop !== null });
+  const swimming = !leader && Boolean(trainerClass?.water) && drop !== null;
 
   const roster = leader ? leaderParty(session, leader) : party;
   for (const member of roster) session.markSeen(member.speciesId);
@@ -680,7 +735,7 @@ function startTrainer(session, spawnAt) {
     timer: 0,
     flash: 0,
     phaseDuration: 800,
-    prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
+    prop: { kind: 'trainer', sprite: null, frame: 'ripe', drop: swimming ? drop : 0 },
     carried: null,
     setup: { foes: roster, trainer: leader ?? trainerClass, leader },
     onArrive: () => 'battle',
@@ -699,8 +754,10 @@ function startTrainer(session, spawnAt) {
 /** @param {import('../engine/session.mjs').Session} session */
 function shouldSummonLeader(session) {
   if (session.badges.length >= 8) return false;
-  if (session.trainerWins >= TRAINER_WINS_FOR_LEADER) return true;
-  return session.rng.chance(LEADER_ENCOUNTER_CHANCE);
+  // Likelier the further along the journey is; see LEADER_ODDS.
+  const odds = leaderOdds(session.badges.length, levelOf(session.active));
+  if (session.trainerWins >= odds.wins) return true;
+  return session.rng.chance(odds.chance);
 }
 
 /**
@@ -735,9 +792,9 @@ export function leaderParty(session, leader) {
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
-    ? roster
+    ? capRoster(roster, LEADER_PARTY_CAP)
     : // No roster on file: fall back to strong members of the leader's type.
-      pickTypeRoster(session, leader.type, 3);
+      pickTypeRoster(session, leader.type, LEADER_PARTY_CAP);
 
   const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
   return giveTrainerItems(session.rng, party, 'leader');
@@ -806,8 +863,9 @@ function drawProp(context, state, screenX) {
     return;
   }
 
-  // A trainer waiting on the path, at the size the props are drawn at.
-  sprite.draw(context, screenX, groundY(), {
+  // A trainer waiting on the path, at the size the props are drawn at — or a
+  // Swimmer in the water beside it.
+  sprite.draw(context, screenX, groundY() + (prop.drop ?? 0), {
     frame: sprite.frameAt(state.elapsed ?? 0),
     scale: ACTOR_SCALE,
   });

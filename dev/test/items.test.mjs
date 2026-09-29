@@ -155,16 +155,31 @@ test('only what this game will never have is dropped', withData, () => {
   // now can be: a Mint's nature, a Capsule's ability, a PP Up's ceiling, a
   // Bottle Cap's genes, a type-resisting Berry, a Light Ball's one species.
   for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball',
-    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'smoke-ball',
+    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'red-card',
     'golden-razz-berry', 'silver-razz-berry']) {
     assert.ok(items[slug]?.works, `${slug} should be working`);
   }
 
-  // And the ones still waiting, which belong to systems this game does not
-  // have: switching the companion out, prize money, Dynamax.
-  for (const slug of ['shed-shell', 'pass-orb', 'dynamax-candy']) {
-    assert.ok(items[slug], `${slug} should have been kept`);
-    assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
+  // Every item carried is one the engine reads.
+  assert.deepEqual(Object.keys(items).filter((slug) => !items[slug].works), []);
+
+  // And a held item that does nothing for a companion fighting alone — one
+  // for switching out, running away, or a system this game does not have —
+  // is not carried at all.
+  for (const slug of ['eject-button', 'eject-pack', 'shed-shell', 'smoke-ball', 'ring-target', 'pass-orb']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
+  }
+
+  // One generation's copy of something the bag already has is not carried —
+  // a Casteliacone is a Full Heal, a Health Mochi an HP Up — while the thing
+  // it copies is.
+  for (const slug of ['casteliacone', 'fresh-water', 'sacred-ash', 'health-mochi', 'health-wing', 'mighty-candy-xl',
+    'dynamax-candy', 'sea-incense', 'blank-plate', 'fire-gem', 'enigma-berry', 'figy-berry', 'aguav-berry']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
+  }
+  for (const slug of ['full-heal', 'super-potion', 'max-revive', 'hp-up', 'mystic-water', 'silk-scarf', 'sitrus-berry',
+    'silver-razz-berry', 'golden-razz-berry', 'fresh-start-mochi', 'exp-candy-s']) {
+    assert.ok(items[slug], `${slug} should still be carried`);
   }
 });
 
@@ -287,6 +302,17 @@ test('the after-battle top-up defaults to full, for new and old saves alike', ()
   // A save written before the setting existed.
   assert.equal(normalizeItemPolicy({ berries: [], healing: { item: null, condition: 'hpHalf' } }).afterBattle, 'full');
   assert.equal(normalizeItemPolicy({ afterBattle: 'hpHalf' }).afterBattle, 'hpHalf');
+});
+
+test('the three ranks and the automatic berry are kept side by side', () => {
+  assert.equal(defaultItemPolicy().autoBerry, true);
+  assert.deepEqual(defaultItemPolicy().berries, [null, null, null]);
+  assert.equal(normalizeItemPolicy(null).autoBerry, true);
+  // A save from before the switch keeps its order and takes the default.
+  const old = normalizeItemPolicy({ berries: ['sitrus-berry'] });
+  assert.deepEqual(old.berries, ['sitrus-berry', null, null]);
+  assert.equal(old.autoBerry, true);
+  assert.equal(normalizeItemPolicy({ autoBerry: false }).autoBerry, false);
 });
 
 test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {

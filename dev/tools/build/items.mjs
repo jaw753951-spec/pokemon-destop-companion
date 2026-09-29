@@ -97,6 +97,7 @@ function iconCandidates(name, item, machines, moves) {
   // at all; those borrow the nearest picture there is.
   const drawn = ICON_STAND_INS[name] ?? name;
   const candidates = [
+    ...(pokespriteIcon(name) ? [`${POKESPRITE}/items/${pokespriteIcon(name)}.png`] : []),
     `${SPRITES}/items/${drawn}.png`,
     `${SPRITES}/items/gen9/${drawn}.png`,
     `${SPRITES}/items/gen8/${drawn}.png`,
@@ -114,6 +115,34 @@ function iconCandidates(name, item, machines, moves) {
 
 /** The PokéSprite item set, which draws a few key items PokeAPI does not. */
 const POKESPRITE = 'https://raw.githubusercontent.com/msikma/pokesprite/master';
+
+/**
+ * Where PokéSprite files the Sword and Shield items PokeAPI draws none of,
+ * which it keeps under names of its own: the Exp. Candies by size, the Mints
+ * by the stat their nature raises (one picture for the four of each), and
+ * the Ability Patch.
+ *
+ * @param {string} name
+ * @returns {string|null} the path under PokéSprite's `items/`
+ */
+function pokespriteIcon(name) {
+  const candy = /^exp-candy-(xs|s|m|l|xl)$/.exec(name);
+  if (candy) return `exp-candy/${candy[1]}`;
+  const mint = /^([a-z]+)-mint$/.exec(name);
+  if (mint && MINT_STATS[mint[1]]) return `mint/${MINT_STATS[mint[1]]}`;
+  if (name === 'ability-patch') return 'other-item/ability-patch';
+  return null;
+}
+
+/** Which of PokéSprite's five Mint pictures each Mint is: the stat its nature raises. */
+const MINT_STATS = Object.fromEntries([
+  ...['lonely', 'adamant', 'naughty', 'brave'].map((nature) => [nature, 'attack']),
+  ...['bold', 'impish', 'lax', 'relaxed'].map((nature) => [nature, 'defense']),
+  ...['modest', 'mild', 'rash', 'quiet'].map((nature) => [nature, 'special-attack']),
+  ...['calm', 'gentle', 'careful', 'sassy'].map((nature) => [nature, 'special-defense']),
+  ...['timid', 'hasty', 'jolly', 'naive'].map((nature) => [nature, 'speed']),
+  ['serious', 'neutral'],
+]);
 
 /**
  * Items no published set draws, and the one each is shown as: Legends: Arceus's
@@ -143,6 +172,11 @@ const ICON_STAND_INS = {
   'meltan-candy': 'rare-candy',
   'gimmighoul-coin': 'amulet-coin',
   'scroll-of-waters': 'splash-plate',
+  // Poltchageist's teacups, as the pots Sinistea evolves by; the Fresh-Start
+  // Mochi as a sweet of the same size.
+  'unremarkable-teacup': 'cracked-pot',
+  'masterpiece-teacup': 'chipped-pot',
+  'fresh-start-mochi': 'lava-cookie',
 };
 
 /**

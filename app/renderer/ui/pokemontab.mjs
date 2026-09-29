@@ -49,7 +49,7 @@ export function pokemonTab(app, session, refresh, state = {}) {
     el('div.pokemon-left', {}, [
       walker,
       statHexagon({ base: baselineStats(pokemon, level), actual: stats }),
-      statTable(stats, pokemon.evs),
+      statTable(stats, { hp: pokemon.hp, nature: gameData().natures?.[pokemon.nature] }),
     ]),
 
     scrollable(
@@ -71,6 +71,12 @@ export function pokemonTab(app, session, refresh, state = {}) {
         el('div.pokemon-line', {}, [
           el('span.label', { text: t('pokemon.exp') }),
           el('span', { text: progress.needed ? `${progress.into}/${progress.needed}` : '—' }),
+        ]),
+        // The nature, by name as the games' summary gives it; which stats it
+        // moves is on the table beside it, in red and blue.
+        el('div.pokemon-line', {}, [
+          el('span.label', { text: t('pokemon.nature') }),
+          el('span', { text: localized(gameData().natures?.[pokemon.nature]?.name, pokemon.nature ?? '—') }),
         ]),
         abilityLine(app, pokemon),
         heldLine(app, session, refresh),

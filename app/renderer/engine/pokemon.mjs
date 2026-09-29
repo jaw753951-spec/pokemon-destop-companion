@@ -430,7 +430,10 @@ export function gainFromDefeat(pokemon, defeated, options = {}) {
 
   // A Lucky Egg pays more experience and a Macho Brace more effort; both are
   // held items, and both are applied to what the defeat was worth.
-  const gained = Math.round(amount * (options.experienceMultiplier ?? 1));
+  // Level 100 is the top: experience stops at what reaching it takes, rather
+  // than piling up behind a level that can no longer move.
+  const ceiling = experienceForLevel(speciesOf(pokemon.speciesId)?.growthRate, 100);
+  const gained = Math.max(0, Math.min(Math.round(amount * (options.experienceMultiplier ?? 1)), ceiling - pokemon.experience));
   pokemon.experience += gained;
 
   const effort = effortYield(defeated.baseStats);

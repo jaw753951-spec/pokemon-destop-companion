@@ -21,8 +21,31 @@ import { createPokemon, levelOf, rollWildHeldItem } from './pokemon.mjs';
  */
 export const LEVEL_SPREAD = { min: -6, max: 6 };
 
-/** The most Pokémon a trainer on the road is ever given. */
-export const PARTY_CAP = 3;
+/**
+ * The most Pokémon each rank of opponent is ever given.
+ *
+ * A companion is one Pokémon, and the late game made that plain: three on the
+ * road, a gym leader's whole roster and a league's five or six each were a
+ * wall to walk into rather than a fight to win. So the road sends out two at
+ * most, a leader three and the Elite Four and champion four — each keeping the
+ * Pokémon they end on, their ace.
+ */
+export const PARTY_CAP = 2;
+export const LEADER_PARTY_CAP = 3;
+export const LEAGUE_PARTY_CAP = 4;
+
+/**
+ * The last `cap` of a named roster: a leader or a league member lists their
+ * team in the order they send it out, ace last, so that is the end kept.
+ *
+ * @template T
+ * @param {T[]} roster
+ * @param {number} cap
+ * @returns {T[]}
+ */
+export function capRoster(roster, cap) {
+  return roster.length > cap ? roster.slice(roster.length - cap) : roster;
+}
 
 /**
  * The companion's levels a road trainer sends out one Pokémon for, and then
@@ -311,14 +334,19 @@ export function evolveToLevel(speciesId, level) {
  * @param {any} area
  * @param {import('./pokemon.mjs').Pokemon} companion
  * @param {Array<any>} classes from `data/authored/trainer-classes.json`
+ * @param {{onWater?: boolean}} [spot] whether the trainer would stand where
+ *   there is water to swim in; a class marked `water` — a Swimmer, drawn
+ *   swimming — is only met there, and never on dry road
  * @returns {{trainerClass: any, party: import('./pokemon.mjs').Pokemon[]}}
  */
-export function rollTrainer(rng, area, companion, classes) {
+export function rollTrainer(rng, area, companion, classes, spot = {}) {
   const tags = new Set(area?.tags ?? []);
+  const fits = (entry) => !entry.water || Boolean(spot.onWater);
   const local = classes.filter(
-    (entry) => entry.areas.length === 0 || entry.areas.some((tag) => tags.has(tag)),
+    (entry) => fits(entry) && (entry.areas.length === 0 || entry.areas.some((tag) => tags.has(tag))),
   );
-  const trainerClass = rng.pick(local.length ? local : classes);
+  const dry = classes.filter(fits);
+  const trainerClass = rng.pick(local.length ? local : dry.length ? dry : classes);
 
   const [minParty, maxParty] = trainerClass.party ?? [1, 3];
   // Parties start small: one Pokémon until the companion has seen its first
@@ -334,7 +362,12 @@ export function rollTrainer(rng, area, companion, classes) {
   let size;
   if (companionLevel <= SOLO_UNTIL) size = 1;
   else if (companionLevel <= PAIR_UNTIL) size = rng.int(1, Math.min(2, Math.max(1, maxParty)));
-  else size = rng.int(minParty, Math.max(minParty, Math.min(maxParty, PARTY_CAP)));
+  else {
+    // The cap overrules the class's minimum as well as its maximum: an Ace
+    // Trainer's "two or three" is two.
+    const most = Math.max(1, Math.min(maxParty, PARTY_CAP));
+    size = rng.int(Math.min(minParty, most), most);
+  }
 
   const party = [];
   for (let index = 0; index < size; index++) {

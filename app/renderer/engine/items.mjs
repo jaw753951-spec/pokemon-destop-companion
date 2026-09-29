@@ -377,7 +377,8 @@ function applyUse(pokemon, item, choice = {}) {
   // An Exp. Candy is experience handed over directly rather than a level.
   if (use.experience) {
     if (levelOf(pokemon) < MAX_LEVEL) {
-      pokemon.experience += use.experience;
+      const ceiling = experienceForLevel(speciesOf(pokemon.speciesId).growthRate, MAX_LEVEL);
+      pokemon.experience = Math.min(ceiling, pokemon.experience + use.experience);
       changed = true;
     }
   }
@@ -765,8 +766,98 @@ export function throwItem(session, slug, pokemon) {
 }
 
 /**
- * The berry to put in a Pokémon's hand: the first of the player's choices that
- * is actually in the bag.
+ * How much a berry is worth holding for this Pokémon; 0 or less is not one
+ * to hold at all.
+ *
+ * The kinds rank in the order they save a fight:
+ *
+ * 1. **halving a 4× weakness** — the one hit that would end it outright;
+ * 2. **healing** that restores at least a fifth of its health (a Sitrus), the
+ *    most first, leaving out any its nature would confuse it with;
+ * 3. **halving a 2× weakness**;
+ * 4. **a small heal** — an Oran is ten hit points, which stops mattering well
+ *    before the end of the game;
+ * 5. **a pinch berry** for the attacking stat it leans on, then Speed, then
+ *    any stat, then the rest;
+ * 6. **a cure** — a Lum for anything, then one for a single condition — and
+ *    a Leppa for a move run dry;
+ * 7. a heal its nature dislikes, as a last resort.
+ *
+ * @param {any} held the berry's parsed held effect
+ * @param {{hp: number, types: string[], leansOn: string, confuses: (held: any) => boolean}} context
+ */
+function berryScore(held, context) {
+  if (!held) return 0;
+  if (held.on === 'resist' && held.moveType) {
+    const effectiveness = typeEffectiveness(held.moveType, context.types);
+    if (effectiveness >= 4) return 700 + effectiveness;
+    if (effectiveness > 1) return 500 + effectiveness;
+    return 0;
+  }
+  if (held.on === 'hp' && held.heal) {
+    const amount = held.heal.amount ?? Math.floor(context.hp * (held.heal.fraction ?? 0));
+    const share = context.hp > 0 ? Math.min(1, amount / context.hp) : 0;
+    if (context.confuses(held)) return 10 + share;
+    return (share >= 1 / 5 ? 600 : 400) + share * 100;
+  }
+  if (held.on === 'hp' && held.stat) {
+    if (held.stat === context.leansOn) return 304;
+    if (held.stat === 'spe') return 303;
+    if (held.stat === 'random') return 302;
+    return 301;
+  }
+  if (held.on === 'status') return held.status === 'any' ? 202 : 200;
+  if (held.on === 'pp') return 201;
+  return 0;
+}
+
+/**
+ * What {@link berryScore} needs to know about the Pokémon.
+ *
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ */
+function berryContext(pokemon) {
+  const nature = gameData().natures?.[pokemon.nature];
+  const stats = statsOf(pokemon);
+  return {
+    hp: maxHp(pokemon),
+    types: standingTypes(pokemon),
+    leansOn: (stats.atk ?? 0) >= (stats.spa ?? 0) ? 'atk' : 'spa',
+    confuses: (/** @type {any} */ held) =>
+      Boolean(held.dislikes && nature?.decreased === held.dislikes && nature.increased !== nature.decreased),
+  };
+}
+
+/**
+ * The berry in the bag that suits this Pokémon best, or null if the bag holds
+ * none worth holding. See {@link berryScore} for the order.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {string|null}
+ */
+export function bestBerry(session, pokemon) {
+  const context = berryContext(pokemon);
+
+  // Every berry in the bag, whichever pocket the data files it in.
+  const held = [...session.pocket('berries'), ...session.pocket('medicine')]
+    .filter(({ slug, item }) => (item?.pocket === 'berries' || slug.endsWith('-berry')) && item?.held && item.works !== false);
+
+  let best = null;
+  let bestScore = 0;
+  for (const { slug, item } of held.sort((a, b) => a.slug.localeCompare(b.slug))) {
+    const score = berryScore(item.held, context);
+    if (score > bestScore) {
+      best = slug;
+      bestScore = score;
+    }
+  }
+  return best;
+}
+
+/**
+ * The berry to put in a Pokémon's hand from the player's own order: the first
+ * of the three ranks that is actually in the bag.
  *
  * @param {import('./session.mjs').Session} session
  * @param {Array<string|null>} priorities
@@ -779,16 +870,15 @@ export function berryToHold(session, priorities) {
 }
 
 /**
- * The restock order the bag would pick for this Pokémon: a berry that heals
- * it first, then one that halves a hit it is weak to, then one that raises a
- * stat when it is in a pinch.
+ * The order the Recommend button fills the three ranks with for this Pokémon:
+ * a berry that heals it, then one that halves a hit it is weak to, then one
+ * that raises a stat when it is in a pinch.
  *
- * Each is the best of its kind for this Pokémon — the heal that restores the
- * most of its health, leaving out the ones its nature would confuse it with;
- * the resist berry for the type it is weakest to; the pinch berry for the
- * attacking stat it leans on, then Speed — out of the berries the bag holds
- * where it holds any of the kind, and out of every berry where it does not,
- * so the order is ready for the first one found.
+ * Each is the best of its kind — the heal that restores the most, the resist
+ * berry for the type it is weakest to, the pinch berry for the attacking stat
+ * it leans on, then Speed — out of the berries the bag holds where it holds
+ * any of the kind, and out of every berry where it does not, so the order is
+ * ready for the first one found.
  *
  * @param {import('./session.mjs').Session} session
  * @param {import('./pokemon.mjs').Pokemon} pokemon
@@ -798,51 +888,39 @@ export function recommendedBerries(session, pokemon) {
   const berries = Object.entries(gameData().items).filter(
     ([slug, item]) => item?.pocket === 'berries' && item.works !== false && item.held && slug.endsWith('-berry'),
   );
-  const nature = gameData().natures?.[pokemon.nature];
-  const confuses = (held) => Boolean(held.dislikes && nature?.decreased === held.dislikes && nature.increased !== nature.decreased);
-  const hp = maxHp(pokemon);
-  const types = standingTypes(pokemon);
-  const stats = statsOf(pokemon);
-  const leansOn = (stats.atk ?? 0) >= (stats.spa ?? 0) ? 'atk' : 'spa';
+  const context = berryContext(pokemon);
 
-  /** @param {(held: any) => number} score higher is better; 0 or less is not one */
-  const best = (score) => {
+  /** @param {(held: any) => boolean} kind */
+  const best = (kind) => {
     const scored = berries
-      .map(([slug, item]) => ({ slug, score: score(item.held), have: session.countOf(slug) > 0 }))
+      .filter(([, item]) => kind(item.held))
+      .map(([slug, item]) => ({ slug, score: berryScore(item.held, context), have: session.countOf(slug) > 0 }))
       .filter((entry) => entry.score > 0)
       .sort((a, b) => b.score - a.score || a.slug.localeCompare(b.slug));
     return (scored.find((entry) => entry.have) ?? scored[0])?.slug ?? null;
   };
 
-  const heal = best((held) => {
-    if (held.on !== 'hp' || !held.heal || confuses(held)) return 0;
-    return held.heal.amount ?? Math.floor(hp * (held.heal.fraction ?? 0));
-  });
-  const resist = best((held) => {
-    if (held.on !== 'resist' || !held.moveType) return 0;
-    const effectiveness = typeEffectiveness(held.moveType, types);
-    return effectiveness > 1 ? effectiveness : 0;
-  });
-  const pinch = best((held) => {
-    if (held.on !== 'hp' || !held.stat) return 0;
-    if (held.stat === leansOn) return 4;
-    if (held.stat === 'spe') return 3;
-    if (held.stat === 'random') return 2;
-    return 1;
-  });
-  return [heal, resist, pinch];
+  return [
+    best((held) => held.on === 'hp' && Boolean(held.heal) && !context.confuses(held)),
+    best((held) => held.on === 'resist'),
+    best((held) => held.on === 'hp' && Boolean(held.stat)),
+  ];
 }
 
 /**
- * Hand the companion a berry if it is holding nothing, which is what the
- * restock setting is for. Returns the berry handed over, if any.
+ * Hand the companion a berry if it is holding nothing — whatever it held has
+ * been eaten, used up or knocked away. The player's three ranks come first;
+ * with none of them in the bag, and the automatic setting on, the berry in the
+ * bag that suits it best takes the place. Returns the berry handed over, if
+ * any.
  *
  * @param {import('./session.mjs').Session} session
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  */
 export function restockBerry(session, pokemon) {
-  if (pokemon.heldItem) return null;
-  const berry = berryToHold(session, session.itemPolicy?.berries ?? []);
+  if (!pokemon || pokemon.heldItem) return null;
+  const policy = session.itemPolicy;
+  const berry = berryToHold(session, policy?.berries ?? []) ?? (policy?.autoBerry ? bestBerry(session, pokemon) : null);
   if (!berry) return null;
 
   session.removeItem(berry);

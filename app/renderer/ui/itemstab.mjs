@@ -10,6 +10,7 @@ import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
+import { pocketOrder } from '../engine/bagorder.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
@@ -78,7 +79,7 @@ export function itemsTab(app, session, refresh, state) {
   } else {
     list.append(
       ...entries
-        .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)))
+        .sort(pocketOrder(pocket))
         .map(({ slug, count, item }) =>
           el(machines && !fits(slug) ? 'button.item-row.unlearnable' : 'button.item-row', {
             type: 'button',
@@ -147,6 +148,8 @@ function optionsPane(app, session, refresh) {
     ]),
     el('p.meta', { text: t('items.berryRestockNote') }),
     ...[0, 1, 2].map((index) => berryRow(app, session, policy, index, refresh)),
+    autoBerryRow(app, policy, refresh),
+    el('p.meta', { text: t('items.berryAutoNote') }),
 
     el('div.section-title', { text: t('items.healingUse') }),
     el('p.meta', { text: t('items.healingUseNote') }),
@@ -200,8 +203,8 @@ function heldBerries(session) {
 }
 
 /**
- * One rank of the restock order. Only berries the bag has ever held are
- * offered, plus the empty choice — a rank left unset is simply skipped.
+ * One rank of the restock order. Only berries the bag holds are offered, plus
+ * the empty choice — a rank left unset is simply skipped.
  */
 function berryRow(app, session, policy, index, refresh) {
   const slug = policy.berries[index] ?? null;
@@ -231,6 +234,29 @@ function berryRow(app, session, policy, index, refresh) {
           });
         if (chosen === null) return;
         policy.berries[index] = chosen || null;
+        refresh();
+      },
+    }),
+  ]);
+}
+
+/**
+ * Whether an empty hand the three ranks cannot fill is given the best berry in
+ * the bag instead. See `bestBerry` for how it picks.
+ */
+function autoBerryRow(app, policy, refresh) {
+  const on = Boolean(policy.autoBerry);
+
+  return el('div.setting.item-option', {}, [
+    el('span.label', { text: t('items.berryAuto') }),
+    el('span.spacer'),
+    el(`button.chip${on ? '' : '.off'}`, {
+      type: 'button',
+      text: on ? t('items.berryAuto.on') : t('items.berryAuto.off'),
+      'aria-pressed': String(on),
+      onClick: () => {
+        app.audio.blip('select');
+        policy.autoBerry = !on;
         refresh();
       },
     }),

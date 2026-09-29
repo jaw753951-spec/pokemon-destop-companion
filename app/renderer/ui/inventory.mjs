@@ -26,13 +26,24 @@ export function inventoryScene({ session, onClose }) {
     moving: /** @type {number|null} */ (null),
     /** Which move slot the Pokémon tab is showing the description for. */
     moveSlot: /** @type {number|null} */ (null),
+    /** The item the items tab is showing, which the arrow keys move. */
+    selected: /** @type {string|null} */ (null),
   };
 
-  return {
+  /** @type {((event: KeyboardEvent) => void)|null} */
+  let onKey = null;
+
+  /** @type {import('../core/app.mjs').Scene} */
+  const scene = {
     keepBelow: true,
     // The companion keeps walking under this: a menu is the player
     // stopping to read, not the Pokémon stopping to wait.
     keepBelowRunning: true,
+
+    unmount() {
+      if (onKey) window.removeEventListener('keydown', onKey);
+      onKey = null;
+    },
 
     mount(app) {
       const tabs = el('div.tab-strip');
@@ -76,6 +87,29 @@ export function inventoryScene({ session, onClose }) {
       };
       rebuild();
 
+      // On the items tab the up and down arrows walk the pocket's list, as
+      // they do in the shop, keeping the chosen row in view. Only while the
+      // bag is the screen on top, so a dialog opened from it keeps its keys.
+      onKey = (event) => {
+        if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        if (app.scene !== scene || state.tab !== 'items') return;
+        const target = /** @type {HTMLElement|null} */ (event.target);
+        if (target?.closest?.('input, textarea, select')) return;
+        const shown = [...body.querySelectorAll('.item-row')].map((row) => /** @type {HTMLElement} */ (row).dataset.slug ?? '');
+        if (shown.length === 0) return;
+        event.preventDefault();
+
+        const down = event.key === 'ArrowDown';
+        const at = state.selected ? shown.indexOf(state.selected) : -1;
+        const next = at < 0 ? (down ? 0 : shown.length - 1) : Math.max(0, Math.min(shown.length - 1, at + (down ? 1 : -1)));
+        if (next === at) return;
+        app.audio.blip('select');
+        state.selected = shown[next];
+        rebuild();
+        body.querySelector('.item-row[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+      };
+      window.addEventListener('keydown', onKey);
+
       return el('div.screen.inventory-screen', {}, [
         el('div.screen-header', {}, [
           tabs,
@@ -89,6 +123,7 @@ export function inventoryScene({ session, onClose }) {
       ]);
     },
   };
+  return scene;
 }
 
 /**

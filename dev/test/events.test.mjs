@@ -10,8 +10,17 @@ const close = (actual, expected, tolerance = 1e-9) =>
 
 test('every event starts equally likely', () => {
   const weights = new EventScheduler().weights();
-  for (const kind of EVENT_KINDS) close(weights[kind], 20);
+  for (const kind of EVENT_KINDS) close(weights[kind], BASE_WEIGHT);
   close(sum(weights), 100);
+});
+
+test('the rest stop is never rolled, only called', () => {
+  assert.ok(!EVENT_KINDS.includes('heal'));
+  assert.equal(new EventScheduler().weights().heal, undefined);
+
+  const scheduler = new EventScheduler();
+  const rng = new Rng(7);
+  for (let i = 0; i < 5000; i++) assert.notEqual(scheduler.roll(rng), 'heal');
 });
 
 test('the last two events are damped to 1% and 10%', () => {
@@ -30,10 +39,10 @@ test('what the two remembered events give up is split among the rest', () => {
 });
 
 test('an event remembered twice takes the harsher figure', () => {
-  const weights = new EventScheduler({ recent: ['heal', 'heal'] }).weights();
-  close(weights.heal, RECENT_WEIGHTS[0]);
-  for (const kind of EVENT_KINDS.filter((entry) => entry !== 'heal')) {
-    close(weights[kind], (100 - RECENT_WEIGHTS[0]) / 4);
+  const weights = new EventScheduler({ recent: ['wild', 'wild'] }).weights();
+  close(weights.wild, RECENT_WEIGHTS[0]);
+  for (const kind of EVENT_KINDS.filter((entry) => entry !== 'wild')) {
+    close(weights[kind], (100 - RECENT_WEIGHTS[0]) / (EVENT_KINDS.length - 1));
   }
   close(sum(weights), 100);
 });
@@ -43,7 +52,7 @@ test('an event three rolls back is back on full odds', () => {
   scheduler.remember('berry');
   scheduler.remember('ball');
   scheduler.remember('wild');
-  close(scheduler.weights().berry, (100 - RECENT_WEIGHTS[0] - RECENT_WEIGHTS[1]) / 3);
+  close(scheduler.weights().berry, (100 - RECENT_WEIGHTS[0] - RECENT_WEIGHTS[1]) / (EVENT_KINDS.length - 2));
   assert.deepEqual(scheduler.recent, ['wild', 'ball']);
 });
 
@@ -81,7 +90,7 @@ test('the long-run distribution stays close to even', () => {
 
   for (const kind of EVENT_KINDS) {
     const share = (counts[kind] / rolls) * 100;
-    assert.ok(Math.abs(share - 20) < 1, `${kind} landed on ${share.toFixed(2)}%`);
+    assert.ok(Math.abs(share - BASE_WEIGHT) < 1, `${kind} landed on ${share.toFixed(2)}%`);
   }
 });
 
@@ -89,31 +98,45 @@ test('scheduler state round-trips through a save', () => {
   const scheduler = new EventScheduler();
   scheduler.roll(new Rng(3));
   scheduler.roll(new Rng(4));
-  const restored = new EventScheduler(scheduler.toJSON());
+  scheduler.shortages = ['balls'];
+  const restored = new EventScheduler(JSON.parse(JSON.stringify(scheduler)));
   assert.deepEqual(restored.recent, scheduler.recent);
   assert.deepEqual(restored.weights(), scheduler.weights());
+  assert.deepEqual(restored.shortages, ['balls']);
 });
 
 test('a save written before the memory existed keeps its last event damped', () => {
-  const restored = new EventScheduler({ last: 'heal', streak: 3 });
-  assert.deepEqual(restored.recent, ['heal']);
-  close(restored.weights().heal, RECENT_WEIGHTS[0]);
+  const restored = new EventScheduler({ last: 'berry', streak: 3 });
+  assert.deepEqual(restored.recent, ['berry']);
+  close(restored.weights().berry, RECENT_WEIGHTS[0]);
+  close(sum(restored.weights()), 100);
+});
+
+test('a save that remembered a rest stop forgets it, and rolls from the rest', () => {
+  const restored = new EventScheduler({ recent: ['heal', 'wild'] });
+  assert.deepEqual(restored.recent, ['wild']);
   close(sum(restored.weights()), 100);
 });
 
 const sum = (weights) => Object.values(weights).reduce((total, value) => total + Number(value), 0);
 
 test('a forced event fires next whatever the weights say', () => {
-  const scheduler = new EventScheduler({ recent: ['heal', 'heal'] });
-  // Two rest stops running have damped heal down to a hundredth of the roll.
-  close(scheduler.weights().heal, RECENT_WEIGHTS[0]);
+  const scheduler = new EventScheduler({ recent: ['wild', 'wild'] });
+  close(scheduler.weights().wild, RECENT_WEIGHTS[0]);
 
+  scheduler.force('wild');
+  assert.equal(scheduler.roll(new Rng(1)), 'wild');
+  // Recorded like any other roll, so the memory keeps damping it.
+  assert.equal(scheduler.last, 'wild');
+  // And only the once.
+  assert.equal(scheduler.forced, null);
+});
+
+test('a called rest stop fires next, and takes no slot in the memory', () => {
+  const scheduler = new EventScheduler({ recent: ['berry', 'ball'] });
   scheduler.force('heal');
   assert.equal(scheduler.roll(new Rng(1)), 'heal');
-  // Recorded like any other roll, so the memory keeps damping it.
-  assert.equal(scheduler.last, 'heal');
-
-  // And only the once.
+  assert.deepEqual(scheduler.recent, ['berry', 'ball']);
   assert.notEqual(scheduler.roll(new Rng(1)), 'heal');
 });
 

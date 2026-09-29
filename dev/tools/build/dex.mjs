@@ -95,10 +95,23 @@ function shippedItems(items, { machines, moves, species, log }) {
   /** @type {Record<string, number>} */
   const dropped = {};
 
+  // A TR teaches its move for good here, the way a TM does, so one whose
+  // move a TM or HM already teaches is the same machine twice. Only the TRs
+  // with a move of their own are carried.
+  const taughtByTm = new Set(
+    Object.keys(items)
+      .filter((slug) => /^(tm|hm)\d+$/.test(slug) && machines[slug])
+      .map((slug) => machines[slug]),
+  );
+
   for (let [slug, item] of Object.entries(items)) {
     // A machine is only worth carrying if the move it teaches was shipped.
     if (item.pocket === 'machines' && !moves[machines[slug]]) {
       dropped['unknown move'] = (dropped['unknown move'] ?? 0) + 1;
+      continue;
+    }
+    if (/^tr\d+$/.test(slug) && taughtByTm.has(machines[slug])) {
+      dropped['the same as another item'] = (dropped['the same as another item'] ?? 0) + 1;
       continue;
     }
 
@@ -246,6 +259,23 @@ const RETIRED_ITEMS = {
   'golden-pinap-berry': 'catching',
   'exp-share': 'nothing to share with',
   'exp-share-gen6': 'nothing to share with',
+  // Held items that do nothing for a companion fighting on its own: the
+  // Eject Button and Eject Pack switch their holder out and the Shed Shell
+  // lets it switch, but the companion has no one to switch to; the Smoke Ball
+  // is for running away, which the companion never chooses; a Ring Target
+  // only takes its own holder's immunities away; the Pass Orb is spent on
+  // Pass Powers this game does not have.
+  // Balls for one place the road never has: the Safari Zone's, the
+  // Bug-Catching Contest's and the Dream World's.
+  'safari-ball': 'a story',
+  'sport-ball': 'a story',
+  'dream-ball': 'a story',
+  'eject-button': 'no use to a lone companion',
+  'eject-pack': 'no use to a lone companion',
+  'shed-shell': 'no use to a lone companion',
+  'smoke-ball': 'no use to a lone companion',
+  'ring-target': 'no use to a lone companion',
+  'pass-orb': 'no use to a lone companion',
   'amulet-coin': 'selling',
   'luck-incense': 'selling',
   // Story and event items PokeAPI files among the ordinary ones: the Origin
@@ -272,6 +302,33 @@ const RETIRED_ITEMS = {
   'lawing-ball': 'Hisui only',
   'lajet-ball': 'Hisui only',
   'hopo-berry': 'Hisui only',
+
+  // One generation's or one region's version of something the bag already
+  // has, doing the same thing under another name. The drinks and the
+  // regional sweets are Potions and Full Heals; a companion is one Pokémon,
+  // so a Sacred Ash is a Max Revive; the mochi, wings and Let's Go candies
+  // are vitamins in other sizes; the incenses are breeding items whose held
+  // effect another item already has; a Gem is a one-shot type booster; the
+  // Blank Plate is a Silk Scarf that changes no Arceus. The five confusion
+  // berries are one berry five times over, told apart only by which natures
+  // they confuse.
+  ...Object.fromEntries(
+    [
+      'fresh-water', 'soda-pop', 'lemonade', 'moomoo-milk', 'berry-juice', 'sweet-heart', 'energy-powder', 'energy-root',
+      'heal-powder', 'lava-cookie', 'old-gateau', 'casteliacone', 'lumiose-galette', 'shalour-sable', 'big-malasada',
+      'pewter-crunchies',
+      'revival-herb', 'sacred-ash', 'max-honey',
+      ...['health', 'muscle', 'resist', 'genius', 'clever', 'swift'].flatMap((stat) => [`${stat}-mochi`, `${stat}-wing`]),
+      ...['health', 'mighty', 'tough', 'smart', 'courage', 'quick'].flatMap((stat) => [`${stat}-candy`, `${stat}-candy-l`, `${stat}-candy-xl`]),
+      'dynamax-candy',
+      'sea-incense', 'wave-incense', 'rock-incense', 'rose-incense', 'odd-incense', 'lax-incense', 'full-incense',
+      'pure-incense',
+      'blank-plate',
+      ...['normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison', 'ground', 'flying', 'psychic',
+        'bug', 'rock', 'ghost', 'dragon', 'dark', 'steel', 'fairy'].map((type) => `${type}-gem`),
+      'enigma-berry', 'figy-berry', 'wiki-berry', 'mago-berry', 'aguav-berry', 'iapapa-berry',
+    ].map((slug) => [slug, 'the same as another item']),
+  ),
 };
 
 /** The 18 battle types with their Korean names and full damage relations. */
@@ -1199,36 +1256,25 @@ function unwritten(item, slug, natures) {
  *
  * - The Sticky Barb hurts its holder each turn and jumps to whatever touches
  *   it; the sentence upstream reads like a Rocky Helmet.
- * - The five confusion berries heal a third at a quarter since Gen 8 and
- *   confuse a holder whose nature dislikes their flavour (the stat the nature
- *   lowers).
  * - The Soul Dew has powered up Latias's and Latios's Psychic and Dragon moves
  *   since Gen 7; the Metal Powder and Quick Powder only work on a Ditto that
  *   has not transformed, and the Metal Powder doubles Defense alone.
- * - The Lax Incense and the Quick Claw use their Gen 4+ numbers.
+ * - The Quick Claw uses its Gen 4+ numbers.
  * - The rest are the items whose effect is written nowhere upstream.
  *
  * @type {Record<string, {held?: any, use?: any, attributes?: string[], capture?: any}>}
  */
 const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
-  // Out of any wild battle, whatever is holding it there.
-  'smoke-ball': { held: { on: 'escape' } },
   // Let's Go's catching berries, given from the capture screen: they make
   // the catch easier.
   'silver-razz-berry': { capture: { catchRate: 1.5 } },
   'golden-razz-berry': { capture: { catchRate: 2.5 } },
   // A fifth more for every repeat since Black and White, not a tenth.
   metronome: { held: { on: 'damage', consecutive: 0.2, max: 2 } },
-  'figy-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'atk' } },
-  'wiki-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spa' } },
-  'mago-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spe' } },
-  'aguav-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'spd' } },
-  'iapapa-berry': { held: { on: 'hp', at: 1 / 4, heal: { fraction: 1 / 3 }, dislikes: 'def' } },
   'soul-dew': { held: { on: 'damage', species: ['latias', 'latios'], moveTypes: ['psychic', 'dragon'], multiplier: 1.2 } },
   'metal-powder': { held: { on: 'stat', species: ['ditto'], stats: ['def'], multiplier: 2, untransformed: true } },
   'quick-powder': { held: { on: 'stat', species: ['ditto'], stats: ['spe'], multiplier: 2, untransformed: true } },
-  'lax-incense': { held: { on: 'evasion', multiplier: 0.9 } },
   'quick-claw': { held: { on: 'first', chance: 0.2 } },
   // Farfetch'd, its Galarian variety (by the species it belongs to) and the
   // Sirfetch'd that variety becomes.
@@ -1240,18 +1286,12 @@ const CORRECTED = {
   'big-root': { held: { on: 'drainBoost', multiplier: 1.3 } },
   'mirror-herb': { held: { on: 'mirror', consumed: true } },
   'ability-shield': { held: { on: 'shield', ability: true } },
-  'blank-plate': { held: { on: 'damage', moveType: 'normal', multiplier: 1.2 } },
   'binding-band': { held: { on: 'bind', fraction: 1 / 6 } },
   'grip-claw': { held: { on: 'bindTurns', turns: 7 } },
   'destiny-knot': { held: { on: 'destiny' } },
   'soothe-bell': { held: { on: 'friendship', multiplier: 1.5 } },
   'cleanse-tag': { held: { on: 'repel' } },
-  'ring-target': { held: { on: 'ringTarget' } },
-  'pure-incense': { held: { on: 'repel' } },
   'red-card': { held: { on: 'redCard', consumed: true } },
-  'eject-button': { held: { on: 'eject', consumed: true } },
-  'eject-pack': { held: { on: 'ejectPack', consumed: true } },
-  'pewter-crunchies': { use: { status: 'any' } },
   'fresh-start-mochi': { use: { resetEffort: true } },
   honey: { use: { lure: true } },
 };
@@ -1307,7 +1347,6 @@ const UNWRITTEN = {
   'roseli-berry': { held: { on: 'resist', moveType: 'fairy', superEffectiveOnly: true, multiplier: 0.5 } },
   // Hisui's Leppa Berry.
   'hopo-berry': { held: { on: 'pp', amount: 10 } },
-  'max-honey': { use: { revive: 1 } },
   // "Raises Special Attack when the holder uses a sound move."
   'throat-spray': { held: { on: 'used', flags: ['sound'], stats: ['spa'], stages: 1, consumed: true } },
   // "Punching moves do 10% more damage and stop counting as contact."

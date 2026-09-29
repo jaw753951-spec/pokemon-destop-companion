@@ -73,14 +73,23 @@ export function statHexagon({ base, actual }) {
 }
 
 /**
- * The numbers beside the hexagon, which is where the exact values live.
+ * The numbers beside the hexagon, as the games' summary page lists them: HP
+ * as what is left of the whole, the other five as they stand, and the two a
+ * nature moves picked out the way the games have since Sun and Moon — the
+ * stat it raises in red, the one it lowers in blue. The effort behind each
+ * number is not written out, as the games never write it; the hexagon above
+ * is where the training shows.
+ *
  * @param {Record<string, number>} actual
- * @param {Record<string, number>} effort
+ * @param {{hp: number, nature?: {increased?: string|null, decreased?: string|null}|null}} standing
+ *   the Pokémon's current HP, and its nature
  * @returns {HTMLElement}
  */
-export function statTable(actual, effort) {
+export function statTable(actual, { hp, nature }) {
   const table = document.createElement('div');
   table.className = 'stat-table';
+  // A neutral nature raises and lowers the same stat, which is no change.
+  const moved = nature?.increased && nature.increased !== nature.decreased;
 
   for (const stat of STATS) {
     const row = document.createElement('div');
@@ -88,20 +97,15 @@ export function statTable(actual, effort) {
 
     const label = document.createElement('span');
     label.className = 'stat-label';
+    if (moved && stat === nature?.increased) label.classList.add('raised');
+    if (moved && stat === nature?.decreased) label.classList.add('lowered');
     label.textContent = t(`stat.${stat}`);
 
     const value = document.createElement('span');
     value.className = 'stat-value';
-    value.textContent = String(actual[stat] ?? 0);
+    value.textContent = stat === 'hp' ? `${Math.max(0, Math.round(hp))}/${actual.hp ?? 0}` : String(actual[stat] ?? 0);
 
-    const gained = effort[stat] ?? 0;
     row.append(label, value);
-    if (gained > 0) {
-      const bonus = document.createElement('span');
-      bonus.className = 'stat-effort';
-      bonus.textContent = `+${gained}`;
-      row.append(bonus);
-    }
     table.append(row);
   }
   return table;
