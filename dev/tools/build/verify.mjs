@@ -59,8 +59,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   note(Object.keys(moves).length > 800, `moves: only ${Object.keys(moves).length}`);
   // The build drops what belongs to a system this game will not have, and
   // keeps everything that acts on something it does — whether or not the
-  // engine reads it yet.
-  note(Object.keys(items).length > 600, `items: only ${Object.keys(items).length}`);
+  // engine reads it yet. It also drops each generation's copy of something
+  // the bag already has, and the TRs a TM already covers, which leaves about
+  // six hundred; a build far under that has lost items it meant to keep.
+  note(Object.keys(items).length >= 550, `items: only ${Object.keys(items).length}`);
   // Unless something evolves by it: a Gimmighoul Coin is filed with the TM materials.
   const retired = Object.entries(items).filter(([slug, item]) =>
     ['mega-stones', 'z-crystals', 'dynamax-crystals', 'tera-shard', 'curry-ingredients', 'tm-materials'].includes(
