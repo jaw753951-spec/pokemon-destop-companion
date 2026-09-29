@@ -252,6 +252,11 @@ const RETIRED_ITEMS = {
   // is for running away, which the companion never chooses; a Ring Target
   // only takes its own holder's immunities away; the Pass Orb is spent on
   // Pass Powers this game does not have.
+  // Balls for one place the road never has: the Safari Zone's, the
+  // Bug-Catching Contest's and the Dream World's.
+  'safari-ball': 'a story',
+  'sport-ball': 'a story',
+  'dream-ball': 'a story',
   'eject-button': 'no use to a lone companion',
   'eject-pack': 'no use to a lone companion',
   'shed-shell': 'no use to a lone companion',

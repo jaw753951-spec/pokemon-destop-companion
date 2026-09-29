@@ -19,8 +19,6 @@ export const BALL_BONUS = {
   'master-ball': Infinity,
   'ultra-ball': 2,
   'great-ball': 1.5,
-  'safari-ball': 1.5,
-  'sport-ball': 1.5,
 };
 
 /** Status multipliers, as in Gen 5 onward. */
@@ -90,8 +88,6 @@ export function ballBonus(ball, target = null, context = {}) {
       return target ? Math.max(1, (41 - levelOf(target)) / 10) : 1;
     case 'repeat-ball':
       return target && context.caught?.has(target.speciesId) ? 3.5 : 1;
-    case 'dream-ball':
-      return target?.status === 'slp' ? 4 : 1;
     case 'level-ball': {
       if (!target || !context.active) return 1;
       const mine = levelOf(context.active);

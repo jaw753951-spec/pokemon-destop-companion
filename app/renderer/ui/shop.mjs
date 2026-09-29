@@ -13,6 +13,7 @@ import { url } from '../core/bridge.mjs';
 import { moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { pocketOrder } from '../engine/bagorder.mjs';
 import { alreadyOwned, buy, formatMoney, isConsumable, shopStock } from '../engine/shop.mjs';
 import { moveSummary } from './movecard.mjs';
 
@@ -47,7 +48,10 @@ export function shopScene({ session, onClose }) {
         const keep = body.querySelector('.item-list')?.scrollTop ?? 0;
         purse.textContent = t('money.label', { amount: formatMoney(session.money) });
         const list = scrollable(el('div.item-list'));
+        // Medicine, berries and balls cheapest first; the machines by number
+        // and the misc pocket by who it is for, as the bag lists them.
         const entries = stock.filter((entry) => entry.item.pocket === state.pocket);
+        if (state.pocket === 'machines' || state.pocket === 'misc') entries.sort(pocketOrder(state.pocket));
         if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;
 
         list.append(...entries.map(({ slug, item, price }) =>

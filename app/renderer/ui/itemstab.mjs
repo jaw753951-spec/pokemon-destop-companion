@@ -10,6 +10,7 @@ import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
+import { pocketOrder } from '../engine/bagorder.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
 import { moveSummary } from './movecard.mjs';
@@ -78,7 +79,7 @@ export function itemsTab(app, session, refresh, state) {
   } else {
     list.append(
       ...entries
-        .sort((a, b) => localized(a.item.name, a.slug).localeCompare(localized(b.item.name, b.slug)))
+        .sort(pocketOrder(pocket))
         .map(({ slug, count, item }) =>
           el(machines && !fits(slug) ? 'button.item-row.unlearnable' : 'button.item-row', {
             type: 'button',
