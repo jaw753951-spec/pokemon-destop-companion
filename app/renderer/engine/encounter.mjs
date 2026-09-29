@@ -334,14 +334,19 @@ export function evolveToLevel(speciesId, level) {
  * @param {any} area
  * @param {import('./pokemon.mjs').Pokemon} companion
  * @param {Array<any>} classes from `data/authored/trainer-classes.json`
+ * @param {{onWater?: boolean}} [spot] whether the trainer would stand where
+ *   there is water to swim in; a class marked `water` — a Swimmer, drawn
+ *   swimming — is only met there, and never on dry road
  * @returns {{trainerClass: any, party: import('./pokemon.mjs').Pokemon[]}}
  */
-export function rollTrainer(rng, area, companion, classes) {
+export function rollTrainer(rng, area, companion, classes, spot = {}) {
   const tags = new Set(area?.tags ?? []);
+  const fits = (entry) => !entry.water || Boolean(spot.onWater);
   const local = classes.filter(
-    (entry) => entry.areas.length === 0 || entry.areas.some((tag) => tags.has(tag)),
+    (entry) => fits(entry) && (entry.areas.length === 0 || entry.areas.some((tag) => tags.has(tag))),
   );
-  const trainerClass = rng.pick(local.length ? local : classes);
+  const dry = classes.filter(fits);
+  const trainerClass = rng.pick(local.length ? local : dry.length ? dry : classes);
 
   const [minParty, maxParty] = trainerClass.party ?? [1, 3];
   // Parties start small: one Pokémon until the companion has seen its first

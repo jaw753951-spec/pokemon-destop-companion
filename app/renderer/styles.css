@@ -1013,9 +1013,15 @@ canvas {
   font-weight: 700;
 }
 
-.stat-effort {
-  color: var(--accent);
-  font-size: 8px;
+/* The stats a nature moves, coloured as the games colour them since Sun and Moon. */
+.stat-label.raised {
+  color: #d8443c;
+  font-weight: 700;
+}
+
+.stat-label.lowered {
+  color: #3a6fd8;
+  font-weight: 700;
 }
 
 .pokemon-right {

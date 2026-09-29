@@ -85,6 +85,20 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const blockingStrip = overhead?.blocking ? repeatToWidth(makeSeamless(overhead.blocking), FIELD_WIDTH * 2) : null;
     const covered = blockingStrip ? coveredSpans(blockingStrip, groundY) : [];
 
+    // The water beside the lane. The walk itself never crosses water —
+    // `pickWalkPath` keeps it on dry blocks — so a swimmer met on the road has
+    // to be drawn out in the water nearest it: the row in front, then the one
+    // behind, then two in front and two behind, as far as the strip shows.
+    // Each column keeps how many rows away its water is.
+    const inBand = (row) => row >= path.bandRow && row < path.bandRow + bandBlocks && row >= 0 && row < layout.height;
+    const rowsOut = Array.from({ length: path.columns }, (_, index) => {
+      const x = path.column + index;
+      return WATER_ROWS.find((rows) => inBand(path.laneRow + rows) && isWater(x, path.laneRow + rows)) ?? null;
+    });
+    const water = rowsOut.some((rows) => rows !== null)
+      ? stripRuns(rowsOut, METATILE_SIZE, FIELD_WIDTH * 2).map(([from, to, rows]) => [from, to, rows * METATILE_SIZE])
+      : [];
+
     for (const time of TIME_KEYS) {
       const graded = gradeTime(strip, time);
       await writeOut(
@@ -117,6 +131,10 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       // over the lane; see `overhead` above.
       ...(overStrip ? { overlay: true } : {}),
       ...(covered.length ? { covered } : {}),
+      // Stretches with water beside the lane, which a swimming trainer is met
+      // in: `[from, to, drop]`, drop being how far down from the lane the
+      // water lies, in the strip's pixels (negative behind it).
+      ...(water.length ? { water } : {}),
       music,
       weather: map.weather ? map.weather.replace('WEATHER_', '').toLowerCase() : 'none',
       encounters: encounters.get(map.id) ?? [],
@@ -126,7 +144,8 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       `area ${area.id.padEnd(18)} ${strip.width}x${strip.height}  ground=${groundY}  ` +
         `walk=${path.columns} blocks @row ${path.laneRow} (headroom ${path.clearance})  ` +
         `music=${music ?? '-'}  mons=${manifest.at(-1).encounters.length}` +
-        (covered.length ? `  covered=${covered.map(([from, to]) => `${from}-${to}`).join(',')}` : ''),
+        (covered.length ? `  covered=${covered.map(([from, to]) => `${from}-${to}`).join(',')}` : '') +
+        (water.length ? `  water=${water.length} spans` : ''),
     );
   }
 
@@ -229,6 +248,39 @@ function keepOverLane(over, groundY) {
     else clear(over, index);
   });
   return { overlay: over, blocking };
+}
+
+/** Which rows beside the lane are looked at for water, nearest first: in front, behind, then two out. */
+const WATER_ROWS = [1, -1, 2, -2];
+
+/**
+ * A value per block column of the walked band, as `[from, to, value]` pixel
+ * runs of the finished strip — laid out the way the band itself is: the band,
+ * then its mirror image less the two edge columns (`makeSeamless`), repeated
+ * until the strip is `minWidth` wide (`repeatToWidth`). Columns whose value
+ * is null are left out.
+ *
+ * @template T
+ * @param {Array<T|null>} values one per block column of the band
+ * @param {number} blockSize pixels per block
+ * @param {number} minWidth
+ * @returns {Array<[number, number, T]>}
+ */
+export function stripRuns(values, blockSize, minWidth) {
+  const band = values.flatMap((value) => new Array(blockSize).fill(value));
+  const seamless = band.length < 3 ? band : [...band, ...[...band].reverse().slice(1, band.length - 1)];
+  const copies = seamless.length >= minWidth ? 1 : Math.ceil(minWidth / seamless.length);
+  const strip = new Array(copies).fill(seamless).flat();
+
+  /** @type {Array<[number, number, T]>} */
+  const runs = [];
+  let start = 0;
+  for (let x = 1; x <= strip.length; x++) {
+    if (x < strip.length && strip[x] === strip[start]) continue;
+    if (strip[start] !== null && strip[start] !== undefined) runs.push([start, x, strip[start]]);
+    start = x;
+  }
+  return runs;
 }
 
 /**

@@ -1,0 +1,49 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { gameData } from '../../app/renderer/core/data.mjs';
+import { createPokemon } from '../../app/renderer/engine/pokemon.mjs';
+import { rollTrainer } from '../../app/renderer/engine/encounter.mjs';
+import { waterDrop } from '../../app/renderer/render/field.mjs';
+import { stripRuns } from '../tools/build/areas.mjs';
+
+const ready = await useRealGameData();
+const withData = { skip: ready ? false : NEEDS_ASSETS };
+
+test('water beside the lane is laid out the way the strip is', () => {
+  // Four blocks of two pixels, water a row out from the last one: the band,
+  // then its mirror less the edge columns, then again.
+  const runs = stripRuns([null, null, null, 1], 2, 20);
+  // band: ......WW  mirror (less edges): W.....  → ......WWW.....  twice
+  assert.deepEqual(runs, [[6, 9, 1], [20, 23, 1]]);
+  // Runs of different rows are kept apart.
+  assert.deepEqual(stripRuns([1, -1], 1, 1), [[0, 1, 1], [1, 2, -1]]);
+});
+
+test('a stretch is over water only when all of it is, and says how far out', () => {
+  const area = /** @type {{width: number, water: Array<[number, number, number]>}} */ ({ width: 100, water: [[40, 60, 32]] });
+  assert.equal(waterDrop(area, 50, 10), 32);
+  assert.equal(waterDrop(area, 45, 10), null, 'reaches past the span');
+  assert.equal(waterDrop(area, 150, 10), 32, 'a later copy of the strip');
+  assert.equal(waterDrop({ width: 100 }, 50, 10), null, 'no water at all');
+});
+
+test('a Swimmer is only ever met where there is water', withData, async () => {
+  const { readFile } = await import('node:fs/promises');
+  const raw = JSON.parse(await readFile(new URL('../../data/authored/trainer-classes.json', import.meta.url), 'utf8'));
+  const classes = raw.classes;
+  assert.ok(classes.some((entry) => entry.water), 'the swimming classes are marked');
+  const beach = { ...(gameData().areas[0] ?? {}), tags: ['water', 'beach'] };
+  const companion = createPokemon(new Rng(1), 7, 30);
+  const rng = new Rng(9);
+
+  let swimmers = 0;
+  for (let roll = 0; roll < 300; roll++) {
+    const dry = rollTrainer(rng, beach, companion, classes, { onWater: false });
+    assert.ok(!dry.trainerClass.water, `${dry.trainerClass.id} on dry road`);
+    if (rollTrainer(rng, beach, companion, classes, { onWater: true }).trainerClass.water) swimmers++;
+  }
+  assert.ok(swimmers > 0, 'a beach with water in front of the lane has Swimmers');
+});

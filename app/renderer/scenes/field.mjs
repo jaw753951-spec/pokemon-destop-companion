@@ -9,6 +9,7 @@
 import {
   EVENT_RETRY_MS,
   FIELD_HEIGHT,
+  HOLD_BOOST_EVENT,
   HOLD_BOOST_RATE,
   HOLD_BOOST_WALK,
   CROSSING_MS,
@@ -553,8 +554,13 @@ export function fieldScene(session) {
         if (session.active && offset > from) walkSteps(session.active, (offset - from) / STEP_PX);
       }
 
+      // One hurry at a time. On the open road holding winds the event clock
+      // on; while an event is playing out it hurries that event instead, and
+      // the clock keeps its own pace — winding both meant a held press on a
+      // berry tree also used up the wait for the next event, which then
+      // arrived the moment the picking was done.
       const { autosave, event } = session.tick(deltaMs, {
-        eventRate: boostPace(boost, HOLD_BOOST_RATE),
+        eventRate: events?.busy ? 1 : boostPace(boost, HOLD_BOOST_RATE),
       });
 
       tickCrossing(deltaMs, app);
@@ -587,8 +593,10 @@ export function fieldScene(session) {
       // but an event part way through does not get to reach its battle and
       // push a fight on top of the bag the player is reading.
       // And whatever is playing out on the road — a berry picked, a ball
-      // opened, the find held up — plays at the walk's pace while held.
-      if (!menuOpen) events?.update(deltaMs * boostPace(boost, HOLD_BOOST_WALK), offset, app);
+      // opened, the find held up — plays at the event hurry while held; the
+      // walk up to it goes at the walk's.
+      const eventPace = boostPace(boost, events?.walking ? HOLD_BOOST_WALK : HOLD_BOOST_EVENT);
+      if (!menuOpen) events?.update(deltaMs * eventPace, offset, app);
       refreshArt(app);
       hud?.update(session);
     },

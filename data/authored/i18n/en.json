@@ -60,6 +60,7 @@
   "pokemon.replaceMove": "Choose a move to learn",
   "pokemon.noReplacement": "No other moves available.",
   "pokemon.held": "Held item",
+  "pokemon.nature": "Nature",
   "pokemon.ability": "Ability",
   "pokemon.abilityInert": "It has no effect in a one-on-one battle.",
   "pokemon.hiddenAbility": "Hidden",

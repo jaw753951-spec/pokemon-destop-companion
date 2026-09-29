@@ -101,6 +101,14 @@ export const HOLD_BOOST_RATE = 6;
 export const HOLD_BOOST_WALK = 2.5;
 
 /**
+ * How fast an event on the road plays out while the pointer is held — a
+ * berry picked, a ball opened, the find held up. As fast as the event clock:
+ * waiting out ten seconds of picking is exactly what holding is asking to
+ * skip, and there is no map to tear past.
+ */
+export const HOLD_BOOST_EVENT = 6;
+
+/**
  * How the hurry comes on and goes off, in milliseconds.
  *
  * Switching the pace the instant the pointer moved made the road lurch: full

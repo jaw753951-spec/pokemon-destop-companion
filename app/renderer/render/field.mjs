@@ -273,6 +273,33 @@ export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
 }
 
 /**
+ * Where a swimming trainer can be met: whether there is water beside the lane
+ * all the way across a stretch of it, and if so how far down from the lane it
+ * lies — a row in front, a row behind (negative), or two.
+ *
+ * @param {{width: number, water?: Array<[number, number, number?]>}|null|undefined} area
+ * @param {number} x the middle of the stretch, strip coordinates before wrapping
+ * @param {number} half how far either side of it must be water
+ * @returns {number|null} the drop in field pixels, or null for dry ground
+ */
+export function waterDrop(area, x, half) {
+  const spans = area?.water;
+  if (!spans?.length || !area.width) return null;
+  const at = ((x % area.width) + area.width) % area.width;
+  // The stretch may straddle the wrap, so each span is tried once a strip to
+  // either side as well.
+  for (const shift of [-area.width, 0, area.width]) {
+    for (const [start, end, drop] of spans) {
+      if (at - half >= start + shift && at + half <= end + shift) return drop ?? WATER_ROW;
+    }
+  }
+  return null;
+}
+
+/** One block of the map, in field pixels: the row in front of the lane. */
+const WATER_ROW = 16;
+
+/**
  * A soft ellipse under a sprite, which grounds it against the background.
  * @param {CanvasRenderingContext2D} context
  * @param {number} x

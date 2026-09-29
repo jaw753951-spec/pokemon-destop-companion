@@ -16,7 +16,10 @@ import { alreadyOwned } from '../engine/shop.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY } from '../render/field.mjs';
+import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, waterDrop } from '../render/field.mjs';
+
+/** How far either side of a Swimmer's spot must be water, in field pixels: about its own half-width. */
+const SWIMMER_HALF_WIDTH = 10;
 
 /** How long each gathering phase takes, as the brief specifies. */
 const HARVEST_MS = 10000;
@@ -716,7 +719,11 @@ function startWild(session, spawnAt) {
 function startTrainer(session, spawnAt) {
   const classes = gameData().trainerClasses ?? [];
   const leader = shouldSummonLeader(session) ? pickLeader(session) : null;
-  const { trainerClass, party } = rollTrainer(session.rng, session.area, session.active, classes);
+  // A Swimmer is only met where there is water beside the lane, and swims
+  // in it rather than standing on the road.
+  const drop = waterDrop(session.area, COMPANION_X + spawnAt, SWIMMER_HALF_WIDTH);
+  const { trainerClass, party } = rollTrainer(session.rng, session.area, session.active, classes, { onWater: drop !== null });
+  const swimming = !leader && Boolean(trainerClass?.water) && drop !== null;
 
   const roster = leader ? leaderParty(session, leader) : party;
   for (const member of roster) session.markSeen(member.speciesId);
@@ -728,7 +735,7 @@ function startTrainer(session, spawnAt) {
     timer: 0,
     flash: 0,
     phaseDuration: 800,
-    prop: { kind: 'trainer', sprite: null, frame: 'ripe' },
+    prop: { kind: 'trainer', sprite: null, frame: 'ripe', drop: swimming ? drop : 0 },
     carried: null,
     setup: { foes: roster, trainer: leader ?? trainerClass, leader },
     onArrive: () => 'battle',
@@ -856,8 +863,9 @@ function drawProp(context, state, screenX) {
     return;
   }
 
-  // A trainer waiting on the path, at the size the props are drawn at.
-  sprite.draw(context, screenX, groundY(), {
+  // A trainer waiting on the path, at the size the props are drawn at — or a
+  // Swimmer in the water beside it.
+  sprite.draw(context, screenX, groundY() + (prop.drop ?? 0), {
     frame: sprite.frameAt(state.elapsed ?? 0),
     scale: ACTOR_SCALE,
   });
