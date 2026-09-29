@@ -343,8 +343,10 @@ export function defaultAutoBattle() {
 /**
  * How the bag is used without being opened.
  *
- * `autoBerry` hands the companion the berry in the bag that suits it best
- * whenever its hand is empty after a fight. `healing` names an item to throw,
+ * `berries` are the player's restock choices in order of preference, any of
+ * which may be left unset; `autoBerry` hands over the berry in the bag that
+ * suits the companion best when none of them is in the bag. Both act on an
+ * empty hand after a fight. `healing` names an item to throw,
  * or null for whatever fits the damage taken, and the health it is thrown
  * at — `never` for a player who
  * would rather do it by hand. `afterBattle` is how far a win tops the
@@ -353,6 +355,8 @@ export function defaultAutoBattle() {
  */
 export function defaultItemPolicy() {
   return {
+    /** @type {Array<string|null>} */
+    berries: [null, null, null],
     autoBerry: true,
     healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
     afterBattle: 'full',
@@ -364,16 +368,14 @@ export function normalizeItemPolicy(policy) {
   const fresh = defaultItemPolicy();
   if (!policy) return fresh;
 
-  // A save from the days of a three-rank restock order kept restocking if any
-  // rank was set, and stays on; one that set none had it off, and stays off.
-  const autoBerry = typeof policy.autoBerry === 'boolean'
-    ? policy.autoBerry
-    : Array.isArray(policy.berries)
-      ? policy.berries.some(Boolean)
-      : fresh.autoBerry;
+  const berries = Array.isArray(policy.berries) ? policy.berries.slice(0, 3) : [];
+  while (berries.length < 3) berries.push(null);
 
   return {
-    autoBerry,
+    berries: berries.map((slug) => slug || null),
+    // A save from before the automatic berry existed takes the default: it
+    // only ever steps in where the player's own order finds nothing.
+    autoBerry: typeof policy.autoBerry === 'boolean' ? policy.autoBerry : fresh.autoBerry,
     healing: {
       item: policy.healing?.item ?? null,
       condition: policy.healing?.condition ?? fresh.healing.condition,

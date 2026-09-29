@@ -699,6 +699,39 @@ test('the best berry halves a 4× weakness, then heals, then halves a 2× one, t
   const off = bag(['sitrus-berry']);
   off.itemPolicy.autoBerry = false;
   assert.equal(restockBerry(off, charmander), null);
+
+  // The player's own order comes first, and the automatic pick only fills in
+  // when none of its berries is in the bag.
+  const ranked = bag(['sitrus-berry', 'salac-berry']);
+  ranked.itemPolicy.berries = ['oran-berry', 'salac-berry', null];
+  assert.equal(restockBerry(ranked, charmander), 'salac-berry');
+  charmander.heldItem = null;
+  const fallback = bag(['sitrus-berry']);
+  fallback.itemPolicy.berries = ['oran-berry', null, null];
+  assert.equal(restockBerry(fallback, charmander), 'sitrus-berry');
+  // And the order still works with the switch off.
+  charmander.heldItem = null;
+  const manual = bag(['salac-berry']);
+  manual.itemPolicy = { autoBerry: false, berries: ['salac-berry', null, null] };
+  assert.equal(restockBerry(manual, charmander), 'salac-berry');
+});
+
+test('the recommended restock order heals, then halves a weakness, then raises a stat', options, async () => {
+  const { recommendedBerries } = await import('../../app/renderer/engine/items.mjs');
+  const charmander = fixed(4, 50); // Fire: weak to Water, Ground and Rock
+  const bag = (held) => /** @type {any} */ ({ countOf: (slug) => (held.includes(slug) ? 1 : 0) });
+  const kindOf = (slug) => itemOf(slug)?.held ?? {};
+
+  const [heal, resist, pinch] = recommendedBerries(bag([]), charmander);
+  assert.ok(kindOf(heal).heal, `${heal} heals`);
+  assert.ok(['water', 'ground', 'rock'].includes(kindOf(resist).moveType), `${resist} halves a weakness`);
+  assert.ok(kindOf(pinch).stat, `${pinch} raises a stat`);
+
+  // What the bag holds wins over what it does not, within each kind.
+  assert.deepEqual(recommendedBerries(bag(['shuca-berry', 'oran-berry', 'salac-berry']), charmander),
+    ['oran-berry', 'shuca-berry', 'salac-berry']);
+  // A resist berry for a type it is not weak to is never offered.
+  assert.notEqual(recommendedBerries(bag(['occa-berry']), charmander)[1], 'occa-berry');
 });
 
 test('an early road trainer sends out one Pokémon, no higher than the companion and no further evolved', options, async () => {

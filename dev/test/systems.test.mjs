@@ -456,7 +456,7 @@ test('the items that used to do nothing now say what they do', options, () => {
   assert.deepEqual(itemOf('ability-patch')?.use, { ability: 'hidden' });
   assert.deepEqual(itemOf('bottle-cap')?.use, { genes: 'one' });
   assert.deepEqual(itemOf('gold-bottle-cap')?.use, { genes: 'all' });
-  assert.deepEqual(itemOf('health-wing')?.use, { effort: { stat: 'hp', amount: 1 } });
+  assert.deepEqual(itemOf('hp-up')?.use, { effort: { stat: 'hp', amount: 10 } });
   assert.deepEqual(itemOf('paralyze-heal')?.use, { status: 'par' });
   assert.deepEqual(itemOf('burn-heal')?.use, { status: 'brn' });
 });

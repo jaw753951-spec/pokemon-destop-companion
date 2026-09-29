@@ -39,11 +39,8 @@ const LOSS_PER_LEVEL = [8, 16, 24, 36, 48, 64, 80, 100, 120];
 /** Prices the games set, by item. */
 const PRICES = {
   potion: 200, 'super-potion': 700, 'hyper-potion': 1500, 'max-potion': 2500, 'full-restore': 3000,
-  'fresh-water': 200, 'soda-pop': 300, lemonade: 400, 'moomoo-milk': 600, 'berry-juice': 100, 'sweet-heart': 300,
-  'energy-powder': 500, 'energy-root': 1200,
   antidote: 200, 'burn-heal': 300, 'ice-heal': 300, awakening: 300, 'paralyze-heal': 300, 'full-heal': 400,
-  'heal-powder': 300,
-  revive: 2000, 'max-revive': 4000, 'revival-herb': 2800, 'sacred-ash': 50000, 'max-honey': 8000,
+  revive: 2000, 'max-revive': 4000,
   ether: 1200, 'max-ether': 2000, elixir: 3000, 'max-elixir': 4500,
   'hp-up': 10000, protein: 10000, iron: 10000, calcium: 10000, zinc: 10000, carbos: 10000,
   'rare-candy': 20000, 'pp-up': 10000, 'pp-max': 30000, 'ability-capsule': 50000, 'ability-patch': 100000,
@@ -63,9 +60,9 @@ const PRICES = {
 const CATEGORY_PRICES = {
   healing: 500, 'status-cures': 300, revival: 2000, 'pp-recovery': 2000, vitamins: 10000, 'nature-mints': 20000,
   'standard-balls': 1000, 'special-balls': 1000, 'apricorn-balls': 3000,
-  medicine: 500, 'picky-healing': 800, 'in-a-pinch': 3000, 'type-protection': 1000, 'effort-drop': 1500,
+  medicine: 500, 'in-a-pinch': 3000, 'type-protection': 1000, 'effort-drop': 1500,
   'catching-bonus': 1500, other: 3000,
-  'all-machines': 3000, evolution: 3000, jewels: 1500, 'held-items': 8000, choice: 20000,
+  'all-machines': 3000, evolution: 3000, 'held-items': 8000, choice: 20000,
   'type-enhancement': 5000, 'effort-training': 6000, 'bad-held-items': 5000, training: 10000,
   'species-specific': 5000,
 };

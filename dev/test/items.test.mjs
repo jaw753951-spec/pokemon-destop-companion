@@ -4,7 +4,7 @@ import assert from 'node:assert/strict';
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
-import { healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
+import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
 import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
@@ -161,10 +161,22 @@ test('only what this game will never have is dropped', withData, () => {
   }
 
   // And the ones still waiting, which belong to systems this game does not
-  // have: switching the companion out, prize money, Dynamax.
-  for (const slug of ['shed-shell', 'pass-orb', 'dynamax-candy']) {
+  // have: switching the companion out, prize money.
+  for (const slug of ['shed-shell', 'pass-orb']) {
     assert.ok(items[slug], `${slug} should have been kept`);
     assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
+  }
+
+  // One generation's copy of something the bag already has is not carried —
+  // a Casteliacone is a Full Heal, a Health Mochi an HP Up — while the thing
+  // it copies is.
+  for (const slug of ['casteliacone', 'fresh-water', 'sacred-ash', 'health-mochi', 'health-wing', 'mighty-candy-xl',
+    'dynamax-candy', 'sea-incense', 'blank-plate', 'fire-gem', 'enigma-berry', 'figy-berry', 'aguav-berry']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
+  }
+  for (const slug of ['full-heal', 'super-potion', 'max-revive', 'hp-up', 'mystic-water', 'silk-scarf', 'sitrus-berry',
+    'silver-razz-berry', 'golden-razz-berry', 'fresh-start-mochi', 'exp-candy-s']) {
+    assert.ok(items[slug], `${slug} should still be carried`);
   }
 });
 
@@ -289,13 +301,22 @@ test('the after-battle top-up defaults to full, for new and old saves alike', ()
   assert.equal(normalizeItemPolicy({ afterBattle: 'hpHalf' }).afterBattle, 'hpHalf');
 });
 
-test('the automatic berry is on for a new save, and an old save keeps what its order meant', () => {
+test('the three ranks and the automatic berry are kept side by side', () => {
   assert.equal(defaultItemPolicy().autoBerry, true);
+  assert.deepEqual(defaultItemPolicy().berries, [null, null, null]);
   assert.equal(normalizeItemPolicy(null).autoBerry, true);
-  assert.equal(normalizeItemPolicy({ berries: ['sitrus-berry', null, null] }).autoBerry, true);
-  assert.equal(normalizeItemPolicy({ berries: [null, null, null] }).autoBerry, false);
+  // A save from before the switch keeps its order and takes the default.
+  const old = normalizeItemPolicy({ berries: ['sitrus-berry'] });
+  assert.deepEqual(old.berries, ['sitrus-berry', null, null]);
+  assert.equal(old.autoBerry, true);
   assert.equal(normalizeItemPolicy({ autoBerry: false }).autoBerry, false);
-  assert.equal('berries' in normalizeItemPolicy({ berries: ['oran-berry'] }), false);
+});
+
+test('an unset restock rank is skipped, and an empty order holds nothing', withData, () => {
+  const session = fakeSession({ 'sitrus-berry': 1 });
+  assert.equal(berryToHold(session, [null, 'oran-berry', 'sitrus-berry']), 'sitrus-berry');
+  assert.equal(berryToHold(session, [null, null, null]), null);
+  assert.equal(berryToHold(session, ['oran-berry']), null);
 });
 
 test('every item the bag can hold says what it is, in Korean as well as English', withData, () => {
