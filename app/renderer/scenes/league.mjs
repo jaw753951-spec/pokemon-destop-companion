@@ -11,6 +11,7 @@
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
+import { stableHash } from '../core/rng.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
@@ -41,7 +42,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
   const league = resolveLeague(session);
   const rounds = [...league.eliteFour, league.champion];
 
-  let index = 0;
+  // Stepping out to prepare leaves the challenge where it stood: the same
+  // league, at the round reached.
+  let index = Math.min(Math.max(0, session.leagueRun?.round ?? 0), rounds.length - 1);
   let busy = false;
   /** The room this round is challenged in, drawn behind the challenge screen. */
   let room = /** @type {HTMLImageElement|null} */ (null);
@@ -92,7 +95,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
     const art = portraitFor(round);
     portrait.hidden = !art;
-    if (art) portrait.src = url('assets', `trainers/portraits/${art}.png`);
+    if (art) portrait.src = url('assets', `trainers/portraits/${art.name}.png`);
+    // Somebody nobody drew is a shape, not another person's face.
+    portrait.classList.toggle('silhouette', Boolean(art && !art.own));
 
     setChildren(actions, [
       button(t('league.next'), () => startRound(app), { className: 'primary', disabled: busy }),
@@ -140,6 +145,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
             // A loss ends the challenge rather than the run: the companion is
             // sent back to the field on its last hit point, and to the rest
             // stop the field will now put in its way.
+            session.leagueRun = null;
             const paid = lossFor(session);
             if (paid > 0) earn(session, -paid);
             session.blackOut();
@@ -164,6 +170,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
           }
 
           index++;
+          if (session.leagueRun) session.leagueRun.round = index;
           app.toast(t('league.healed'));
           render(app);
           refreshRoom();
@@ -177,6 +184,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     session.champion = true;
     session.champions.add(session.active.speciesId);
     session.leagueRegion = league.region;
+    session.leagueRun = null;
 
     const name = session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '');
     app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null, { intro: true });
@@ -191,31 +199,25 @@ export function leagueScene({ session, onLeave, onCrowned }) {
  * Hoenn's league was drawn by the game this art all comes from, and Kanto's
  * and Johto's people were drawn by two others the pipeline also reads. Nobody
  * from Sinnoh onwards was ever drawn on a Game Boy Advance, and there is no
- * honest way to invent a likeness — so they are shown as a trainer of their
- * speciality instead, which is what the games themselves do with everyone who
- * is not a name. The choice is fixed by the person's own id, so the same
- * champion is met by the same stand-in every time.
+ * honest way to invent a likeness — and a stand-in shown in full colour under
+ * a real person's name reads as the wrong person (Iris was met as somebody
+ * else's dragon tamer). So they are shown as a silhouette of a trainer of
+ * their speciality: a figure, and no false face. The choice is fixed by the
+ * person's own id, so the same champion is met by the same shape every time.
  *
  * @param {any} trainer
- * @returns {string|null}
+ * @returns {{name: string, own: boolean}|null}
  */
 function portraitFor(trainer) {
   const portraits = gameData().actors?.portraits ?? {};
-  if (trainer.portrait && portraits[trainer.portrait]) return trainer.portrait;
+  if (trainer.portrait && portraits[trainer.portrait]) return { name: trainer.portrait, own: true };
 
   const classes = (gameData().trainerClasses ?? []).filter(
-    (entry) => entry.portrait && portraits[entry.portrait] && entry.types?.includes(trainer.type),
+    (entry) => entry.portrait && portraits[entry.portrait] && (!trainer.type || entry.types?.includes(trainer.type)),
   );
   if (classes.length === 0) return null;
 
-  return classes[fingerprint(trainer.id ?? '') % classes.length].portrait;
-}
-
-/** A small stable number from a string, so a choice made from it never moves. */
-function fingerprint(text) {
-  let hash = 0;
-  for (let index = 0; index < text.length; index++) hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
-  return hash;
+  return { name: classes[stableHash(trainer.id ?? '') % classes.length].portrait, own: false };
 }
 
 /**
@@ -239,13 +241,23 @@ export function resolveLeague(session) {
   const leagues = gameData().leagues ?? [];
   if (leagues.length === 0) return generatedLeague(session);
 
-  const chosen = session.rng.pick(leagues);
+  // A challenge already under way is picked up again, not rolled afresh — the
+  // same league, the same four, and the fourth seat's same occupant.
+  const run = session.leagueRun;
+  const resumed = run ? leagues.find((entry) => entry.region === run.region) : null;
+  const chosen = resumed ?? session.rng.pick(leagues);
+
+  const league = { ...chosen, eliteFour: [...chosen.eliteFour] };
+  let alternate = null;
   if (chosen.alternates?.length) {
-    chosen.eliteFour = [...chosen.eliteFour, session.rng.pick(chosen.alternates)];
-    delete chosen.alternates;
+    alternate = (resumed && chosen.alternates.find((entry) => entry.id === run?.alternate)) || session.rng.pick(chosen.alternates);
+    league.eliteFour.push(alternate);
   }
+  delete league.alternates;
+
   session.leagueRegion = chosen.region;
-  return chosen;
+  session.leagueRun = { region: chosen.region, alternate: alternate?.id ?? null, round: resumed ? run?.round ?? 0 : 0 };
+  return league;
 }
 
 /**

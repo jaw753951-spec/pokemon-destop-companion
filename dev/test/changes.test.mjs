@@ -1,0 +1,215 @@
+/**
+ * The round of changes that moved badges onto the Pokémon that won them, kept
+ * a league challenge across a step out to prepare, put every catch at level 5,
+ * folded the Sweets into one, gave an Alcremie a random look, took effort out,
+ * and handed a battle's used-up items back afterwards.
+ */
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { ALCREMIE_LOOKS } from '../../app/shared/alcremie.mjs';
+import { artOf, gameData, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
+import { Battle } from '../../app/renderer/engine/battle.mjs';
+import { restoreHeldItem } from '../../app/renderer/engine/items.mjs';
+import {
+  CAUGHT_LEVEL,
+  createPokemon,
+  evolveInto,
+  levelOf,
+  maxHp,
+  resetToLevel,
+  setMove,
+  statsOf,
+} from '../../app/renderer/engine/pokemon.mjs';
+import { defaultAutoBattle, leagueOpen, Session } from '../../app/renderer/engine/session.mjs';
+import { resolveLeague } from '../../app/renderer/scenes/league.mjs';
+
+const ready = await useRealGameData();
+const options = { skip: ready ? false : NEEDS_ASSETS };
+
+const id = (slug) => /** @type {number} */ (speciesIdBySlug(slug));
+
+function fixed(speciesId, level, moves = []) {
+  const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31, shiny: false });
+  pokemon.nature = 'hardy';
+  pokemon.ability = 'no-ability';
+  pokemon.heldItem = null;
+  if (moves.length) {
+    pokemon.moves = [];
+    moves.forEach((move, index) => setMove(pokemon, index, move));
+  }
+  pokemon.hp = maxHp(pokemon);
+  return pokemon;
+}
+
+const sessionOf = (active, box = []) => new Session({ slot: 0, save: { seed: 1, party: { active, box } } });
+
+test('badges and the champion title belong to the Pokémon that won them', options, () => {
+  const session = sessionOf(fixed(4, 30), [fixed(7, 30)]);
+  session.badges = ['rock', 'water', 'electric', 'fire', 'psychic', 'ice', 'dragon', 'dark'];
+  assert.equal(leagueOpen(session), true);
+
+  session.champion = true;
+  assert.equal(session.active.champion, true);
+  assert.equal(leagueOpen(session), false);
+
+  // Another Pokémon walks out with nothing: no badge, no crown, no League.
+  session.switchActive(0);
+  assert.deepEqual(session.badges, []);
+  assert.equal(session.champion, false);
+  assert.equal(leagueOpen(session), false);
+
+  // And the first one still has all of it in the box.
+  assert.equal(session.box[0]?.badges?.length, 8);
+  assert.equal(session.box[0]?.champion, true);
+});
+
+test('a save from before hands its badges to the Pokémon it was travelling with', options, () => {
+  const session = new Session({
+    slot: 0,
+    save: { seed: 1, party: { active: fixed(4, 30), box: [] }, progress: { badges: ['rock', 'water'], champion: true } },
+  });
+  assert.deepEqual(session.badges, ['rock', 'water']);
+  assert.equal(session.champion, true);
+  // Written back, nothing is lost.
+  const saved = session.toSave();
+  assert.deepEqual(saved.party.active.badges, ['rock', 'water']);
+  assert.equal(saved.party.active.champion, true);
+});
+
+test('stepping out to prepare keeps the league and the round reached', options, () => {
+  const person = (name, extra = {}) => ({ id: name, name: { ko: name, en: name }, type: 'normal', party: [], ...extra });
+  const leagues = ['a', 'b', 'c', 'd'].map((region) => ({
+    region,
+    name: { ko: region, en: region },
+    eliteFour: [person(`${region}1`), person(`${region}2`), person(`${region}3`)],
+    alternates: [person(`${region}-x`), person(`${region}-y`)],
+    champion: person(`${region}-champion`),
+  }));
+  const real = gameData().leagues;
+  gameData().leagues = leagues;
+  try {
+    const first = sessionOf(fixed(4, 30));
+    const league = resolveLeague(first);
+    assert.equal(league.eliteFour.length, 4);
+    assert.equal(first.leagueRun?.round, 0);
+    // Rolling a league does not eat the alternates out of the shared data.
+    assert.ok(leagues.every((entry) => entry.alternates.length === 2));
+
+    first.leagueRun.round = 2;
+    const saved = first.toSave();
+
+    // A reload, or simply walking back in: the same league, the same four.
+    for (let seed = 1; seed <= 8; seed++) {
+      const again = new Session({ slot: 0, save: { ...saved, seed, party: { active: fixed(4, 30), box: [] } } });
+      const resumed = resolveLeague(again);
+      assert.equal(resumed.region, league.region);
+      assert.deepEqual(resumed.eliteFour.map((member) => member.id), league.eliteFour.map((member) => member.id));
+      assert.equal(again.leagueRun?.round, 2);
+    }
+  } finally {
+    gameData().leagues = real;
+  }
+});
+
+test('a Pokémon that is caught goes into the box at level 5, with the moves of that level', options, () => {
+  const catch_ = fixed(id('charizard'), 60);
+  assert.ok(levelOf(catch_) >= 60);
+  resetToLevel(catch_, CAUGHT_LEVEL);
+  assert.equal(levelOf(catch_), 5);
+  assert.equal(catch_.hp, maxHp(catch_));
+  assert.ok(catch_.moves.length > 0 && catch_.moves.length <= 4);
+  // Nothing at level 5 could have been learnt by level 60.
+  assert.ok(!catch_.moves.some((slot) => slot.move === 'blast-burn'));
+  // And a wild one met below the line comes up to it.
+  const small = fixed(id('pidgey'), 2);
+  resetToLevel(small, CAUGHT_LEVEL);
+  assert.equal(levelOf(small), 5);
+});
+
+test('there is no effort: stats are base, genes, level and nature', options, () => {
+  const pokemon = fixed(id('pikachu'), 50);
+  assert.equal('evs' in pokemon, false);
+  const stats = statsOf(pokemon);
+  assert.ok(Object.values(stats).every((value) => value > 0));
+  for (const slug of ['hp-up', 'protein', 'macho-brace', 'power-anklet', 'pomeg-berry', 'fresh-start-mochi']) {
+    assert.equal(gameData().items[slug], undefined, `${slug} should be gone`);
+  }
+});
+
+test('the seven Sweets are one, and an Alcremie is one of sixty-three at random', options, () => {
+  const items = gameData().items;
+  for (const slug of ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet']) {
+    assert.equal(items[slug], undefined);
+  }
+  assert.ok(items.sweet);
+
+  const milcery = fixed(id('milcery'), 30);
+  milcery.heldItem = 'sweet';
+  const edges = gameData().species[id('milcery')].evolutions;
+  assert.ok(edges.length > 0 && edges.every((edge) => edge.heldItem === 'sweet'));
+
+  const looks = new Set();
+  const rng = new Rng(5);
+  for (let index = 0; index < 60; index++) {
+    const pokemon = fixed(id('milcery'), 30);
+    evolveInto(pokemon, id('alcremie'), rng);
+    assert.ok(ALCREMIE_LOOKS.includes(pokemon.look), pokemon.look);
+    // Every look has a picture of its own.
+    assert.ok(artOf(pokemon)?.path.includes(`form-${pokemon.look}`), `${pokemon.look} has art`);
+    looks.add(pokemon.look);
+  }
+  assert.ok(looks.size > 10, `${looks.size} different looks in sixty`);
+
+  // A save that still holds the old Sweets gets the one.
+  const session = sessionOf(fixed(4, 5));
+  const old = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(4, 5), box: [] }, bag: { 'love-sweet': 2, 'star-sweet': 1 } } });
+  assert.equal(old.bag.sweet, 3);
+  assert.equal(session.bag.sweet, undefined);
+});
+
+test('a Future Sight is not picked while one is on its way, nor straight after one', options, () => {
+  const player = fixed(id('alakazam'), 50, ['future-sight', 'psychic']);
+  const foe = fixed(id('blissey'), 100, ['defense-curl']);
+  const battle = new Battle({ rng: new Rng(3), player, foes: [foe], policy: defaultAutoBattle() });
+
+  const chosen = [];
+  for (let turn = 0; turn < 12 && battle.running; turn++) {
+    battle.takeTurn();
+    chosen.push(battle.player.lastMove);
+  }
+  for (let index = 1; index < chosen.length; index++) {
+    assert.ok(!(chosen[index] === 'future-sight' && chosen[index - 1] === 'future-sight'), `twice in a row at turn ${index}: ${chosen}`);
+  }
+  assert.ok(chosen.includes('future-sight'), 'it is still used');
+});
+
+test('rampage fatigue is one line, not two', options, () => {
+  const player = fixed(id('dragonite'), 60, ['outrage']);
+  const foe = fixed(id('snorlax'), 100, ['defense-curl']);
+  const battle = new Battle({ rng: new Rng(11), player, foes: [foe], policy: defaultAutoBattle() });
+  const log = [];
+  for (let turn = 0; turn < 6; turn++) log.push(...battle.takeTurn());
+  const confusions = log.filter((entry) => entry.kind === 'volatile' && entry.data?.state === 'confusion');
+  assert.ok(confusions.length > 0, 'the rampage ended and confused it');
+  assert.ok(confusions.every((entry) => entry.data.fatigue === true));
+  assert.ok(!log.some((entry) => entry.kind === 'message' && entry.data?.key === 'move.fatigue'), 'no second line');
+});
+
+test('a used-up item comes back after the battle, but a berry eaten does not', options, () => {
+  const pokemon = fixed(4, 30);
+  assert.equal(restoreHeldItem(pokemon, 'focus-sash'), true);
+  assert.equal(pokemon.heldItem, 'focus-sash');
+
+  const berried = fixed(4, 30);
+  assert.equal(restoreHeldItem(berried, 'sitrus-berry'), false);
+  assert.equal(berried.heldItem, null);
+
+  // Nothing is taken from a hand that is holding something.
+  const holding = fixed(4, 30);
+  holding.heldItem = 'leftovers';
+  assert.equal(restoreHeldItem(holding, 'focus-sash'), false);
+  assert.equal(holding.heldItem, 'leftovers');
+});

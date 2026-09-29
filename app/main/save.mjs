@@ -41,10 +41,10 @@ export async function listSlots() {
               // depends on its species' growth rate, which only the renderer
               // has the data to work out.
               experience: save.party?.active?.experience ?? 0,
-              badges: save.progress?.badges?.length ?? 0,
+              badges: (save.party?.active?.badges ?? save.progress?.badges)?.length ?? 0,
               playtime: save.progress?.playtime ?? 0,
               savedAt: save.savedAt ?? null,
-              champion: Boolean(save.progress?.champion),
+              champion: Boolean(save.party?.active?.champion ?? save.progress?.champion),
             },
           }
         : { slot, empty: true, summary: null },

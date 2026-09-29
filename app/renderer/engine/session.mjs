@@ -5,14 +5,20 @@
  * Everything the player accumulates lives here, and `toSave` is the single
  * point where it turns back into the JSON written to a slot.
  */
-import { AUTOSAVE_INTERVAL_MS, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
+import { AUTOSAVE_INTERVAL_MS, BADGES_FOR_LEAGUE, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
-import { gameData } from '../core/data.mjs';
+import { randomLook } from '../../shared/alcremie.mjs';
+import { gameData, speciesOf } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
 import { settleForme } from './forms.mjs';
 import { STARTING_MONEY } from './shop.mjs';
+
+/** Items that have been folded into another since saves were written. */
+const LEGACY_ITEMS = Object.fromEntries(
+  ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet'].map((slug) => [slug, 'sweet']),
+);
 
 /** How often moving on to a new area crosses to the other region. */
 export const REGION_CROSSING_CHANCE = 0.2;
@@ -41,19 +47,34 @@ export class Session {
       if (pokemon) settleForme(pokemon);
       // And holding nothing the game no longer carries, the way the bag below
       // keeps nothing of it: a Tera Orb, from before the Terastal formes went.
+      if (pokemon?.heldItem && LEGACY_ITEMS[pokemon.heldItem]) pokemon.heldItem = LEGACY_ITEMS[pokemon.heldItem];
       if (pokemon?.heldItem && !gameData().items[pokemon.heldItem]) pokemon.heldItem = null;
+      // Effort is gone; a save that still carries it drops it.
+      if (pokemon) delete pokemon.evs;
+      // An Alcremie saved before its cream and sweet were rolled gets one.
+      if (pokemon && !pokemon.look && speciesOf(pokemon.speciesId)?.slug === 'alcremie') pokemon.look = randomLook(this.rng);
     }
     /**
      * The bag, less anything the game no longer carries: a save written before
      * an item was found to have no effect here would otherwise keep it for
      * good, listed in a pocket that can do nothing with it.
      */
-    this.bag = Object.fromEntries(
-      Object.entries(save.bag ?? {}).filter(([slug, count]) => Number(count) > 0 && gameData().items[slug]),
-    );
+    this.bag = {};
+    for (const [slug, count] of Object.entries(save.bag ?? {})) {
+      // The seven Sweets are one item now.
+      const kept = LEGACY_ITEMS[slug] ?? slug;
+      if (Number(count) > 0 && gameData().items[kept]) this.bag[kept] = (this.bag[kept] ?? 0) + Number(count);
+    }
 
-    this.badges = [...(save.progress?.badges ?? [])];
-    this.champion = Boolean(save.progress?.champion);
+    // Badges belong to the Pokémon that won them. A save from before that was
+    // so hands what the run had earned to the Pokémon it was travelling with.
+    if (!Array.isArray(this.active.badges)) {
+      this.active.badges = [...(save.progress?.badges ?? [])];
+      if (save.progress?.champion) this.active.champion = true;
+    }
+    for (const pokemon of this.box) {
+      if (pokemon && !Array.isArray(pokemon.badges)) pokemon.badges = [];
+    }
     this.trainerWins = save.progress?.trainerWins ?? 0;
     /** The purse: what trainers pay out and the shop takes. */
     this.money = Number.isFinite(save.progress?.money) ? save.progress.money : STARTING_MONEY;
@@ -71,6 +92,13 @@ export class Session {
     this.itemPolicy = normalizeItemPolicy(save.items);
     /** @type {string|null} */
     this.leagueRegion = save.progress?.leagueRegion ?? null;
+    /**
+     * The league challenge in progress, or null: the line-up it faces and how many rounds are won. It outlives stepping out
+     * to prepare, so going back in carries on from the round reached rather
+     * than rolling a new league.
+     * @type {{region: string, alternate: string|null, round: number}|null}
+     */
+    this.leagueRun = save.progress?.leagueRun ?? null;
     /** The species the last wild Pokémon was, so the next is not the same again. */
     this.lastWildSpecies = /** @type {number|null} */ (null);
 
@@ -87,6 +115,25 @@ export class Session {
      * @type {import('./pokemon.mjs').Pokemon[]}
      */
     this.tray = [];
+  }
+
+  /** The badges the travelling Pokémon holds. */
+  get badges() {
+    return (this.active.badges ??= []);
+  }
+
+  set badges(list) {
+    this.active.badges = [...list];
+  }
+
+  /** Whether the travelling Pokémon has been crowned Champion. */
+  get champion() {
+    return Boolean(this.active.champion);
+  }
+
+  set champion(value) {
+    if (value) this.active.champion = true;
+    else delete this.active.champion;
   }
 
   /** @param {string|null|undefined} id */
@@ -265,6 +312,8 @@ export class Session {
   switchActive(index) {
     const chosen = this.box[index];
     if (!chosen) return null;
+    // Whoever walks off takes its league challenge with it.
+    this.leagueRun = null;
     this.box[index] = this.active;
     this.active = chosen;
     return chosen;
@@ -295,6 +344,7 @@ export class Session {
       party: { active: this.active, box: this.box },
       bag: this.bag,
       progress: {
+        // Kept for the save list, which reads them without the Pokémon's data.
         badges: this.badges,
         champion: this.champion,
         trainerWins: this.trainerWins,
@@ -304,6 +354,7 @@ export class Session {
         eventsHere: this.eventsHere,
         machines: this.machines,
         leagueRegion: this.leagueRegion,
+        leagueRun: this.leagueRun,
         events: this.events.toJSON(),
       },
       dex: {
@@ -411,4 +462,14 @@ export function normalizeAutoBattle(policy) {
     order: policy.order ?? fresh.order,
     conditions,
   };
+}
+
+/**
+ * Whether the League's door is open to the travelling Pokémon: eight badges
+ * of its own, and not yet crowned.
+ *
+ * @param {Session} session
+ */
+export function leagueOpen(session) {
+  return session.badges.length >= BADGES_FOR_LEAGUE && !session.champion;
 }

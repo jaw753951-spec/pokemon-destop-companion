@@ -181,6 +181,9 @@ const PIVOTS = new Set(['u-turn', 'volt-switch', 'flip-turn']);
 /** The moves Gravity keeps a Pokémon from using. */
 const GRAVITY_BANNED = new Set(['fly', 'bounce', 'sky-drop', 'high-jump-kick', 'jump-kick', 'magnet-rise', 'telekinesis', 'flying-press', 'splash', 'floaty-fall']);
 
+/** The delayed attacks: one is already on its way, and a second fails. */
+const DELAYED_ATTACKS = new Set(['future-sight', 'doom-desire']);
+
 /** The moves that cannot be used twice running. */
 const NO_REPEAT = new Set(['blood-moon', 'gigaton-hammer']);
 
@@ -2234,6 +2237,13 @@ export class Battle {
       return true;
     });
     if (narrowed.length > 0) left = narrowed;
+    // A Future Sight is not chosen again while one is on its way to the same
+    // target, nor straight after the one just used: the second fails.
+    const target = this.other(attacker);
+    if ((target && this.field.futureSight[target.side]) || DELAYED_ATTACKS.has(attacker.lastMove)) {
+      const fresh = left.filter((slot) => !DELAYED_ATTACKS.has(slot.move));
+      if (fresh.length > 0) left = fresh;
+    }
     if (hasVolatile(attacker, VOLATILE.TORMENT)) {
       const others = left.filter((slot) => slot.move !== attacker.lastMove);
       if (others.length > 0) left = others;
@@ -2677,8 +2687,9 @@ export class Battle {
       } else if (--locked.turns <= 0) {
         this.breakLock(attacker);
         if (attacker.pokemon.hp > 0) {
-          this.say(attacker, 'move.fatigue');
-          this.confuse(attacker, log);
+          // One line for it, not two: "exhausted and confused" stands in for
+          // the ordinary "became confused" rather than playing before it.
+          this.confuse(attacker, log, { fatigue: true });
         }
       }
     }
@@ -4478,13 +4489,15 @@ export class Battle {
    *
    * @param {Combatant} target
    * @param {LogEntry[]} log
+   * @param {{fatigue?: boolean}} [options] confused by the end of a rampage,
+   *   which words the one line it gets its own way
    */
-  confuse(target, log) {
+  confuse(target, log, { fatigue = false } = {}) {
     if (target.pokemon.hp <= 0) return false;
     if (this.blocksVolatile(target, VOLATILE.CONFUSION, log)) return false;
     if (!addVolatile(target, VOLATILE.CONFUSION, this.rng.int(...CONFUSION_TURNS))) return false;
 
-    log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.CONFUSION } });
+    log.push({ kind: 'volatile', side: target.side, data: { state: VOLATILE.CONFUSION, ...(fatigue ? { fatigue: true } : {}) } });
     // A Persim Berry is eaten the moment the confusion lands, as it is in the
     // games; the ordinary berry check would not come round until the turn ends.
     this.eatOneBerry(target, log);
@@ -4746,8 +4759,6 @@ export class Battle {
       {
         trainerBattle: this.trainerBattle,
         experienceMultiplier: heldPassive(this.player.pokemon, 'experience')?.multiplier ?? 1,
-        effortMultiplier: heldPassive(this.player.pokemon, 'effort')?.multiplier ?? 1,
-        effortBonus: heldPassive(this.player.pokemon, 'effort')?.bonus ?? null,
       },
     );
     this.rewards.push(reward);
@@ -4859,22 +4870,19 @@ export function effectiveStat(combatant, stat, options = {}) {
  * How much a held item changes a stat.
  *
  * A Choice Band's fifty percent, an Eviolite's half again for something that
- * still has an evolution ahead of it, and the Speed a Macho Brace costs for
- * the effort it earns.
+ * still has an evolution ahead of it.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {string} stat
  */
 function heldStatMultiplier(pokemon, stat) {
   const held = heldPassive(pokemon, 'stat');
-  const effort = heldPassive(pokemon, 'effort');
   let multiplier = 1;
 
   if (held?.stats?.includes(stat) && itemSuits(held, pokemon)) {
     const unevolved = (speciesOf(pokemon.speciesId).evolutions ?? []).length > 0;
     if (!held.unevolvedOnly || unevolved) multiplier *= held.multiplier;
   }
-  if (stat === 'spe' && effort?.speed) multiplier *= effort.speed;
   return multiplier;
 }
 

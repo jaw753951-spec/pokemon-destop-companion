@@ -1,5 +1,5 @@
 /**
- * The bag: the four tabs the brief calls for, opening on Pokémon.
+ * The bag: the tabs the brief calls for, opening on Pokémon.
  *
  * Each tab rebuilds itself from the session whenever something changes, which
  * keeps the screens stateless apart from the small amount of view state — the
@@ -10,9 +10,8 @@ import { t } from '../core/i18n.mjs';
 import { boxTab } from './boxtab.mjs';
 import { itemsTab } from './itemstab.mjs';
 import { pokemonTab } from './pokemontab.mjs';
-import { treasuresTab } from './treasurestab.mjs';
 
-const TABS = ['pokemon', 'items', 'box', 'treasures'];
+const TABS = ['pokemon', 'items', 'box'];
 
 /**
  * @param {{session: import('../engine/session.mjs').Session, onClose: () => void}} options
@@ -159,8 +158,6 @@ function render(app, session, state, rebuild) {
       return itemsTab(app, session, rebuild, state);
     case 'box':
       return boxTab(app, session, rebuild, state);
-    case 'treasures':
-      return treasuresTab(session);
     case 'pokemon':
     default:
       return pokemonTab(app, session, rebuild, state);

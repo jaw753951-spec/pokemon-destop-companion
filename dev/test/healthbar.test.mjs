@@ -55,7 +55,6 @@ const { maxHp } = await import('../../app/renderer/engine/pokemon.mjs');
 const subject = () => ({
   speciesId: 1, nickname: null, experience: 8000, nature: 'hardy',
   ivs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
-  evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
   moves: [], hp: 0, status: null, statusTurns: 0, heldItem: null,
   ability: '', gender: null, shiny: false, caughtAt: 0, ball: null,
 });

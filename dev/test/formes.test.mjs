@@ -36,7 +36,6 @@ const OGERPON = 1017;
 function fixed(speciesId, level, moves = [], ability = null) {
   const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31, shiny: false, hiddenAbility: true });
   pokemon.nature = 'hardy';
-  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
   if (moves.length) {
     pokemon.moves = [];
     moves.forEach((move, index) => setMove(pokemon, index, move));

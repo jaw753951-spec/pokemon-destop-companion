@@ -31,6 +31,7 @@ import { writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
 import { crop, opaqueBounds } from '../lib/image.mjs';
 import { saveVendored, vendored } from '../lib/vendor.mjs';
+import { ALCREMIE_LOOKS } from '../../../app/shared/alcremie.mjs';
 import { MAX_SPECIES } from '../sources.mjs';
 
 /** Where the sprites sit in the PokeAPI sprites repository. */
@@ -122,6 +123,13 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
           const suffix = forme.slug.startsWith(`${base}-`) ? forme.slug.slice(base.length + 1) : forme.slug;
           const names = [forme.art, forme.id, `${entry.dex ?? entry.id}-${suffix}`].filter(Boolean).map((name) => `${name}.png`);
           if (!(await fetchInto(entry.id, `-form-${forme.slug}`, [...new Set(names)]))) missing.push(forme.slug);
+        }
+        // An Alcremie is one of sixty-three: nine creams over seven sweets,
+        // each filed under the species' number and its own name.
+        if (entry.slug === 'alcremie') {
+          for (const look of ALCREMIE_LOOKS) {
+            if (!(await fetchInto(entry.id, `-form-${look}`, [`${entry.id}-${look}.png`]))) missing.push(`alcremie-${look}`);
+          }
         }
       }),
     ),

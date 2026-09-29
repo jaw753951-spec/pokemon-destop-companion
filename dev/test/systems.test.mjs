@@ -62,7 +62,6 @@ const punchbag = (level = 70) => fixed(GEODUDE, level, ['defense-curl']);
 function fixed(speciesId, level, moves = []) {
   const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31, shiny: false });
   pokemon.nature = 'hardy';
-  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
   if (moves.length) {
     pokemon.moves = [];
     moves.forEach((move, index) => setMove(pokemon, index, move));
@@ -456,7 +455,6 @@ test('the items that used to do nothing now say what they do', options, () => {
   assert.deepEqual(itemOf('ability-patch')?.use, { ability: 'hidden' });
   assert.deepEqual(itemOf('bottle-cap')?.use, { genes: 'one' });
   assert.deepEqual(itemOf('gold-bottle-cap')?.use, { genes: 'all' });
-  assert.deepEqual(itemOf('hp-up')?.use, { effort: { stat: 'hp', amount: 10 } });
   assert.deepEqual(itemOf('paralyze-heal')?.use, { status: 'par' });
   assert.deepEqual(itemOf('burn-heal')?.use, { status: 'brn' });
 });

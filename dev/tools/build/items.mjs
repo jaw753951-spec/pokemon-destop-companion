@@ -161,6 +161,8 @@ const ICON_STAND_INS = {
   // as the nearest thing that is — an apple as an apple, an alloy as a coat
   // of metal, a cord as silk, armour as armour.
   'syrupy-apple': 'sweet-apple',
+  // The one Sweet, drawn as the strawberry one.
+  sweet: 'strawberry-sweet',
   'metal-alloy': 'metal-coat',
   'black-augurite': 'dusk-stone',
   'peat-block': 'soft-sand',

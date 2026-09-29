@@ -19,7 +19,7 @@ import {
   setMove,
   statsOf,
 } from './pokemon.mjs';
-import { addEffort, experienceForLevel, STATS } from './stats.mjs';
+import { experienceForLevel, STATS } from './stats.mjs';
 import { FORME_MOVE_RULES, nextForme, SET_FORMES, settleForme, signatureItems, standingTypes, USE_FORMES, useFormeItem } from './forms.mjs';
 
 /**
@@ -158,7 +158,7 @@ export function useItem(session, slug, choice = {}) {
   if (evolution) {
     session.removeItem(slug);
     const from = nameOf(pokemon);
-    evolveInto(pokemon, evolution.to);
+    evolveInto(pokemon, evolution.to, session.rng);
     session.markCaught(evolution.to);
     const taught = learnOnEvolution(pokemon);
     const lines = [
@@ -240,9 +240,26 @@ export function equipItem(session, slug) {
 }
 
 /**
- * Take back whatever the travelling Pokémon is holding.
+ * Hand back what a battle used up: a Focus Sash, a gem, a herb, a balloon
+ * are the Pokémon's again when the fight is over — only a berry, eaten, is
+ * gone for good.
  *
- * @param {import('../engine/session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {string|null} slug what it went in holding
+ * @returns {boolean} whether it was given back
+ */
+export function restoreHeldItem(pokemon, slug) {
+  if (!slug || pokemon.heldItem || !itemOf(slug)) return false;
+  // A berry eaten is gone; anything else that was used up comes back.
+  if (itemOf(slug)?.pocket === 'berries' || slug.endsWith('-berry')) return false;
+  pokemon.heldItem = slug;
+  return true;
+}
+
+/**
+ * Take the held item back into the bag.
+ *
+ * @param {import('./session.mjs').Session} session
  * @returns {{used: boolean, ok: boolean, message: string}}
  */
 export function unequipItem(session) {
@@ -316,7 +333,7 @@ function nameOf(pokemon) {
  * Apply an item's use effect: what its own effect text says it does.
  *
  * The amounts are read off the item during the build — "Restores 20 HP",
- * "Restores 10 PP for one move", "Raises Attack effort" — so nothing here has
+ * "Restores 10 PP for one move" — so nothing here has
  * to guess at a number or match on a name. An item the build could make no
  * sense of never reaches the bag, so anything arriving here has an effect;
  * what it can still fail at is being pointless right now, which is what a
@@ -359,12 +376,6 @@ function applyUse(pokemon, item, choice = {}) {
   }
 
   if (use.pp) changed = restorePp(pokemon, use.pp, choice.move) || changed;
-  if (use.effort) changed = changeEffort(pokemon, use.effort) || changed;
-  // A Fresh-Start Mochi takes every effort point back.
-  if (use.resetEffort && STATS.some((stat) => (pokemon.evs[stat] ?? 0) > 0)) {
-    pokemon.evs = Object.fromEntries(STATS.map((stat) => [stat, 0]));
-    changed = true;
-  }
 
   if (use.level) {
     const level = levelOf(pokemon);
@@ -606,24 +617,6 @@ function restorePp(pokemon, pp, index) {
     slot.pp = pp.amount === 'full' ? full : Math.min(full, slot.pp + pp.amount);
   }
   return true;
-}
-
-/**
- * Move a stat's effort, up for a vitamin and down for the berries that undo
- * one. Raising goes through the shared cap so the per-stat and total limits
- * hold however the effort was earned.
- *
- * @param {import('./pokemon.mjs').Pokemon} pokemon
- * @param {{stat: string, amount: number}} effort
- */
-function changeEffort(pokemon, effort) {
-  const before = pokemon.evs[effort.stat] ?? 0;
-  if (effort.amount >= 0) {
-    pokemon.evs = addEffort(pokemon.evs, { [effort.stat]: effort.amount });
-  } else {
-    pokemon.evs = { ...pokemon.evs, [effort.stat]: Math.max(0, before + effort.amount) };
-  }
-  return (pokemon.evs[effort.stat] ?? 0) !== before;
 }
 
 /** The level nothing grows past. */

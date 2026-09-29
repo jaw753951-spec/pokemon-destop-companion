@@ -79,20 +79,6 @@ test('each ball earns its bonus only where it should', options, () => {
   assert.ok(catchValue(magikarp, 'heavy-ball') < catchValue(magikarp, 'poke-ball'));
 });
 
-test('a Power item adds its eight effort points', options, () => {
-  const pokemon = make('pikachu', 20);
-  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
-  pokemon.heldItem = 'power-bracer';
-  const held = heldPassive(pokemon, 'effort');
-  // A Magikarp yields one Speed point.
-  gainFromDefeat(pokemon, { baseStats: { hp: 20, atk: 10, def: 55, spa: 15, spd: 20, spe: 80 }, baseExp: 40, level: 5 }, {
-    effortMultiplier: held?.multiplier ?? 1,
-    effortBonus: held?.bonus,
-  });
-  assert.equal(pokemon.evs.atk, 8);
-  assert.equal(pokemon.evs.spe, 1);
-});
-
 test('a Lucky Egg’s share is in the experience reported', options, () => {
   const plain = make('pikachu', 20);
   const egged = make('pikachu', 20);
@@ -177,14 +163,6 @@ test('an Ether and a Bottle Cap go where the player points them', options, () =>
   assert.equal(useItem(session, 'bottle-cap', { stat: 'spe' }).ok, true);
   assert.equal(pokemon.ivs.spe, 31);
   assert.equal(pokemon.ivs.hp, 1);
-});
-
-test('a Fresh-Start Mochi takes the effort back', options, () => {
-  const pokemon = make('pikachu', 30);
-  pokemon.evs = { hp: 10, atk: 20, def: 0, spa: 0, spd: 0, spe: 252 };
-  const session = bag({ 'fresh-start-mochi': 1 }, pokemon);
-  assert.equal(useItem(session, 'fresh-start-mochi').ok, true);
-  assert.deepEqual(Object.values(pokemon.evs), [0, 0, 0, 0, 0, 0]);
 });
 
 test('a Life Orb still costs a Rock Head, and not a Magic Guard', options, () => {

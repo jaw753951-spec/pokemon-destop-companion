@@ -28,7 +28,6 @@ const VENUSAUR = 3;
 function makeFixed(speciesId, level, moves = []) {
   const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31 });
   pokemon.nature = 'hardy'; // neutral, so nature cannot skew a stat assertion
-  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
   if (moves.length) {
     pokemon.moves = [];
     moves.forEach((move, index) => setMove(pokemon, index, move));
@@ -37,22 +36,22 @@ function makeFixed(speciesId, level, moves = []) {
   return pokemon;
 }
 
-test('stat formula matches a known main-series value', options, () => {
-  // Bulbapedia's worked example: a level-78 Garchomp with 108 base HP, 24 IV
-  // and 74 EV has 289 HP.
-  assert.equal(computeStat(108, 24, 74, 78, 1, true), 289);
+test('stat formula follows the main series, with no effort in it', options, () => {
+  // A level-78 Garchomp with 108 base HP and 24 IV: floor((216 + 24) * 78 / 100)
+  // = 187, then the level and ten on top.
+  assert.equal(computeStat(108, 24, 78, 1, true), 275);
 
-  // Its Attack, step by step: floor(195/4) = 48 EV points, so the inner term is
-  // floor((2*130 + 12 + 48) * 78 / 100) = 249, then (249 + 5) * 1.1 = 279.4.
-  assert.equal(computeStat(130, 12, 195, 78, 1.1, false), 279);
-  // A hindering nature rounds the same way: 254 * 0.9 = 228.6.
-  assert.equal(computeStat(130, 12, 195, 78, 0.9, false), 228);
-  // And a neutral one is the inner term untouched.
-  assert.equal(computeStat(130, 12, 195, 78, 1, false), 254);
+  // Its Attack, step by step: floor((2*130 + 12) * 78 / 100) = 212, then
+  // (212 + 5) * 1.1 = 238.7.
+  assert.equal(computeStat(130, 12, 78, 1.1, false), 238);
+  // A hindering nature rounds the same way: 217 * 0.9 = 195.3.
+  assert.equal(computeStat(130, 12, 78, 0.9, false), 195);
+  // And a neutral one is the inner term plus five.
+  assert.equal(computeStat(130, 12, 78, 1, false), 217);
 
   // A level-1 Pokémon still has the flat +10 on HP and +5 elsewhere.
-  assert.equal(computeStat(45, 0, 0, 1, 1, true), 11);
-  assert.equal(computeStat(49, 0, 0, 1, 1, false), 5);
+  assert.equal(computeStat(45, 0, 1, 1, true), 11);
+  assert.equal(computeStat(49, 0, 1, 1, false), 5);
 });
 
 test('stage multipliers follow the main-series table', options, () => {

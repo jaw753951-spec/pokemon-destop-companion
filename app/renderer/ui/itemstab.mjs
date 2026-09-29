@@ -57,8 +57,12 @@ export function itemsTab(app, session, refresh, state) {
   const learnable = new Set(machines ? speciesOf(session.active?.speciesId)?.learnset?.machine ?? [] : []);
   const fits = (/** @type {string} */ slug) => learnable.has(itemOf(slug)?.move ?? '');
   const onlyLearnable = machines && Boolean(state.learnableOnly);
+  // With the filter on, a machine for a move the companion already has in a
+  // slot is as good as none: it is hidden along with the ones it cannot learn.
+  const knownMoves = new Set((session.active?.moves ?? []).map((entry) => entry.move));
+  const worthShowing = (/** @type {string} */ slug) => fits(slug) && !knownMoves.has(itemOf(slug)?.move ?? '');
 
-  const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || fits(entry.slug));
+  const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || worthShowing(entry.slug));
   // What was being read survives a refresh — using one of three Potions
   // leaves the other two on the panel — but not the last of it going.
   if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;

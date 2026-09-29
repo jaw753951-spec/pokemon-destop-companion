@@ -75,3 +75,14 @@ export class Rng {
     return out;
   }
 }
+
+/**
+ * A small stable number from a string, so a choice made from it never moves:
+ * the same leader is met in the same stand-in every time.
+ * @param {string} text
+ */
+export function stableHash(text) {
+  let hash = 0;
+  for (let index = 0; index < text.length; index++) hash = (hash * 31 + text.charCodeAt(index)) >>> 0;
+  return hash;
+}

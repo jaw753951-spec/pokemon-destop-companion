@@ -42,6 +42,15 @@ export const NAMED_PORTRAITS = {
   bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
   lance: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_lance_front_pic.png' },
   koga: { source: 'firered', path: 'graphics/trainers/front_pics/leader_koga_front_pic.png' },
+  // Kanto's gym leaders, the same hand again: each is drawn for the person
+  // whose name it goes under, and nobody else.
+  brock: { source: 'firered', path: 'graphics/trainers/front_pics/leader_brock_front_pic.png' },
+  misty: { source: 'firered', path: 'graphics/trainers/front_pics/leader_misty_front_pic.png' },
+  lt_surge: { source: 'firered', path: 'graphics/trainers/front_pics/leader_lt_surge_front_pic.png' },
+  erika: { source: 'firered', path: 'graphics/trainers/front_pics/leader_erika_front_pic.png' },
+  sabrina: { source: 'firered', path: 'graphics/trainers/front_pics/leader_sabrina_front_pic.png' },
+  blaine: { source: 'firered', path: 'graphics/trainers/front_pics/leader_blaine_front_pic.png' },
+  giovanni: { source: 'firered', path: 'graphics/trainers/front_pics/leader_giovanni_front_pic.png' },
   will: { source: 'crystal', path: 'gfx/trainers/will.png' },
   karen: { source: 'crystal', path: 'gfx/trainers/karen.png' },
 };

@@ -28,7 +28,6 @@ const IRON_BOULDER = 1022;
 function fixed(speciesId, level, moves = []) {
   const pokemon = createPokemon(new Rng(1), speciesId, level, { ivFloor: 31, shiny: false });
   pokemon.nature = 'hardy';
-  pokemon.evs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
   pokemon.ability = 'no-ability';
   pokemon.heldItem = null;
   if (moves.length) {

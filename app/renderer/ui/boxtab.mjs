@@ -12,6 +12,7 @@ import { artPath, speciesOf } from '../core/data.mjs';
 import { el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
+import { championIcon } from './badges.mjs';
 import { chooseAction, confirm } from './dialog.mjs';
 
 /** Spaces to a row, as the grid lays them out, and the rows always shown. */
@@ -84,6 +85,8 @@ function space(app, session, index, refresh, state) {
     el('img', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
     shinyMark(pokemon, t('pokemon.shiny')),
     pokemon.favorite ? el('i.favorite-mark', { title: t('box.favorite') }) : null,
+    // The crown of a Pokémon that has beaten the League.
+    pokemon.champion ? el('i.champion-pin', {}, [championIcon()]) : null,
   ]);
 }
 

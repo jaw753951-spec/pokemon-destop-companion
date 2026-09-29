@@ -41,7 +41,6 @@ test('the misc pocket puts anyone’s items first, one Pokémon’s together, ev
   };
   together(['adamant-orb', 'adamant-crystal']);
   together(['red-nectar', 'yellow-nectar', 'pink-nectar', 'purple-nectar']);
-  together(['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet']);
   together(['cracked-pot', 'chipped-pot']);
 });
 
@@ -52,11 +51,11 @@ test('medicine, berries and balls go kind by kind, weakest first', withData, () 
     }
   };
   before(listed('medicine'), 'potion', 'super-potion', 'hyper-potion', 'max-potion', 'full-restore', 'antidote', 'full-heal',
-    'revive', 'max-revive', 'ether', 'max-elixir', 'hp-up', 'carbos', 'pp-up', 'pp-max', 'exp-candy-xs', 'exp-candy-xl',
-    'rare-candy', 'ability-capsule', 'ability-patch', 'fresh-start-mochi', 'adamant-mint', 'bold-mint', 'timid-mint',
+    'revive', 'max-revive', 'ether', 'max-elixir', 'pp-up', 'pp-max', 'exp-candy-xs', 'exp-candy-xl',
+    'rare-candy', 'ability-capsule', 'ability-patch', 'adamant-mint', 'bold-mint', 'timid-mint',
     'serious-mint');
   before(listed('berries'), 'oran-berry', 'sitrus-berry', 'lum-berry', 'leppa-berry', 'occa-berry', 'roseli-berry',
-    'liechi-berry', 'custap-berry', 'kee-berry', 'pomeg-berry', 'tamato-berry', 'silver-razz-berry');
+    'liechi-berry', 'custap-berry', 'kee-berry', 'silver-razz-berry');
   before(listed('pokeballs'), 'poke-ball', 'great-ball', 'ultra-ball', 'master-ball', 'quick-ball', 'level-ball');
 });
 
