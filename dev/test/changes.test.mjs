@@ -139,7 +139,7 @@ test('there is no effort: stats are base, genes, level and nature', options, () 
   }
 });
 
-test('the seven Sweets are one, and an Alcremie is one of sixty-three at random', options, () => {
+test('the seven Sweets are one, and an Alcremie is one of seven at random', options, () => {
   const items = gameData().items;
   for (const slug of ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet']) {
     assert.equal(items[slug], undefined);
@@ -161,7 +161,16 @@ test('the seven Sweets are one, and an Alcremie is one of sixty-three at random'
     assert.ok(artOf(pokemon)?.path.includes(`form-${pokemon.look}`), `${pokemon.look} has art`);
     looks.add(pokemon.look);
   }
-  assert.ok(looks.size > 10, `${looks.size} different looks in sixty`);
+  assert.equal(looks.size, ALCREMIE_LOOKS.length, 'all seven turn up');
+  // No cream and no sweet is used twice.
+  const parts = ALCREMIE_LOOKS.map((look) => look.split(/-(?=[a-z]+-sweet$)/));
+  assert.equal(new Set(parts.map(([cream]) => cream)).size, 7);
+  assert.equal(new Set(parts.map(([, sweet]) => sweet)).size, 7);
+
+  // A look from the old sixty-three is re-rolled on loading.
+  const stale = fixed(id('alcremie'), 30);
+  stale.look = 'ruby-swirl-berry-sweet';
+  assert.ok(ALCREMIE_LOOKS.includes(sessionOf(stale).active.look));
 
   // A save that still holds the old Sweets gets the one.
   const session = sessionOf(fixed(4, 5));

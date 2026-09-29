@@ -7,7 +7,7 @@
  */
 import { AUTOSAVE_INTERVAL_MS, BADGES_FOR_LEAGUE, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
-import { randomLook } from '../../shared/alcremie.mjs';
+import { ALCREMIE_LOOKS, randomLook } from '../../shared/alcremie.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { EventScheduler } from './events.mjs';
@@ -51,8 +51,11 @@ export class Session {
       if (pokemon?.heldItem && !gameData().items[pokemon.heldItem]) pokemon.heldItem = null;
       // Effort is gone; a save that still carries it drops it.
       if (pokemon) delete pokemon.evs;
-      // An Alcremie saved before its cream and sweet were rolled gets one.
-      if (pokemon && !pokemon.look && speciesOf(pokemon.speciesId)?.slug === 'alcremie') pokemon.look = randomLook(this.rng);
+      // An Alcremie saved before its look was rolled, or with one of the
+      // sixty-three the game no longer draws, gets one of the seven.
+      if (pokemon && speciesOf(pokemon.speciesId)?.slug === 'alcremie' && !ALCREMIE_LOOKS.includes(pokemon.look)) {
+        pokemon.look = randomLook(this.rng);
+      }
     }
     /**
      * The bag, less anything the game no longer carries: a save written before
