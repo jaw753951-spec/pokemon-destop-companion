@@ -55,11 +55,16 @@ test('every tier gets items, cheapest first', () => {
 test('each pocket is split independently so no tier is monopolised', () => {
   const tiers = assignRarityTiers({
     ...pocketOf('m', 'medicine', 100),
-    ...pocketOf('b', 'berries', 20),
+    ...pocketOf('b', 'held-items', 20),
   });
   const rarest = tiers['master-ball'];
   assert.ok(rarest.some((name) => name.startsWith('m')), 'medicine reaches the rarest tier');
-  assert.ok(rarest.some((name) => name.startsWith('b')), 'berries reach the rarest tier');
+  assert.ok(rarest.some((name) => name.startsWith('b')), 'a second pocket reaches the rarest tier');
+});
+
+test('a berry never comes out of a ball on the road', () => {
+  const tiers = assignRarityTiers({ ...pocketOf('m', 'medicine', 10), ...pocketOf('b', 'berries', 10) });
+  assert.ok(!Object.values(tiers).flat().some((name) => name.startsWith('b')));
 });
 
 test('a one-item pocket still lands somewhere', () => {

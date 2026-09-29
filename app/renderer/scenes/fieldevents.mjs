@@ -389,7 +389,9 @@ function startBall(session, spawnAt) {
     ?? BALL_TIERS[0];
   // A kept item — a Leftovers, a TM — is only ever found once: a second
   // would be a thing with nothing to do.
-  const pool = (gameData().itemTiers[tier.ball] ?? []).filter((slug) => !alreadyOwned(session, slug));
+  const pool = (gameData().itemTiers[tier.ball] ?? []).filter(
+    (slug) => !alreadyOwned(session, slug) && itemOf(slug)?.pocket !== 'berries',
+  );
   // Now and then, the item the travelling legendary is waiting on.
   const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 
@@ -678,9 +680,13 @@ function restAndResupply(session, app) {
   );
 }
 
+/** The species waiting in the box, which the road is slightly less likely to hand out again. */
+const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =>
+  new Set(session.box.filter(Boolean).map((pokemon) => pokemon?.speciesId));
+
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies);
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session));
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 

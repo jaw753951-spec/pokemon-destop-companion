@@ -10,6 +10,7 @@ import { saves } from '../core/bridge.mjs';
 import { ALCREMIE_LOOKS, randomLook } from '../../shared/alcremie.mjs';
 import { gameData, speciesOf } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
+import { pocketOrder } from './bagorder.mjs';
 import { EventScheduler } from './events.mjs';
 import { ensureAttack, fullyHeal } from './pokemon.mjs';
 import { settleForme } from './forms.mjs';
@@ -258,9 +259,13 @@ export class Session {
       .map(([slug, count]) => ({ slug, count, item: items[slug] }));
   }
 
-  /** Every ball the player holds, rarest last, for the capture screen. */
+  /**
+   * Every ball the player holds, for the capture screen, in the bag's own
+   * fixed order: Poké, Great, Ultra, Master, then the special ones. Sorting by
+   * price put the free-priced special balls ahead of a Poké Ball found late.
+   */
   balls() {
-    return this.pocket('pokeballs').sort((a, b) => (a.item.cost || 0) - (b.item.cost || 0));
+    return this.pocket('pokeballs').sort(pocketOrder('pokeballs'));
   }
 
   /**

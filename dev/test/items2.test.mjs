@@ -59,21 +59,30 @@ function bag(contents, pokemon) {
 test('each ball earns its bonus only where it should', options, () => {
   const magikarp = make('magikarp', 5);
   const onix = make('onix', 40);
-  assert.equal(ballBonus('net-ball', magikarp), 3.5);
-  assert.equal(ballBonus('net-ball', onix), 1);
-  assert.equal(ballBonus('quick-ball', onix, { throws: 0 }), 5);
-  assert.equal(ballBonus('quick-ball', onix, { throws: 1 }), 1);
-  assert.equal(ballBonus('dusk-ball', onix, { time: 'night' }), 3);
-  assert.equal(ballBonus('dusk-ball', onix, { time: 'day', areaTags: ['cave'] }), 3);
-  assert.equal(ballBonus('dusk-ball', onix, { time: 'day' }), 1);
-  assert.equal(ballBonus('nest-ball', magikarp), 3.6);
-  assert.equal(ballBonus('repeat-ball', onix, { caught: new Set([onix.speciesId]) }), 3.5);
-  assert.equal(ballBonus('level-ball', magikarp, { active: make('pikachu', 25) }), 8);
-  assert.equal(ballBonus('moon-ball', make('clefairy', 20)), 4);
-  assert.equal(ballBonus('fast-ball', make('jolteon', 30)), 4);
+  // A special ball is worse than a Poké Ball out of its element (0.6) and
+  // half again better than the games make it in it.
+  assert.equal(ballBonus('net-ball', magikarp), 5.25);
+  assert.equal(ballBonus('net-ball', onix), 0.6);
+  assert.equal(ballBonus('quick-ball', onix, { throws: 0 }), 7.5);
+  assert.equal(ballBonus('quick-ball', onix, { throws: 1 }), 0.6);
+  assert.equal(ballBonus('dusk-ball', onix, { time: 'night' }), 4.5);
+  assert.equal(ballBonus('dusk-ball', onix, { time: 'day', areaTags: ['cave'] }), 4.5);
+  assert.equal(ballBonus('dusk-ball', onix, { time: 'day' }), 0.6);
+  assert.equal(ballBonus('nest-ball', magikarp), 5.4);
+  assert.equal(ballBonus('nest-ball', onix), 0.6);
+  assert.equal(ballBonus('repeat-ball', onix, { caught: new Set([onix.speciesId]) }), 5.25);
+  assert.equal(ballBonus('repeat-ball', onix), 0.6);
+  assert.equal(ballBonus('level-ball', magikarp, { active: make('pikachu', 25) }), 12);
+  assert.equal(ballBonus('level-ball', onix, { active: make('pikachu', 25) }), 0.6);
+  assert.equal(ballBonus('moon-ball', make('clefairy', 20)), 6);
+  assert.equal(ballBonus('fast-ball', make('jolteon', 30)), 6);
+  assert.equal(ballBonus('fast-ball', onix), 0.6);
   assert.equal(ballBonus('beast-ball', onix), 0.1);
-  assert.equal(ballBonus('beast-ball', make('nihilego', 50)), 5);
+  assert.equal(ballBonus('beast-ball', make('nihilego', 50)), 7.5);
   assert.equal(ballBonus('ultra-ball', make('nihilego', 50)), 0.1);
+  // The plain balls are untouched.
+  assert.equal(ballBonus('poke-ball', onix), 1);
+  assert.equal(ballBonus('great-ball', onix), 1.5);
   // A Heavy Ball moves the rate itself: Onix is 210 kg.
   assert.ok(catchValue(onix, 'heavy-ball') > catchValue(onix, 'poke-ball'));
   assert.ok(catchValue(magikarp, 'heavy-ball') < catchValue(magikarp, 'poke-ball'));

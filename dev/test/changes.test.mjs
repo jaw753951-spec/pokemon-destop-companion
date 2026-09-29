@@ -24,6 +24,7 @@ import {
   statsOf,
 } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle, leagueOpen, Session } from '../../app/renderer/engine/session.mjs';
+import { rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
 import { resolveLeague } from '../../app/renderer/scenes/league.mjs';
 
 const ready = await useRealGameData();
@@ -221,4 +222,36 @@ test('a used-up item comes back after the battle, but a berry eaten does not', o
   holding.heldItem = 'leftovers';
   assert.equal(restoreHeldItem(holding, 'focus-sash'), false);
   assert.equal(holding.heldItem, 'leftovers');
+});
+
+test('the capture screen lists balls in a fixed order, Poké Ball first', options, () => {
+  const session = sessionOf(fixed(4, 5));
+  // The special balls are priced at nothing, which used to sort them ahead of
+  // a Poké Ball picked up later.
+  for (const slug of ['quick-ball', 'great-ball', 'net-ball', 'master-ball', 'ultra-ball']) session.addItem(slug);
+  session.addItem('poke-ball');
+  const order = session.balls().map((entry) => entry.slug);
+  assert.deepEqual(order.slice(0, 4), ['poke-ball', 'great-ball', 'ultra-ball', 'master-ball']);
+  assert.equal(order.length, 6);
+});
+
+test('a species already in the box is met a little less often', options, () => {
+  const area = gameData().areas[0];
+  const companion = fixed(4, 20);
+  const count = (owned) => {
+    const rng = new Rng(9);
+    const seen = new Map();
+    for (let index = 0; index < 4000; index++) {
+      const id_ = rollWildPokemon(rng, area, companion, null, owned).speciesId;
+      seen.set(id_, (seen.get(id_) ?? 0) + 1);
+    }
+    return seen;
+  };
+  const plain = count(new Set());
+  const [commonest] = [...plain.entries()].sort((a, b) => b[1] - a[1])[0];
+  const thinned = count(new Set([commonest]));
+  const before = plain.get(commonest);
+  const after = thinned.get(commonest) ?? 0;
+  assert.ok(after < before, `${after} < ${before}`);
+  assert.ok(after > before * 0.75, 'only slightly');
 });

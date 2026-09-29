@@ -271,6 +271,8 @@ export function assignRarityTiers(items, moves = {}) {
     // bury them a hundred deep in the machine pool.
     if (item.pocket === 'machines' && /^tr\d+$/.test(name)) continue;
     if (item.pocket === 'key') continue;
+    // A berry grows on a tree; a ball on the road holds something else.
+    if (item.pocket === 'berries') continue;
     // A legendary's own item turns up only while it is the one travelling,
     // which the find decides at the time (`fieldevents.mjs`).
     if (SIGNATURE.has(name)) continue;
