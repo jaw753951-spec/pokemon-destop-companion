@@ -155,16 +155,19 @@ test('only what this game will never have is dropped', withData, () => {
   // now can be: a Mint's nature, a Capsule's ability, a PP Up's ceiling, a
   // Bottle Cap's genes, a type-resisting Berry, a Light Ball's one species.
   for (const slug of ['ability-capsule', 'adamant-mint', 'pp-up', 'occa-berry', 'bottle-cap', 'light-ball',
-    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'smoke-ball',
+    'rocky-helmet', 'safety-goggles', 'toxic-orb', 'weakness-policy', 'heat-rock', 'everstone', 'red-card',
     'golden-razz-berry', 'silver-razz-berry']) {
     assert.ok(items[slug]?.works, `${slug} should be working`);
   }
 
-  // And the ones still waiting, which belong to systems this game does not
-  // have: switching the companion out, prize money.
-  for (const slug of ['shed-shell', 'pass-orb']) {
-    assert.ok(items[slug], `${slug} should have been kept`);
-    assert.equal(items[slug].works, false, `${slug} is not read by the engine yet`);
+  // Every item carried is one the engine reads.
+  assert.deepEqual(Object.keys(items).filter((slug) => !items[slug].works), []);
+
+  // And a held item that does nothing for a companion fighting alone — one
+  // for switching out, running away, or a system this game does not have —
+  // is not carried at all.
+  for (const slug of ['eject-button', 'eject-pack', 'shed-shell', 'smoke-ball', 'ring-target', 'pass-orb']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
   }
 
   // One generation's copy of something the bag already has is not carried —

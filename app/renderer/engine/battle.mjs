@@ -904,14 +904,13 @@ export class Battle {
    * Whether a Pokémon is free to leave: nothing holding it — a Mean Look, a
    * bind, its own roots — and nothing on the other side that keeps it there:
    * a Shadow Tag, an Arena Trap under a grounded foot, a Magnet Pull on
-   * steel. A Ghost type slips every one of them, and so does a Run Away or a
-   * Smoke Ball.
+   * steel. A Ghost type slips every one of them, and so does a Run Away.
    *
    * @param {Combatant} combatant
    */
   canEscape(combatant) {
     const own = this.abilityOf(combatant);
-    if (this.typesOf(combatant).includes('ghost') || own?.runAway || heldPassive(combatant.pokemon, 'escape')) return true;
+    if (this.typesOf(combatant).includes('ghost') || own?.runAway) return true;
     if (combatant.volatile.trapped || combatant.volatile.bound || combatant.volatile.ingrain) return false;
     const other = this.other(combatant);
     if (!other || other.pokemon.hp <= 0) return true;
@@ -1399,16 +1398,6 @@ export class Battle {
         log.push({ kind: 'heldFired', side: other.side, data: { item: other.pokemon.heldItem } });
         this.consumeItem(other);
         this.applyStage(other, stat, shift, log, { source: 'copied' });
-      }
-    }
-
-    // An Eject Pack takes a trainer's Pokémon out the moment it is lowered.
-    if (shift < 0 && target.side === 'foe' && this.trainerBattle && this.running && heldPassive(target.pokemon, 'ejectPack')) {
-      if (this.foeQueue.some((entry) => entry.pokemon.hp > 0) && target === this.foe) {
-        log.push({ kind: 'heldFired', side: target.side, data: { item: target.pokemon.heldItem } });
-        this.consumeItem(target);
-        this.switchFoe(log);
-        return true;
       }
     }
 
@@ -3617,12 +3606,12 @@ export class Battle {
     }
 
     // What the defender's item does about having been hit: a Red Card sends
-    // the attacker away, an Eject Button its own holder.
+    // the attacker away.
     if (total > 0 && defender.pokemon.hp > 0) this.answerWithSwitch(attacker, defender, log);
   }
 
   /**
-   * A Red Card or an Eject Button going off after a hit.
+   * A Red Card going off after a hit.
    *
    * @param {Combatant} attacker
    * @param {Combatant} defender
@@ -3636,13 +3625,6 @@ export class Battle {
       log.push({ kind: 'heldFired', side: defender.side, data: { item: slug } });
       this.consumeItem(defender);
       this.forceOut(defender, attacker, log);
-      return;
-    }
-    const eject = heldPassive(defender.pokemon, 'eject');
-    if (eject && defender.side === 'foe' && this.trainerBattle && this.foeQueue.some((entry) => entry.pokemon.hp > 0)) {
-      log.push({ kind: 'heldFired', side: defender.side, data: { item: defender.pokemon.heldItem } });
-      this.consumeItem(defender);
-      this.switchFoe(log);
     }
   }
 
@@ -4049,14 +4031,11 @@ export class Battle {
     const seesGhosts = this.abilityOf(attacker)?.hitsGhosts || defender.volatile.identified;
     if (seesGhosts && ['normal', 'fighting'].includes(move.type)) types = types.filter((type) => type !== 'ghost');
 
-    // A Ring Target takes away its holder's immunities; a Freeze-Dry is
-    // strong against Water whatever the chart says.
-    const ringed = Boolean(heldPassive(defender.pokemon, 'ringTarget'));
+    // A Freeze-Dry is strong against Water whatever the chart says.
     let value = 1;
     for (const type of types) {
       let one = typeEffectiveness(move.type, [type]);
       if (slug === 'freeze-dry' && type === 'water') one = 2;
-      if (one === 0 && ringed) one = 1;
       value *= one;
     }
     // A Flying Press is Fighting and Flying at once.

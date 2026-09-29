@@ -246,6 +246,18 @@ const RETIRED_ITEMS = {
   'golden-pinap-berry': 'catching',
   'exp-share': 'nothing to share with',
   'exp-share-gen6': 'nothing to share with',
+  // Held items that do nothing for a companion fighting on its own: the
+  // Eject Button and Eject Pack switch their holder out and the Shed Shell
+  // lets it switch, but the companion has no one to switch to; the Smoke Ball
+  // is for running away, which the companion never chooses; a Ring Target
+  // only takes its own holder's immunities away; the Pass Orb is spent on
+  // Pass Powers this game does not have.
+  'eject-button': 'no use to a lone companion',
+  'eject-pack': 'no use to a lone companion',
+  'shed-shell': 'no use to a lone companion',
+  'smoke-ball': 'no use to a lone companion',
+  'ring-target': 'no use to a lone companion',
+  'pass-orb': 'no use to a lone companion',
   'amulet-coin': 'selling',
   'luck-incense': 'selling',
   // Story and event items PokeAPI files among the ordinary ones: the Origin
@@ -1236,8 +1248,6 @@ function unwritten(item, slug, natures) {
  */
 const CORRECTED = {
   'sticky-barb': { held: { on: 'turn', harm: { fraction: 1 / 8 }, sticky: true } },
-  // Out of any wild battle, whatever is holding it there.
-  'smoke-ball': { held: { on: 'escape' } },
   // Let's Go's catching berries, given from the capture screen: they make
   // the catch easier.
   'silver-razz-berry': { capture: { catchRate: 1.5 } },
@@ -1263,10 +1273,7 @@ const CORRECTED = {
   'destiny-knot': { held: { on: 'destiny' } },
   'soothe-bell': { held: { on: 'friendship', multiplier: 1.5 } },
   'cleanse-tag': { held: { on: 'repel' } },
-  'ring-target': { held: { on: 'ringTarget' } },
   'red-card': { held: { on: 'redCard', consumed: true } },
-  'eject-button': { held: { on: 'eject', consumed: true } },
-  'eject-pack': { held: { on: 'ejectPack', consumed: true } },
   'fresh-start-mochi': { use: { resetEffort: true } },
   honey: { use: { lure: true } },
 };
