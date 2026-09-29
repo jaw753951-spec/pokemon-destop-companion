@@ -21,7 +21,8 @@ test('machines are listed by kind and number, not as text', withData, () => {
   const at = (slug) => order.indexOf(slug);
   assert.ok(at('tm09') < at('tm10') && at('tm22') < at('tm23') && at('tm99') < at('tm100'));
   assert.ok(at('tm100') > at('tm23'), 'TM100 comes after TM23, not between TM10 and TM11');
-  assert.ok(at('tm229') < at('hm01') && at('hm08') < at('tr00'));
+  const firstTr = order.find((slug) => slug.startsWith('tr'));
+  assert.ok(at('tm229') < at('hm01') && at('hm08') < at(firstTr ?? ''), 'TMs, then HMs, then TRs');
 });
 
 test('the misc pocket puts anyone’s items first, one Pokémon’s together, evolution last', withData, () => {
@@ -42,6 +43,29 @@ test('the misc pocket puts anyone’s items first, one Pokémon’s together, ev
   together(['red-nectar', 'yellow-nectar', 'pink-nectar', 'purple-nectar']);
   together(['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet']);
   together(['cracked-pot', 'chipped-pot']);
+});
+
+test('medicine, berries and balls go kind by kind, weakest first', withData, () => {
+  const before = (order, ...slugs) => {
+    for (let index = 1; index < slugs.length; index++) {
+      assert.ok(order.indexOf(slugs[index - 1]) < order.indexOf(slugs[index]), `${slugs[index - 1]} before ${slugs[index]}`);
+    }
+  };
+  before(listed('medicine'), 'potion', 'super-potion', 'hyper-potion', 'max-potion', 'full-restore', 'antidote', 'full-heal',
+    'revive', 'max-revive', 'ether', 'max-elixir', 'hp-up', 'carbos', 'pp-up', 'pp-max', 'exp-candy-xs', 'exp-candy-xl',
+    'rare-candy', 'ability-capsule', 'ability-patch', 'fresh-start-mochi', 'adamant-mint', 'bold-mint', 'timid-mint',
+    'serious-mint');
+  before(listed('berries'), 'oran-berry', 'sitrus-berry', 'lum-berry', 'leppa-berry', 'occa-berry', 'roseli-berry',
+    'liechi-berry', 'custap-berry', 'kee-berry', 'pomeg-berry', 'tamato-berry', 'silver-razz-berry');
+  before(listed('pokeballs'), 'poke-ball', 'great-ball', 'ultra-ball', 'master-ball', 'quick-ball', 'level-ball');
+});
+
+test('only the TRs with a move no TM teaches are carried', withData, () => {
+  const items = gameData().items;
+  const tmMoves = new Set(Object.keys(items).filter((slug) => /^(tm|hm)\d+$/.test(slug)).map((slug) => items[slug].move));
+  const trs = Object.keys(items).filter((slug) => /^tr\d+$/.test(slug));
+  assert.ok(trs.length > 0 && trs.length < 20, `${trs.length} TRs`);
+  for (const slug of trs) assert.ok(!tmMoves.has(items[slug].move), `${slug} teaches ${items[slug].move}, which a TM does`);
 });
 
 test('TMs cost more the harder their move hits, and evolution items at least a vitamin', withData, () => {

@@ -1385,11 +1385,49 @@ canvas {
   font-weight: 700;
 }
 
-.shop-buy {
+/*
+ * The shop's panel: the description scrolls in the space left over, and the
+ * count and the buy button sit in a footer that never moves.
+ */
+.shop-inspector {
+  min-height: 0;
+}
+
+.inspect-scroll {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+}
+
+.shop-footer {
+  flex: none;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 3px;
+  padding-top: 4px;
+  border-top: 1px solid var(--frame-light);
+}
+
+.shop-count-row {
   display: flex;
   align-items: center;
+  justify-content: center;
   gap: 4px;
-  flex-wrap: wrap;
+}
+
+/* Held in place, not shown, for what is bought one at a time. */
+.shop-count-row.idle {
+  visibility: hidden;
+}
+
+.shop-footer .primary {
+  width: 100%;
 }
 
 .shop-count {

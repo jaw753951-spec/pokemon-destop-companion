@@ -95,10 +95,23 @@ function shippedItems(items, { machines, moves, species, log }) {
   /** @type {Record<string, number>} */
   const dropped = {};
 
+  // A TR teaches its move for good here, the way a TM does, so one whose
+  // move a TM or HM already teaches is the same machine twice. Only the TRs
+  // with a move of their own are carried.
+  const taughtByTm = new Set(
+    Object.keys(items)
+      .filter((slug) => /^(tm|hm)\d+$/.test(slug) && machines[slug])
+      .map((slug) => machines[slug]),
+  );
+
   for (let [slug, item] of Object.entries(items)) {
     // A machine is only worth carrying if the move it teaches was shipped.
     if (item.pocket === 'machines' && !moves[machines[slug]]) {
       dropped['unknown move'] = (dropped['unknown move'] ?? 0) + 1;
+      continue;
+    }
+    if (/^tr\d+$/.test(slug) && taughtByTm.has(machines[slug])) {
+      dropped['the same as another item'] = (dropped['the same as another item'] ?? 0) + 1;
       continue;
     }
 

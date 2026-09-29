@@ -1,8 +1,20 @@
 /**
  * The order a pocket is listed in, in the bag and in the shop alike.
  *
- * Most pockets read best alphabetically. Two do not:
+ * Every pocket goes by what its items are for, kind by kind, and within a
+ * kind from the weakest up — then by the games' own item number, which is
+ * the order the cartridges' bags list them in.
  *
+ * - **Medicine**: HP (Potion up to Full Restore), status cures (one
+ *   condition each, then Full Heal), revives, PP, then the stat items — the
+ *   six vitamins in stat order, PP Up and PP Max, Exp. Candies small to
+ *   large then the Rare Candy, the Ability Capsule and Patch, the Fresh-Start
+ *   Mochi — and last the Mints, by the stat their nature raises.
+ * - **Berries**: healing, curing, PP, the type-resisting eighteen in the
+ *   games' order, the pinch berries, the ones that answer a hit, the six that lower
+ *   effort, and the catching berries.
+ * - **Balls**: Poké, Great, Ultra and Master Ball, then the special balls,
+ *   then the Apricorn balls.
  * - **Machines** go by kind and number — TMs, then HMs, then TRs, each from
  *   01 up. Sorting their names as text put TM100–199 between TM10 and TM11,
  *   which pushed TM23–99 to the bottom of the list.
@@ -16,6 +28,7 @@
 import { gameData, speciesIdBySlug } from '../core/data.mjs';
 import { name as localized } from '../core/i18n.mjs';
 import { signatureItems } from './forms.mjs';
+import { STATS } from './stats.mjs';
 
 /** @typedef {{slug: string, item: any}} Entry */
 
@@ -26,6 +39,9 @@ import { signatureItems } from './forms.mjs';
 export function pocketOrder(pocket) {
   if (pocket === 'machines') return byMachine;
   if (pocket === 'misc') return byUse;
+  if (pocket === 'medicine') return byRank(medicineRank);
+  if (pocket === 'berries') return byRank(berryRank);
+  if (pocket === 'pokeballs') return byRank(ballRank);
   return byName;
 }
 
@@ -34,6 +50,102 @@ const collator = new Intl.Collator(undefined, { numeric: true });
 /** @param {Entry} a @param {Entry} b */
 function byName(a, b) {
   return collator.compare(localized(a.item?.name, a.slug), localized(b.item?.name, b.slug)) || a.slug.localeCompare(b.slug);
+}
+
+/**
+ * Compare by a rank — a list of numbers, most significant first — then by the
+ * games' item number, then by name.
+ *
+ * @param {(entry: Entry) => number[]} rank
+ * @returns {(a: Entry, b: Entry) => number}
+ */
+function byRank(rank) {
+  return (a, b) => {
+    const left = rank(a);
+    const right = rank(b);
+    for (let index = 0; index < Math.max(left.length, right.length); index++) {
+      const difference = (left[index] ?? 0) - (right[index] ?? 0);
+      if (difference) return difference;
+    }
+    return (a.item?.id ?? Infinity) - (b.item?.id ?? Infinity) || byName(a, b);
+  };
+}
+
+/** Where a stat falls in the games' order: HP, Attack, Defense, Sp. Atk, Sp. Def, Speed. */
+const statIndex = (/** @type {string|null|undefined} */ stat) => {
+  const index = STATS.indexOf(/** @type {any} */ (stat));
+  return index < 0 ? STATS.length : index;
+};
+
+/** The one-condition cures in the order the games shelve them, then Full Heal. */
+const CURE_ORDER = ['psn', 'par', 'brn', 'frz', 'slp', 'cnf', 'any'];
+const cureIndex = (/** @type {string} */ status) => {
+  const index = CURE_ORDER.indexOf(status);
+  return index < 0 ? CURE_ORDER.length : index;
+};
+
+/** @param {Entry} entry */
+function medicineRank({ item }) {
+  const use = item?.use ?? {};
+  switch (item?.category) {
+    case 'healing':
+      // A Full Restore is a Max Potion and a Full Heal: after the Max Potion.
+      return [0, use.hp === 'full' ? 100000 : Number(use.hp ?? 0), use.status ? 1 : 0];
+    case 'status-cures':
+      return [1, cureIndex(use.status)];
+    case 'revival':
+      return [2, Number(use.revive ?? 0)];
+    case 'pp-recovery':
+      return [3, use.pp?.scope === 'all' ? 1 : 0, use.pp?.amount === 'full' ? 1 : 0];
+    case 'vitamins':
+      if (use.effort) return [4, 0, statIndex(use.effort.stat), Number(use.effort.amount ?? 0)];
+      if (use.ppUp) return [4, 1, Number(use.ppUp.fraction ?? 0)];
+      if (use.experience) return [4, 2, Number(use.experience)];
+      if (use.level) return [4, 2, Number.MAX_SAFE_INTEGER];
+      if (use.ability) return [4, 3, use.ability === 'swap' ? 0 : 1];
+      if (use.resetEffort) return [4, 4];
+      return [4, 5];
+    case 'nature-mints': {
+      const raised = gameData().natures?.[use.nature]?.increased;
+      return [5, statIndex(raised)];
+    }
+    default:
+      return [6];
+  }
+}
+
+/** @param {Entry} entry */
+function berryRank({ item }) {
+  const held = item?.held;
+  if (item?.capture || item?.category === 'catching-bonus') return [7];
+  if (item?.use?.effort) return [6, statIndex(item.use.effort.stat)];
+  switch (held?.on) {
+    case 'hp':
+      if (held.heal) return [0, held.heal.amount ?? Math.round((held.heal.fraction ?? 0) * 1000)];
+      return [4];
+    case 'status':
+      return [1, cureIndex(held.status)];
+    case 'pp':
+      return [2];
+    // The item number puts these in the games' own order: Occa, Passho,
+    // Wacan… Chilan, then the later Roseli.
+    case 'resist':
+      return [3];
+    case 'hurt':
+      return [5];
+    default:
+      return [8];
+  }
+}
+
+/** The four every shop has, weakest first. */
+const STANDARD_BALLS = ['poke-ball', 'great-ball', 'ultra-ball', 'master-ball'];
+
+/** @param {Entry} entry */
+function ballRank({ slug, item }) {
+  const standard = STANDARD_BALLS.indexOf(slug);
+  if (standard >= 0) return [0, standard];
+  return [item?.category === 'apricorn-balls' ? 2 : 1];
 }
 
 /** TMs, then HMs, then TRs. */
