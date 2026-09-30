@@ -97,6 +97,34 @@ test('Imposter walks in as whatever it faces', options, () => {
   assert.deepEqual(manual.typesOf(manual.player), ['fire', 'flying']);
 });
 
+test('Imposter takes the shape of each Pokémon a trainer sends out', options, () => {
+  const ditto = make('ditto', 50, ['transform'], 'imposter');
+  // What it copies is what it fights with: a Tackle, against one hit point.
+  const first = make('rattata', 5, ['tackle']);
+  first.hp = 1;
+  const battle = fight(ditto, first, { foes: [first, make('charizard', 50, ['flamethrower', 'air-slash'])], trainerBattle: true });
+  assert.deepEqual(battle.typesOf(battle.player), ['normal']);
+
+  let log = [];
+  for (let turn = 0; turn < 3 && battle.foe?.pokemon.speciesId !== speciesIdBySlug('charizard'); turn++) log = battle.takeTurn();
+  const sent = log.findIndex((entry) => entry.kind === 'sendOut');
+  assert.ok(sent >= 0, 'the second one came out');
+  assert.deepEqual(log.slice(sent + 1).map((entry) => entry.kind).slice(0, 2), ['ability', 'transformed']);
+  assert.deepEqual(battle.typesOf(battle.player), ['fire', 'flying']);
+  assert.deepEqual(battle.movesOf(battle.player).map((slot) => slot.move), ['flamethrower', 'air-slash']);
+  assert.equal(battle.stat(battle.player, 'spa'), battle.stat(battle.foe, 'spa'));
+
+  // A Ditto with no Imposter keeps whatever shape it took.
+  const plain = fight(make('ditto', 50, ['transform'], 'limber'), first, {
+    foes: [make('rattata', 5, ['tackle']), make('charizard', 50, ['splash'])],
+    trainerBattle: true,
+  });
+  plain.foe.pokemon.hp = 1;
+  for (let turn = 0; turn < 3 && plain.foe?.pokemon.speciesId !== speciesIdBySlug('charizard'); turn++) plain.takeTurn();
+  assert.equal(plain.foe?.pokemon.speciesId, speciesIdBySlug('charizard'));
+  assert.deepEqual(plain.typesOf(plain.player), ['normal']);
+});
+
 test('a Mummy passes itself on at a touch', options, () => {
   const cofagrigus = make('cofagrigus', 60, ['splash'], 'mummy');
   const attacker = make('machamp', 30, ['bite'], 'guts');

@@ -958,7 +958,39 @@ export class Battle {
     if (options.dragged) this.say(next, 'move.draggedOut');
     this.walkOntoHazards(next, log);
     this.enter(next, log);
+    this.imposeAgain(this.player, log);
     return true;
+  }
+
+  /**
+   * An Imposter taking the shape of the next Pokémon a trainer sends out.
+   *
+   * On the cartridge it works only as its holder comes out, and a Ditto facing
+   * a trainer's second Pokémon is switched out and back in to copy it. The
+   * companion is never switched out, so without this a Ditto went on through
+   * a whole party in the shape of the first Pokémon it met.
+   *
+   * @param {Combatant} combatant
+   * @param {LogEntry[]} log
+   */
+  imposeAgain(combatant, log) {
+    if (combatant.pokemon.hp <= 0 || abilityName(combatant.pokemon) !== 'imposter') return;
+    const other = combatant === this.player ? this.foe : this.player;
+    // A Neutralizing Gas quiets it now as it would on the way in.
+    if (!other || other.transform || this.ownAbility(other)?.neutralizes) return;
+    // Its own shape back for a moment: a Transform will not take over another.
+    const was = { transform: combatant.transform, types: combatant.marks.types, ability: combatant.marks.ability };
+    combatant.transform = undefined;
+    delete combatant.marks.types;
+    delete combatant.marks.ability;
+    const before = log.length;
+    if (this.transformInto(combatant, other, log)) {
+      log.splice(before, 0, { kind: 'ability', side: combatant.side, data: { ability: 'imposter' } });
+      return;
+    }
+    combatant.transform = was.transform;
+    if (was.types) combatant.marks.types = was.types;
+    if (was.ability) combatant.marks.ability = was.ability;
   }
 
   /**
@@ -4675,6 +4707,7 @@ export class Battle {
         // then does whatever its own ability does on the way in.
         this.walkOntoHazards(next, log);
         this.enter(next, log);
+        this.imposeAgain(this.player, log);
       } else {
         this.foe = null;
       }

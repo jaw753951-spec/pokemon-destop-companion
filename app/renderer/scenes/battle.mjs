@@ -180,6 +180,12 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   let loadedFoeId = '';
   /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
   let loadedPlayerId = '';
+  /**
+   * What the companion looks like: itself, or what a Transform or an
+   * Imposter made it, which a trainer's next Pokémon coming out must not undo.
+   * @type {import('../engine/pokemon.mjs').Pokemon|null}
+   */
+  let playerLook = null;
 
   /**
    * Whether each side's Pokémon has come out of its ball yet. A battler that
@@ -889,6 +895,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         const self = entry.side === 'player' ? player : foe;
         if (self) {
           const look = /** @type {any} */ ({ ...self, speciesId: entry.data?.speciesId, forme: entry.data?.forme ?? undefined });
+          if (entry.side === 'player') playerLook = look;
           loadBattler(entry.side, look);
         }
         say(t('battle.transformed', {
@@ -1058,7 +1065,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         loadedPlayerId = '';
         if (trainer) toss('foe', entry.data?.pokemon ?? battle.foe?.pokemon ?? null);
         loadFoeSprite();
-        loadBattler('player', player);
+        loadBattler('player', playerLook ?? player);
         updateBars();
         // A trainer sends the next one out; only a wild Pokémon appears of its
         // own accord, so only a wild battle reads the encounter line here.
