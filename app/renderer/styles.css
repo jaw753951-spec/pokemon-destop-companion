@@ -799,7 +799,6 @@ canvas {
 
 .capture-attempts,
 .capture-name,
-.capture-balls,
 .capture-close {
   pointer-events: auto;
 }
@@ -835,42 +834,47 @@ canvas {
   top: 22px;
 }
 
-/* The balls, and the catching berries above them when there are any. */
+/*
+ * The catching berries and the balls, in one row that wraps. The tray grows
+ * up from the message box, so it is kept small enough not to reach the
+ * Pokémon being thrown at: the count sits on the ball's corner rather than on
+ * a line of its own, and a bag with more than a row of them gets `.dense`.
+ */
 .capture-tray {
   position: absolute;
   left: 8px;
   right: 8px;
   bottom: 48px;
   display: flex;
-  flex-direction: column;
-  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: center;
+  align-items: flex-end;
+  gap: 3px;
 }
 
 .capture-balls {
-  display: flex;
-  justify-content: center;
-  gap: 6px;
-  flex-wrap: wrap;
+  display: contents;
 }
 
-.capture-berries:empty {
-  display: none;
+.capture-balls > .meta {
+  pointer-events: auto;
 }
 
 .capture-ball {
   -webkit-app-region: no-drag;
+  position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 1px;
-  width: 44px;
-  padding: 3px 2px;
+  width: 34px;
+  padding: 2px 1px 1px;
   border: 1px solid rgba(255, 255, 255, 0.3);
-  border-radius: 6px;
+  border-radius: 5px;
   background: rgba(16, 21, 32, 0.72);
   color: var(--paper);
   font: inherit;
   cursor: pointer;
+  pointer-events: auto;
 }
 
 .capture-ball:hover:not(:disabled) {
@@ -883,20 +887,50 @@ canvas {
 }
 
 .capture-ball img {
-  width: 20px;
-  height: 20px;
+  width: 16px;
+  height: 16px;
   object-fit: contain;
 }
 
 .capture-ball .count {
-  font-size: 8px;
-  opacity: 0.8;
+  position: absolute;
+  top: 0;
+  right: 1px;
+  font-size: 7px;
+  line-height: 1.1;
+  opacity: 0.9;
+  text-shadow: 0 0 2px #000, 0 0 1px #000;
 }
 
 .capture-ball .odds {
-  font-size: 9px;
+  font-size: 8px;
   font-weight: 700;
+  line-height: 1.2;
   color: #9fe08f;
+}
+
+.capture-tray.dense {
+  gap: 2px;
+}
+
+.capture-tray.dense .capture-ball {
+  width: 27px;
+  padding: 1px 0 0;
+  border-radius: 4px;
+}
+
+.capture-tray.dense .capture-ball img {
+  width: 14px;
+  height: 14px;
+}
+
+.capture-tray.dense .capture-ball .count {
+  font-size: 6px;
+  right: 0;
+}
+
+.capture-tray.dense .capture-ball .odds {
+  font-size: 7px;
 }
 
 /* --------------------------------------------------------------- inventory */

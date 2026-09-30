@@ -29,6 +29,9 @@ const SHAKE_TILT = 0.5;
 /** How wide the ball is drawn on this screen, in field pixels. */
 const BALL_DRAWN = 14;
 
+/** How many ball and berry buttons fit on one row of the tray at full size. */
+const TRAY_ROW = 12;
+
 /**
  * @param {{
  *   session: import('../engine/session.mjs').Session,
@@ -135,6 +138,7 @@ export function captureScene({ session, target, onFinish }) {
   });
   const balls = el('div.capture-balls');
   const berries = el('div.capture-balls.capture-berries');
+  const tray = el('div.capture-tray', {}, [berries, balls]);
 
   return {
     keepBelow: true,
@@ -169,7 +173,7 @@ export function captureScene({ session, target, onFinish }) {
       return el('div.screen.capture-screen', {}, [
         counter,
         el('div.capture-name', { text: `${label()}` }),
-        el('div.capture-tray', {}, [berries, balls]),
+        tray,
         message,
         el('div.capture-close', {}, [
           button(t('common.cancel'), () => finish(app, false), { className: 'small ghost' }),
@@ -269,6 +273,7 @@ export function captureScene({ session, target, onFinish }) {
       .filter((slug) => itemOf(slug)?.capture && session.countOf(slug) > 0);
     if (!held.length) {
       berries.replaceChildren();
+      fitTray();
       return;
     }
     setChildren(berries, held.map((slug) => el('button.capture-ball', {
@@ -280,6 +285,17 @@ export function captureScene({ session, target, onFinish }) {
       el('img', { src: url('assets', `items/${slug}.png`), alt: localized(itemOf(slug)?.name, slug) }),
       el('span.count', { text: t('items.count', { count: session.countOf(slug) }) }),
     ])));
+    fitTray();
+  }
+
+  /**
+   * Smaller buttons once there are more than one row of them holds: the tray
+   * grows up the screen from the message box, and three rows of full-size
+   * buttons reached over the Pokémon being thrown at.
+   */
+  function fitTray() {
+    const count = berries.childElementCount + balls.querySelectorAll('.capture-ball').length;
+    tray.classList.toggle('dense', count > TRAY_ROW);
   }
 
   /**
@@ -302,6 +318,7 @@ export function captureScene({ session, target, onFinish }) {
     const held = session.balls();
     if (held.length === 0) {
       balls.replaceChildren(el('span.meta', { text: t('capture.noBalls') }));
+      fitTray();
       return;
     }
 
@@ -320,6 +337,7 @@ export function captureScene({ session, target, onFinish }) {
         ]);
       }),
     ]);
+    fitTray();
   }
 
   /**
