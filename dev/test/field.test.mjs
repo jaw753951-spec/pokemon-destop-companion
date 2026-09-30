@@ -1,9 +1,30 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { boostPace, drawWalker, idleBob, nearOverpass, nextBoost, POKEMON_SCALE, STRIDE, walkFrame } from '../../app/renderer/render/field.mjs';
+import {
+  behindRoof,
+  boostPace,
+  COMPANION_X,
+  drawWalker,
+  idleBob,
+  nearOverpass,
+  nextBoost,
+  POKEMON_SCALE,
+  ROOF_MARGIN,
+  STRIDE,
+  walkFrame,
+} from '../../app/renderer/render/field.mjs';
 import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants.mjs';
-import { ballSupply, CENTER_STEPS, centerBeat, closingDoorFrame, doorStep, gatherBob } from '../../app/renderer/scenes/fieldevents.mjs';
+import {
+  BALL_SIZE,
+  ballSupply,
+  CENTER_STEPS,
+  centerBeat,
+  closingDoorFrame,
+  doorStep,
+  gatherBob,
+  keepInSight,
+} from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
@@ -321,9 +342,25 @@ test('an event is kept off the road under a bridge, and a little way either side
   assert.equal(nearOverpass({ width: 1000 }, [240, 320]), false);
 });
 
-test('a roof the lane runs behind keeps an event back by less than a bridge', () => {
+test('a roof the lane runs behind holds no event back, only moves a prop it would hide whole', () => {
   const area = { width: 1000, covered: /** @type {Array<[number, number, string?]>} */ ([[240, 320, 'roof']]) };
-  assert.equal(nearOverpass(area, [180, 260]), true, 'reaching behind it');
-  assert.equal(nearOverpass(area, [330, 400]), false, 'just past it is open road');
-  assert.equal(nearOverpass(area, [322, 400]), true, 'but not right against its edge');
+  // Its feet behind the edge, as the companion's are: the event goes ahead.
+  assert.equal(nearOverpass(area, [180, 400]), false);
+  assert.equal(behindRoof(area, [300, 310]), true);
+  assert.equal(behindRoof(area, [330, 340]), false);
+
+  // A ball would be gone behind it, so it is put down past the roof.
+  const ball = { worldX: 280 - COMPANION_X, prop: { kind: 'ball' } };
+  keepInSight(area, ball);
+  assert.ok(COMPANION_X + ball.worldX - BALL_SIZE / 2 >= 320 + ROOF_MARGIN, `ball at ${COMPANION_X + ball.worldX}`);
+  // One in the open is left where it is.
+  const open = { worldX: 600 - COMPANION_X, prop: { kind: 'ball' } };
+  keepInSight(area, open);
+  assert.equal(open.worldX, 600 - COMPANION_X);
+  // Nor is it moved on to under a bridge.
+  const both = { width: 1000, covered: /** @type {Array<[number, number, string?]>} */ ([[240, 320, 'roof'], [330, 400]]) };
+  const squeezed = { worldX: 280 - COMPANION_X, prop: { kind: 'ball' } };
+  keepInSight(both, squeezed);
+  assert.equal(nearOverpass(both, [COMPANION_X + squeezed.worldX - 44, COMPANION_X + squeezed.worldX + 80]), false);
+  assert.equal(behindRoof(both, [COMPANION_X + squeezed.worldX - 6, COMPANION_X + squeezed.worldX + 6]), false);
 });

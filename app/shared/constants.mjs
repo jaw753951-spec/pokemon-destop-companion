@@ -154,11 +154,11 @@ export const COMPANION_WEAKNESS = 1.5;
 export const EVENT_RETRY_MS = 5 * 1000;
 
 /**
- * How soon a turn held back by a bridge or a roof overhead is tried again.
+ * How soon a turn held back by a bridge overhead is tried again.
  *
  * Sooner than {@link EVENT_RETRY_MS}: the road moves on by itself, and five
- * seconds of walking is further than the stretch between two of Route 7's
- * roofs, so a five-second retry could step clean over the only open road.
+ * seconds of walking is 170 field pixels, enough to step clean over a short
+ * stretch of open road between two spans.
  */
 export const OVERPASS_RETRY_MS = 1000;
 
