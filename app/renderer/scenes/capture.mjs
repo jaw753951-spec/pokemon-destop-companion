@@ -29,7 +29,7 @@ const SHAKE_TILT = 0.5;
 /** How wide the ball is drawn on this screen, in field pixels. */
 const BALL_DRAWN = 14;
 
-/** How many ball and berry buttons fit on one row of the tray at full size. */
+/** How many buttons fit on one row of the tray at full size. */
 const TRAY_ROW = 12;
 
 /**
@@ -289,13 +289,13 @@ export function captureScene({ session, target, onFinish }) {
   }
 
   /**
-   * Smaller buttons once there are more than one row of them holds: the tray
-   * grows up the screen from the message box, and three rows of full-size
-   * buttons reached over the Pokémon being thrown at.
+   * Smaller buttons once there are more balls than one row of them holds: the
+   * tray grows up the screen from the message box, and three rows of
+   * full-size buttons reached over the Pokémon being thrown at.
    */
   function fitTray() {
-    const count = berries.childElementCount + balls.querySelectorAll('.capture-ball').length;
-    tray.classList.toggle('dense', count > TRAY_ROW);
+    const rows = [berries, balls].map((row) => row.querySelectorAll('.capture-ball').length);
+    tray.classList.toggle('dense', rows.some((count) => count > TRAY_ROW));
   }
 
   /**

@@ -835,10 +835,11 @@ canvas {
 }
 
 /*
- * The catching berries and the balls, in one row that wraps. The tray grows
- * up from the message box, so it is kept small enough not to reach the
- * Pokémon being thrown at: the count sits on the ball's corner rather than on
- * a line of its own, and a bag with more than a row of them gets `.dense`.
+ * The balls, and the catching berries on a row above them when there are any.
+ * The tray grows up from the message box, so it is kept small enough not to
+ * reach the Pokémon being thrown at: the count sits on the ball's corner
+ * rather than on a line of its own, and a bag with more than a row of balls
+ * gets `.dense`.
  */
 .capture-tray {
   position: absolute;
@@ -846,14 +847,20 @@ canvas {
   right: 8px;
   bottom: 48px;
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  align-items: flex-end;
+  flex-direction: column;
   gap: 3px;
 }
 
 .capture-balls {
-  display: contents;
+  display: flex;
+  justify-content: center;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: 3px;
+}
+
+.capture-berries:empty {
+  display: none;
 }
 
 .capture-balls > .meta {
@@ -909,7 +916,8 @@ canvas {
   color: #9fe08f;
 }
 
-.capture-tray.dense {
+.capture-tray.dense,
+.capture-tray.dense .capture-balls {
   gap: 2px;
 }
 
