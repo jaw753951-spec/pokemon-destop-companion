@@ -78,7 +78,12 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       path.columns * METATILE_SIZE,
       bandBlocks * METATILE_SIZE,
     );
-    const overhead = keepOverLane(overBand, groundY);
+    // A lane up on a bridge's deck is walked across the top of it, not under:
+    // the cartridge draws a sprite that high over the whole top layer.
+    const laneElevations = Array.from({ length: path.columns }, (_, index) =>
+      blockdata.readUInt16LE((path.laneRow * layout.width + path.column + index) * 2) >> 12,
+    );
+    const overhead = keepOverLane(overBand, groundY, aboveTopLayer(laneElevations));
     const overStrip = overhead ? repeatToWidth(makeSeamless(overhead.overlay), FIELD_WIDTH * 2) : null;
     // Only what hides the companion whole — a bridge, a roof — keeps events
     // from starting under it; a tree top over its feet does not.
@@ -154,6 +159,36 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
 }
 
 /**
+ * The elevations a sprite is drawn over a map's top layer at
+ * (`sElevationToPriority` in `src/event_object_movement.c`): the upper floors
+ * of Victory Road, a bridge's deck. Everything lower goes under it.
+ */
+const OVER_TOP_ELEVATIONS = new Set([4, 6, 8, 10, 12, 13, 14]);
+
+/**
+ * Whether the companion walks over the top layer at each column of the lane.
+ *
+ * Elevation 0 and 15 are not heights of their own: a block marked with either
+ * — a stairway, a bridge's planks over a path below — keeps whatever height
+ * the walker came onto it at, so it takes the nearest real one along the lane.
+ *
+ * @param {number[]} elevations one per block column of the lane
+ * @returns {boolean[]}
+ */
+export function aboveTopLayer(elevations) {
+  const real = (elevation) => elevation !== 0 && elevation !== 15;
+  return elevations.map((elevation, index) => {
+    if (real(elevation)) return OVER_TOP_ELEVATIONS.has(elevation);
+    for (let distance = 1; distance < elevations.length; distance++) {
+      for (const at of [index - distance, index + distance]) {
+        if (real(elevations[at] ?? 0)) return OVER_TOP_ELEVATIONS.has(elevations[at]);
+      }
+    }
+    return false;
+  });
+}
+
+/**
  * How many blocks, from the lane up, an overpass has to fill before the field
  * draws it over the companion.
  *
@@ -187,13 +222,18 @@ const ROOF_FILL = 0.95;
  * blocks, or solid in that block and the one below it; every other column is
  * cleared.
  *
+ * A column the companion walks above the top layer at — see
+ * {@link aboveTopLayer} — is cleared whatever is on it.
+ *
  * @param {import('../lib/image.mjs').Raster} over
  * @param {number} groundY the bottom edge of the lane's row, in the band
+ * @param {boolean[]} [onTop] per block column, whether the companion walks
+ *   over the top layer there
  * @returns {{overlay: import('../lib/image.mjs').Raster, blocking: import('../lib/image.mjs').Raster|null}|null}
  *   what is drawn over the companion, and the part of it that hides it whole;
  *   null when nothing crosses the lane
  */
-function keepOverLane(over, groundY) {
+function keepOverLane(over, groundY, onTop = []) {
   const drawnIn = (column, bottom) => {
     let drawn = 0;
     for (let y = bottom - METATILE_SIZE; y < bottom; y++) {
@@ -207,6 +247,7 @@ function keepOverLane(over, groundY) {
   const solid = (index, block, fill = OVERPASS_FILL) =>
     drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) >= fill;
   const deck = Array.from({ length: columns }, (_, index) => {
+    if (onTop[index]) return false;
     // A bridge: solid from the lane all the way up.
     let bridge = true;
     for (let block = 0; block < OVERPASS_BLOCKS && bridge; block++) bridge = solid(index, block);
@@ -224,14 +265,15 @@ function keepOverLane(over, groundY) {
   // as much the bridge as it is.
   const keep = deck.map(
     (isDeck, index) =>
-      isDeck || ((deck[index - 1] || deck[index + 1]) && drawnIn(index * METATILE_SIZE, groundY) > 0),
+      isDeck ||
+      (!onTop[index] && (deck[index - 1] || deck[index + 1]) && drawnIn(index * METATILE_SIZE, groundY) > 0),
   );
   // A tree whose crown overhangs the lane from the row below: only the
   // lane's own block of it is kept, so the companion walks behind the top of
   // the tree as a player in the games does, feet hidden and the rest showing.
   // Any of it at all: Fire Red's trees put only the tip of the crown on the
   // layer, a sliver of the block, and the companion walked across that tip.
-  const crown = keep.map((kept, index) => !kept && drawnIn(index * METATILE_SIZE, groundY) > 0);
+  const crown = keep.map((kept, index) => !kept && !onTop[index] && drawnIn(index * METATILE_SIZE, groundY) > 0);
   if (!keep.some(Boolean) && !crown.some(Boolean)) return null;
 
   const blocking = keep.some(Boolean) ? { width: over.width, height: over.height, data: Uint8Array.from(over.data) } : null;
