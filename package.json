@@ -37,14 +37,27 @@
       "app/**/*",
       "package.json"
     ],
+    "electronLanguages": [
+      "ko",
+      "en",
+      "en-US"
+    ],
     "extraResources": [
       {
         "from": "assets",
         "to": "assets"
       },
       {
-        "from": "data",
-        "to": "data"
+        "from": "data/generated",
+        "to": "data/generated"
+      },
+      {
+        "from": "data/authored",
+        "to": "data/authored",
+        "filter": [
+          "**/*",
+          "!sprites/**"
+        ]
       }
     ],
     "win": {
@@ -63,7 +76,8 @@
         {
           "target": "dmg",
           "arch": [
-            "universal"
+            "arm64",
+            "x64"
           ]
         }
       ],

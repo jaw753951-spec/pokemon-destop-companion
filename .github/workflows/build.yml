@@ -57,7 +57,7 @@ jobs:
             | OS | 파일 |
             | --- | --- |
             | Windows | `*-win-x64.zip` — 압축을 풀고 `Pokemon Desktop Companion.exe` 실행 |
-            | macOS | `*-mac-universal.dmg` — 애플 실리콘·인텔 공용 |
+            | macOS | 애플 실리콘(M1 이후) `*-mac-arm64.dmg` · 인텔 `*-mac-x64.dmg` |
             | Linux | `*-linux-x86_64.AppImage` |
 
             ## 처음 실행할 때
