@@ -320,3 +320,10 @@ test('an event is kept off the road under a bridge, and a little way either side
   // An area with nothing overhead never holds one back.
   assert.equal(nearOverpass({ width: 1000 }, [240, 320]), false);
 });
+
+test('a roof the lane runs behind keeps an event back by less than a bridge', () => {
+  const area = { width: 1000, covered: /** @type {Array<[number, number, string?]>} */ ([[240, 320, 'roof']]) };
+  assert.equal(nearOverpass(area, [180, 260]), true, 'reaching behind it');
+  assert.equal(nearOverpass(area, [330, 400]), false, 'just past it is open road');
+  assert.equal(nearOverpass(area, [322, 400]), true, 'but not right against its edge');
+});

@@ -6,7 +6,8 @@ import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData } from '../../app/renderer/core/data.mjs';
 import { createPokemon } from '../../app/renderer/engine/pokemon.mjs';
 import { rollTrainer } from '../../app/renderer/engine/encounter.mjs';
-import { waterDrop } from '../../app/renderer/render/field.mjs';
+import { nearOverpass, waterDrop } from '../../app/renderer/render/field.mjs';
+import { eventGround } from '../../app/renderer/scenes/fieldevents.mjs';
 import { aboveTopLayer, stripRuns } from '../tools/build/areas.mjs';
 
 const ready = await useRealGameData();
@@ -31,6 +32,16 @@ test('a lane up on a bridge deck walks over the top layer, one below it walks un
   // A stairway between floors takes the height of the nearer one.
   assert.deepEqual(aboveTopLayer([3, 0, 0, 0, 4]), [false, false, false, true, true]);
   assert.deepEqual(aboveTopLayer([15, 15]), [false, false], 'nothing to go by');
+});
+
+test('every area leaves some road for an event to start on', withData, () => {
+  // Route 7's four roofs, each held a bridge's width of road either side,
+  // left none at all, and nothing ever happened there.
+  for (const area of gameData().areas) {
+    let open = 0;
+    for (let x = 0; x < area.width; x += 2) if (!nearOverpass(area, eventGround(x))) open++;
+    assert.ok(open / (area.width / 2) > 0.1, `${area.id}: ${open} open spots`);
+  }
 });
 
 test('a stretch is over water only when all of it is, and says how far out', () => {

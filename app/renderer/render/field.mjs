@@ -249,13 +249,20 @@ export function drawOverlay(context, overlay, offset) {
 export const OVERPASS_MARGIN = 40;
 
 /**
+ * The same for a roof the lane runs behind: half a block, enough to keep a
+ * ball or a trainer's feet out from behind its edge. A roof is a house's width
+ * apart from the next, and a bridge's margin left Route 7 no road at all.
+ */
+export const ROOF_MARGIN = 8;
+
+/**
  * Whether a stretch of road runs under, or too close to, something the map
  * draws over the lane.
  *
- * @param {{width: number, covered?: Array<[number, number]>}|null|undefined} area
+ * @param {{width: number, covered?: Array<[number, number, string?]>}|null|undefined} area
  * @param {[number, number]} ground strip coordinates before wrapping, as
  *   `eventGround` gives them
- * @param {number} [margin]
+ * @param {number} [margin] for a bridge; a roof keeps {@link ROOF_MARGIN}
  */
 export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
   const spans = area?.covered;
@@ -265,8 +272,9 @@ export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
   // with the copies either side of it as well as its own.
   const base = Math.floor(from / width) * width;
   for (const shift of [base - width, base, base + width]) {
-    for (const [start, end] of spans) {
-      if (from < shift + end + margin && to > shift + start - margin) return true;
+    for (const [start, end, kind] of spans) {
+      const room = kind === 'roof' ? ROOF_MARGIN : margin;
+      if (from < shift + end + room && to > shift + start - room) return true;
     }
   }
   return false;

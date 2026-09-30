@@ -86,9 +86,16 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const overhead = keepOverLane(overBand, groundY, aboveTopLayer(laneElevations));
     const overStrip = overhead ? repeatToWidth(makeSeamless(overhead.overlay), FIELD_WIDTH * 2) : null;
     // Only what hides the companion whole — a bridge, a roof — keeps events
-    // from starting under it; a tree top over its feet does not.
-    const blockingStrip = overhead?.blocking ? repeatToWidth(makeSeamless(overhead.blocking), FIELD_WIDTH * 2) : null;
-    const covered = blockingStrip ? coveredSpans(blockingStrip, groundY) : [];
+    // from starting under it; a tree top over its feet does not. A roof is
+    // marked as one: it is a house's width, not a road's, and the room a
+    // bridge is given either side left Route 7 no road at all between them.
+    const spansOf = (raster) => (raster ? coveredSpans(repeatToWidth(makeSeamless(raster), FIELD_WIDTH * 2), groundY) : []);
+    /** @type {Array<[number, number] | [number, number, 'roof']>} */
+    const covered = [
+      ...spansOf(overhead?.blocking ?? null),
+      ...spansOf(overhead?.roofing ?? null).map(([from, to]) => /** @type {[number, number, 'roof']} */ ([from, to, 'roof'])),
+    ];
+    covered.sort((a, b) => a[0] - b[0]);
 
     // The water beside the lane. The walk itself never crosses water —
     // `pickWalkPath` keeps it on dry blocks — so a swimmer met on the road has
@@ -133,7 +140,8 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       height: strip.height,
       groundY,
       // Stretches of the strip, in its own pixels, where something is drawn
-      // over the lane; see `overhead` above.
+      // over the lane; see `overhead` above. `[from, to]` for a bridge,
+      // `[from, to, 'roof']` for a roof.
       ...(overStrip ? { overlay: true } : {}),
       ...(covered.length ? { covered } : {}),
       // Stretches with water beside the lane, which a swimming trainer is met
@@ -229,9 +237,10 @@ const ROOF_FILL = 0.95;
  * @param {number} groundY the bottom edge of the lane's row, in the band
  * @param {boolean[]} [onTop] per block column, whether the companion walks
  *   over the top layer there
- * @returns {{overlay: import('../lib/image.mjs').Raster, blocking: import('../lib/image.mjs').Raster|null}|null}
- *   what is drawn over the companion, and the part of it that hides it whole;
- *   null when nothing crosses the lane
+ * @returns {{overlay: import('../lib/image.mjs').Raster, blocking: import('../lib/image.mjs').Raster|null,
+ *   roofing: import('../lib/image.mjs').Raster|null}|null}
+ *   what is drawn over the companion, and the parts of it that are a bridge
+ *   and a roof; null when nothing crosses the lane
  */
 function keepOverLane(over, groundY, onTop = []) {
   const drawnIn = (column, bottom) => {
@@ -246,12 +255,13 @@ function keepOverLane(over, groundY, onTop = []) {
   const columns = Math.floor(over.width / METATILE_SIZE);
   const solid = (index, block, fill = OVERPASS_FILL) =>
     drawnIn(index * METATILE_SIZE, groundY - block * METATILE_SIZE) >= fill;
+  /** @type {Array<'bridge'|'roof'|null>} */
   const deck = Array.from({ length: columns }, (_, index) => {
-    if (onTop[index]) return false;
+    if (onTop[index]) return null;
     // A bridge: solid from the lane all the way up.
     let bridge = true;
     for (let block = 0; block < OVERPASS_BLOCKS && bridge; block++) bridge = solid(index, block);
-    if (bridge) return true;
+    if (bridge) return 'bridge';
     // A roof: a building whose roof overhangs the lane from below, solid in
     // the lane's own block and on down into the building under it. Route 7's
     // lane runs along the top of a house's roof, and the companion walked
@@ -259,15 +269,16 @@ function keepOverLane(over, groundY, onTop = []) {
     // roof's edge is a straight line filling the whole block; a tree line's
     // crowns overhang the same way but round, never filling it — see
     // `ROOF_FILL` — and are left out for the reason `OVERPASS_BLOCKS` gives.
-    return solid(index, 0, ROOF_FILL) && solid(index, -1, ROOF_FILL);
+    return solid(index, 0, ROOF_FILL) && solid(index, -1, ROOF_FILL) ? 'roof' : null;
   });
   // The railings either side of the deck are thinner than the deck, and are
   // as much the bridge as it is.
-  const keep = deck.map(
-    (isDeck, index) =>
-      isDeck ||
-      (!onTop[index] && (deck[index - 1] || deck[index + 1]) && drawnIn(index * METATILE_SIZE, groundY) > 0),
+  const kinds = deck.map(
+    (kind, index) =>
+      kind ??
+      (!onTop[index] && drawnIn(index * METATILE_SIZE, groundY) > 0 ? (deck[index - 1] ?? deck[index + 1] ?? null) : null),
   );
+  const keep = kinds.map(Boolean);
   // A tree whose crown overhangs the lane from the row below: only the
   // lane's own block of it is kept, so the companion walks behind the top of
   // the tree as a player in the games does, feet hidden and the rest showing.
@@ -276,7 +287,12 @@ function keepOverLane(over, groundY, onTop = []) {
   const crown = keep.map((kept, index) => !kept && !onTop[index] && drawnIn(index * METATILE_SIZE, groundY) > 0);
   if (!keep.some(Boolean) && !crown.some(Boolean)) return null;
 
-  const blocking = keep.some(Boolean) ? { width: over.width, height: over.height, data: Uint8Array.from(over.data) } : null;
+  // What hides the companion whole, a bridge's worth and a roof's worth apart:
+  // the two keep events back by different margins.
+  const copyOf = (kind) =>
+    kinds.includes(kind) ? { width: over.width, height: over.height, data: Uint8Array.from(over.data) } : null;
+  const blocking = copyOf('bridge');
+  const roofing = copyOf('roof');
   const clear = (raster, index, keepFrom = Infinity, keepTo = -Infinity) => {
     for (let y = 0; y < raster.height; y++) {
       if (y >= keepFrom && y < keepTo) continue;
@@ -284,12 +300,13 @@ function keepOverLane(over, groundY, onTop = []) {
     }
   };
   keep.forEach((kept, index) => {
-    if (blocking && !kept) clear(blocking, index);
+    if (blocking && kinds[index] !== 'bridge') clear(blocking, index);
+    if (roofing && kinds[index] !== 'roof') clear(roofing, index);
     if (kept) return;
     if (crown[index]) clear(over, index, groundY - METATILE_SIZE, groundY);
     else clear(over, index);
   });
-  return { overlay: over, blocking };
+  return { overlay: over, blocking, roofing };
 }
 
 /** Which rows beside the lane are looked at for water, nearest first: in front, behind, then two out. */
