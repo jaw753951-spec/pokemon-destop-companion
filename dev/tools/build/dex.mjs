@@ -115,6 +115,14 @@ function shippedItems(items, { machines, moves, species, log }) {
       continue;
     }
 
+    // Effort is gone from the game — nothing earns it and nothing spends it —
+    // so the vitamins, Power items, wings, mochi and the berries that undo it
+    // have nothing left to act on.
+    if (item.held?.on === 'effort' || item.use?.effort || item.use?.resetEffort) {
+      dropped['effort is gone'] = (dropped['effort is gone'] ?? 0) + 1;
+      continue;
+    }
+
     const formItem = FORM_ITEMS[slug];
     if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
     // Whatever some Pokémon evolves by stays, wherever PokeAPI filed it: a
@@ -710,6 +718,19 @@ async function buildItems(pool, log, natures) {
       }),
     ),
   );
+
+  // The seven Sweets are one item here: which cream and which sweet an
+  // Alcremie comes out as is left to chance when it evolves, so a choice of
+  // seven held items was seven names for nothing.
+  const first = out[SWEET_SLUGS[0]];
+  if (first) {
+    out.sweet = {
+      ...first,
+      name: Object.fromEntries(Object.keys(first.name).map((code) => [code, SWEET_NAME[code] ?? SWEET_NAME.en])),
+      text: Object.fromEntries(Object.keys(first.text).map((code) => [code, SWEET_TEXT[code] ?? SWEET_TEXT.en])),
+    };
+  }
+  for (const slug of SWEET_SLUGS) delete out[slug];
 
   log(`items ${Object.keys(out).length} across ${[...POCKETS].join('/')}`);
   return out;
@@ -2295,12 +2316,14 @@ function walkChain(node, species) {
  * @param {number} to
  */
 function reachableEvolution(detail, toSlug, to) {
+  const heldName = detail.held_item?.name ?? null;
   const edge = {
     to,
     trigger: detail.trigger?.name ?? 'level-up',
     minLevel: detail.min_level ?? null,
     item: detail.item?.name ?? null,
-    heldItem: detail.held_item?.name ?? null,
+    // Any of the seven Sweets is the one Sweet here.
+    heldItem: SWEET_SLUGS.includes(heldName) ? 'sweet' : heldName,
     happiness: detail.min_happiness ?? detail.min_affection ?? null,
     timeOfDay: detail.time_of_day || null,
     knownMove: detail.known_move?.name ?? null,
@@ -2383,8 +2406,16 @@ const EVOLUTION_TWEAKS = {
   'wormadam-trash': { areaTags: ['urban', 'electric', 'ruins', 'graveyard'] },
 };
 
+/** The seven Sweets PokeAPI lists, which this game folds into one (`sweet`). */
+const SWEET_SLUGS = ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet'];
+const SWEET_NAME = { ko: '사탕공예', en: 'Sweet' };
+const SWEET_TEXT = {
+  ko: '알록달록한 사탕공예. 마빌크에게 지니게 하면 빙빙 돌며 기뻐한다. 어떤 모습이 될지는 진화해 봐야 안다.',
+  en: 'A colourful sweet. When a Milcery holds this, it spins around happily. What it turns into is left to chance.',
+};
+
 /** The Sweets a Milcery can be holding when it evolves. */
-const SWEETS = ['strawberry-sweet', 'love-sweet', 'berry-sweet', 'clover-sweet', 'flower-sweet', 'star-sweet', 'ribbon-sweet'];
+const SWEETS = ['sweet'];
 
 /**
  * What stands in for a rule this game has no way to meet — a number of steps,

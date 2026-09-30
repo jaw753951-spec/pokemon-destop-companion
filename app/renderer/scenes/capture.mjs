@@ -13,7 +13,7 @@ import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
 import { abilityName } from '../engine/abilities.mjs';
-import { fullyHeal } from '../engine/pokemon.mjs';
+import { CAUGHT_LEVEL, fullyHeal, resetToLevel } from '../engine/pokemon.mjs';
 import { BATTLE_SCALE, Battler, battlerArt, mirrorFor } from '../render/battler.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { prompt } from '../ui/dialog.mjs';
@@ -365,6 +365,8 @@ export function captureScene({ session, target, onFinish }) {
       // It was knocked down before the ball was thrown — that is how this
       // game earns the throw — so it arrives patched up rather than at no hit
       // points, which would have made it faint the moment it was swapped in.
+      // Whatever level it was met at, it goes into the box at level 5.
+      resetToLevel(target, CAUGHT_LEVEL);
       fullyHeal(target);
       const stored = session.storeInBox(target);
 

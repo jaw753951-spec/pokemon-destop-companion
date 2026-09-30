@@ -18,6 +18,7 @@ import { itemOf } from '../core/data.mjs';
 import { experienceProgress, levelOf, maxHp, maxPp, movesByRecency, noteLearnedMoves, setMove, statsOf } from '../engine/pokemon.mjs';
 import { computeStat, STATS } from '../engine/stats.mjs';
 import { autoBattleScene } from './autobattle.mjs';
+import { badgeStrip } from './badges.mjs';
 import { chooseFromList, describe } from './dialog.mjs';
 import { moveCard, moveSummary } from './movecard.mjs';
 import { walkerPortrait } from './portrait.mjs';
@@ -63,6 +64,8 @@ export function pokemonTab(app, session, refresh, state = {}) {
         ]),
         // A masked Ogerpon is the mask's type as well as Grass.
         el('div.pokemon-types', {}, standingTypes(pokemon).map((type) => typeChip(type))),
+        // The badges this Pokémon has won, small, above its hit points.
+        badgeStrip(pokemon),
 
         el('div.pokemon-line', {}, [
           el('span.label', { text: t('pokemon.hp') }),
@@ -160,7 +163,7 @@ function baselineStats(pokemon, level) {
   /** @type {Record<string, number>} */
   const out = {};
   for (const stat of STATS) {
-    out[stat] = computeStat(base?.[stat] ?? 1, 0, 0, level, 1, stat === 'hp');
+    out[stat] = computeStat(base?.[stat] ?? 1, 0, level, 1, stat === 'hp');
   }
   return out;
 }

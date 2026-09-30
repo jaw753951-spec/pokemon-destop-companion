@@ -14,6 +14,7 @@ export const SPRITES = 'https://raw.githubusercontent.com/PokeAPI/sprites/master
 export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries';
 export const EMERALD = 'https://raw.githubusercontent.com/pret/pokeemerald/master';
 export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/master';
+export const PLATINUM = 'https://raw.githubusercontent.com/pret/pokeplatinum/main';
 export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
 
 /**
@@ -36,14 +37,40 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  * Advance at all, so Crystal's four-colour sprites stand in — the person, in
  * the art the game that introduced them used.
  *
- * @type {Record<string, {source: 'firered'|'crystal', path: string}>}
+ * Sinnoh's Elite Four, champion and gym leaders come from the Platinum
+ * decompilation, whose front sprites are a strip of animation frames 80 pixels
+ * wide; the last frame is the pose the trainer stands in.
+ *
+ * @type {Record<string, {source: 'firered'|'crystal'|'platinum', path: string}>}
  */
 export const NAMED_PORTRAITS = {
   bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
   lance: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_lance_front_pic.png' },
   koga: { source: 'firered', path: 'graphics/trainers/front_pics/leader_koga_front_pic.png' },
+  // Kanto's gym leaders, the same hand again: each is drawn for the person
+  // whose name it goes under, and nobody else.
+  brock: { source: 'firered', path: 'graphics/trainers/front_pics/leader_brock_front_pic.png' },
+  misty: { source: 'firered', path: 'graphics/trainers/front_pics/leader_misty_front_pic.png' },
+  lt_surge: { source: 'firered', path: 'graphics/trainers/front_pics/leader_lt_surge_front_pic.png' },
+  erika: { source: 'firered', path: 'graphics/trainers/front_pics/leader_erika_front_pic.png' },
+  sabrina: { source: 'firered', path: 'graphics/trainers/front_pics/leader_sabrina_front_pic.png' },
+  blaine: { source: 'firered', path: 'graphics/trainers/front_pics/leader_blaine_front_pic.png' },
+  giovanni: { source: 'firered', path: 'graphics/trainers/front_pics/leader_giovanni_front_pic.png' },
   will: { source: 'crystal', path: 'gfx/trainers/will.png' },
   karen: { source: 'crystal', path: 'gfx/trainers/karen.png' },
+  aaron: { source: 'platinum', path: 'res/trainers/classes/elite_four_aaron/front.png' },
+  bertha: { source: 'platinum', path: 'res/trainers/classes/elite_four_bertha/front.png' },
+  flint: { source: 'platinum', path: 'res/trainers/classes/elite_four_flint/front.png' },
+  lucian: { source: 'platinum', path: 'res/trainers/classes/elite_four_lucian/front.png' },
+  cynthia: { source: 'platinum', path: 'res/trainers/classes/champion_cynthia/front.png' },
+  roark: { source: 'platinum', path: 'res/trainers/classes/leader_roark/front.png' },
+  gardenia: { source: 'platinum', path: 'res/trainers/classes/leader_gardenia/front.png' },
+  maylene: { source: 'platinum', path: 'res/trainers/classes/leader_maylene/front.png' },
+  wake: { source: 'platinum', path: 'res/trainers/classes/leader_wake/front.png' },
+  fantina: { source: 'platinum', path: 'res/trainers/classes/leader_fantina/front.png' },
+  byron: { source: 'platinum', path: 'res/trainers/classes/leader_byron/front.png' },
+  candice: { source: 'platinum', path: 'res/trainers/classes/leader_candice/front.png' },
+  volkner: { source: 'platinum', path: 'res/trainers/classes/leader_volkner/front.png' },
 };
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */

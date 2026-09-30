@@ -174,7 +174,7 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * too, at half the size a battle does, rather than a halved copy of it: a
  * 96-pixel sprite cut to half its pixels loses its outline and its face.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, look?: string, gender?: string|null}|null|undefined} pokemon
  * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
  */
 export function artOf(pokemon) {
@@ -195,11 +195,13 @@ export function artOf(pokemon) {
  * Which of a species' shapes a Pokémon is drawn in: `-form-<forme>`,
  * `-female`, or nothing for the species' own.
  *
- * @param {{forme?: string|null, gender?: string|null}} pokemon
+ * @param {{forme?: string|null, look?: string, gender?: string|null}} pokemon
  * @param {Record<string, any>} entry
  */
 function shapeOf(pokemon, entry) {
   if (pokemon.forme && entry[`art-form-${pokemon.forme}`]) return `-form-${pokemon.forme}`;
+  // An Alcremie's cream and sweet.
+  if (pokemon.look && entry[`art-form-${pokemon.look}`]) return `-form-${pokemon.look}`;
   if (pokemon.gender === 'female' && entry['art-female']) return '-female';
   return '';
 }
@@ -213,11 +215,11 @@ function shapeOf(pokemon, entry) {
  * is exactly the moment a player is looking for the difference — and the same
  * trap again the moment a Castform walks out of the rain.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, look?: string, gender?: string|null}|null|undefined} pokemon
  */
 export const spriteKey = (pokemon) =>
   pokemon
-    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}${
+    ? `${pokemon.speciesId}${pokemon.shiny ? ':shiny' : ''}${pokemon.forme ? `:${pokemon.forme}` : ''}${pokemon.look ? `:${pokemon.look}` : ''}${
         femaleArt(pokemon) ? ':female' : ''
       }`
     : '';
@@ -233,7 +235,7 @@ const femaleArt = (pokemon) => pokemon.gender === 'female' && Boolean(gameData()
  * The `pdc://` URL of a Pokémon's picture, for the screens that set an `img`
  * or a CSS background rather than drawing on a canvas.
  *
- * @param {{speciesId: number, shiny?: boolean, forme?: string|null, gender?: string|null}|null|undefined} pokemon
+ * @param {{speciesId: number, shiny?: boolean, forme?: string|null, look?: string, gender?: string|null}|null|undefined} pokemon
  */
 export const artPath = (pokemon) => artOf(pokemon)?.path ?? null;
 

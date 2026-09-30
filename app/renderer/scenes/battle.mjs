@@ -14,7 +14,7 @@ import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs'
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, restoreHeldItem, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
@@ -168,6 +168,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const defeated = [];
   /** The level the companion came in at, for the friendship levelling earns. */
   const startLevel = levelOf(session.active);
+  /** What the companion went in holding, which a battle may use up. */
+  const startItem = session.active.heldItem;
 
   /** @type {HTMLImageElement|null} */
   let backdropImage = null;
@@ -723,7 +725,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
 
       case 'volatile':
-        say(t(`volatile.${entry.data?.state}.start`, {
+        say(t(entry.data?.fatigue ? 'move.fatigue' : `volatile.${entry.data?.state}.start`, {
           name: nameOf(entry.side === 'player' ? player : foe),
           move: localized(moveOf(entry.data?.move)?.name, entry.data?.move ?? ''),
         }));
@@ -1126,6 +1128,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (finished) return;
     finished = true;
 
+    // Anything but a berry that the battle used up is the companion's again.
+    restoreHeldItem(session.active, startItem);
+
     // Whatever shape the battle put anyone in — a Primal Kyogre, a Crowned
     // Zacian, a Zen Mode — is let go of; a held mask or a chosen Sky Forme
     // stays on.
@@ -1169,7 +1174,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       if (evolution) {
         const from = nameOf(session.active);
         const fromSpecies = session.active.speciesId;
-        evolveInto(session.active, evolution.to);
+        evolveInto(session.active, evolution.to, session.rng);
         session.markCaught(evolution.to);
         app.toast(t('battle.evolving', { name: from, target: nameOf(session.active) }));
         app.audio.playCry(session.active.speciesId);

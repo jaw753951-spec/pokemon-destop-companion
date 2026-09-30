@@ -62,10 +62,10 @@ const PRICES = {
 const CATEGORY_PRICES = {
   healing: 500, 'status-cures': 300, revival: 2000, 'pp-recovery': 2000, vitamins: 10000, 'nature-mints': 20000,
   'standard-balls': 1000, 'special-balls': 1000, 'apricorn-balls': 3000,
-  medicine: 500, 'in-a-pinch': 3000, 'type-protection': 1000, 'effort-drop': 1500,
+  medicine: 500, 'in-a-pinch': 3000, 'type-protection': 1000,
   'catching-bonus': 1500, other: 3000,
   'held-items': 8000, choice: 20000,
-  'type-enhancement': 5000, 'effort-training': 6000, 'bad-held-items': 5000, training: 10000,
+  'type-enhancement': 5000, 'bad-held-items': 5000, training: 10000,
   'species-specific': 5000,
 };
 

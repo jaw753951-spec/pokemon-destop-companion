@@ -55,11 +55,16 @@ test('every tier gets items, cheapest first', () => {
 test('each pocket is split independently so no tier is monopolised', () => {
   const tiers = assignRarityTiers({
     ...pocketOf('m', 'medicine', 100),
-    ...pocketOf('b', 'berries', 20),
+    ...pocketOf('b', 'held-items', 20),
   });
   const rarest = tiers['master-ball'];
   assert.ok(rarest.some((name) => name.startsWith('m')), 'medicine reaches the rarest tier');
-  assert.ok(rarest.some((name) => name.startsWith('b')), 'berries reach the rarest tier');
+  assert.ok(rarest.some((name) => name.startsWith('b')), 'a second pocket reaches the rarest tier');
+});
+
+test('a berry never comes out of a ball on the road', () => {
+  const tiers = assignRarityTiers({ ...pocketOf('m', 'medicine', 10), ...pocketOf('b', 'berries', 10) });
+  assert.ok(!Object.values(tiers).flat().some((name) => name.startsWith('b')));
 });
 
 test('a one-item pocket still lands somewhere', () => {
@@ -171,16 +176,25 @@ test('only what this game will never have is dropped', withData, () => {
   }
 
   // One generation's copy of something the bag already has is not carried —
-  // a Casteliacone is a Full Heal, a Health Mochi an HP Up — while the thing
+  // a Casteliacone is a Full Heal, a Health Mochi a vitamin — while the thing
   // it copies is.
   for (const slug of ['casteliacone', 'fresh-water', 'sacred-ash', 'health-mochi', 'health-wing', 'mighty-candy-xl',
     'dynamax-candy', 'sea-incense', 'blank-plate', 'fire-gem', 'enigma-berry', 'figy-berry', 'aguav-berry']) {
     assert.equal(items[slug], undefined, `${slug} should have been dropped`);
   }
-  for (const slug of ['full-heal', 'super-potion', 'max-revive', 'hp-up', 'mystic-water', 'silk-scarf', 'sitrus-berry',
-    'silver-razz-berry', 'golden-razz-berry', 'fresh-start-mochi', 'exp-candy-s']) {
+  for (const slug of ['full-heal', 'super-potion', 'max-revive', 'mystic-water', 'silk-scarf', 'sitrus-berry',
+    'silver-razz-berry', 'golden-razz-berry', 'exp-candy-s']) {
     assert.ok(items[slug], `${slug} should still be carried`);
   }
+
+  // Effort is gone from the game, and everything that only trained it went
+  // with it: the vitamins, the Power items, the wings and the berries that
+  // undo it. The seven Sweets are the one Sweet.
+  for (const slug of ['hp-up', 'protein', 'macho-brace', 'power-bracer', 'pomeg-berry', 'fresh-start-mochi',
+    'strawberry-sweet', 'love-sweet', 'ribbon-sweet']) {
+    assert.equal(items[slug], undefined, `${slug} should have been dropped`);
+  }
+  assert.ok(items.sweet, 'the Sweet should be carried');
 });
 
 /**

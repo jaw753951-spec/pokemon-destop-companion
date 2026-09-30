@@ -6,6 +6,7 @@ import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
 import { button, el, setChildren, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { leagueOpen } from '../engine/session.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
 
 /**
@@ -29,12 +30,10 @@ export function createHud(handlers) {
   const expFill = el('i', { style: barFill('#4d90d5') });
   const hpText = el('span', { style: { fontSize: '9px', color: 'var(--ink-soft)' } });
 
+  // A fixed button over the bag, Pokédex and settings row rather than a
+  // floating one, so it is always in the same place when the League opens.
   const leagueButton = button(t('field.toLeague'), handlers.onLeague, { className: 'small primary' });
   leagueButton.hidden = true;
-  leagueButton.style.position = 'absolute';
-  leagueButton.style.left = '32%';
-  leagueButton.style.top = '70%';
-  leagueButton.style.transform = 'translateX(-50%)';
 
   /**
    * The caption over the tray.
@@ -82,11 +81,14 @@ export function createHud(handlers) {
   ]);
 
   const buttons = el('div', {
-    style: { position: 'absolute', left: '6px', bottom: '6px', display: 'flex', gap: '4px' },
+    style: { position: 'absolute', left: '6px', bottom: '6px', display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: '4px' },
   }, [
-    button(t('field.inventory'), handlers.onInventory, { className: 'small' }),
-    button(t('field.pokedex'), handlers.onPokedex, { className: 'small' }),
-    button(t('field.settings'), handlers.onSettings, { className: 'small' }),
+    leagueButton,
+    el('div', { style: { display: 'flex', gap: '4px' } }, [
+      button(t('field.inventory'), handlers.onInventory, { className: 'small' }),
+      button(t('field.pokedex'), handlers.onPokedex, { className: 'small' }),
+      button(t('field.settings'), handlers.onSettings, { className: 'small' }),
+    ]),
   ]);
 
   // The shop, open from anywhere on the road, beside where the road is named.
@@ -104,8 +106,8 @@ export function createHud(handlers) {
     el('div.hud-window', { style: { padding: '2px 8px' } }, [areaLabel]),
   ]);
 
-  const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge, leagueButton]);
-  for (const node of [status, tray, buttons, areaBadge, leagueButton]) node.style.pointerEvents = 'auto';
+  const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge]);
+  for (const node of [status, tray, buttons, areaBadge]) node.style.pointerEvents = 'auto';
 
   /** What the tray was last built from, so it is only rebuilt when it changes. */
   let trayKey = '';
@@ -147,7 +149,7 @@ export function createHud(handlers) {
       expFill.style.width = `${progress.ratio * 100}%`;
 
       areaLabel.textContent = localized(session.area?.name, session.area?.id ?? '');
-      leagueButton.hidden = !(session.badges.length >= 8 && !session.champion);
+      leagueButton.hidden = !leagueOpen(session);
     },
 
     /**

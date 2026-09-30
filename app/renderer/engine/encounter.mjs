@@ -94,13 +94,17 @@ export function spreadFor(level) {
  * @param {any} area
  * @param {import('./pokemon.mjs').Pokemon} companion
  * @param {number|null} [previous] the species of the wild Pokémon met last
+ * @param {Set<number>} [owned] species already in the box, met a little less often
  * @returns {import('./pokemon.mjs').Pokemon}
  */
-export function rollWildPokemon(rng, area, companion, previous = null) {
+export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set()) {
   const level = rollLevel(rng, companion);
   const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
   let speciesId = draw();
   if (previous !== null && speciesId === previous) speciesId = draw();
+  // One in ten of the ones already in the box is put back and drawn again:
+  // a very slight thinning, not a filter.
+  if (owned.has(speciesId) && rng.chance(BOXED_REDRAW)) speciesId = draw();
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
@@ -122,6 +126,9 @@ export function rollWildPokemon(rng, area, companion, previous = null) {
  * out there somewhere; the table still decides most of what a route is.
  */
 export const STRAY_CHANCE = 0.3;
+
+/** How often a wild draw that is already in the box is drawn again. */
+export const BOXED_REDRAW = 0.1;
 
 /** How much likelier a stray is when its type suits the terrain. */
 const STRAY_TERRAIN_WEIGHT = 3;

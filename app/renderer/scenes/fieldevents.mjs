@@ -10,6 +10,7 @@ import { FIELD_HEIGHT, FIELD_WIDTH, leaderOdds } from '../../shared/constants.mj
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
+import { stableHash } from '../core/rng.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
 import { alreadyOwned } from '../engine/shop.mjs';
@@ -388,7 +389,9 @@ function startBall(session, spawnAt) {
     ?? BALL_TIERS[0];
   // A kept item — a Leftovers, a TM — is only ever found once: a second
   // would be a thing with nothing to do.
-  const pool = (gameData().itemTiers[tier.ball] ?? []).filter((slug) => !alreadyOwned(session, slug));
+  const pool = (gameData().itemTiers[tier.ball] ?? []).filter(
+    (slug) => !alreadyOwned(session, slug) && itemOf(slug)?.pocket !== 'berries',
+  );
   // Now and then, the item the travelling legendary is waiting on.
   const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
 
@@ -677,9 +680,13 @@ function restAndResupply(session, app) {
   );
 }
 
+/** The species waiting in the box, which the road is slightly less likely to hand out again. */
+const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =>
+  new Set(session.box.filter(Boolean).map((pokemon) => pokemon?.speciesId));
+
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies);
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session));
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 
@@ -741,7 +748,7 @@ function startTrainer(session, spawnAt) {
     onArrive: () => 'battle',
   };
 
-  const fieldSprite = leader?.field ?? trainerClass?.field;
+  const fieldSprite = leader ? leaderField(leader, classes) : trainerClass?.field;
   const meta = fieldSprite ? gameData().actors?.overworld?.[fieldSprite] : null;
   if (meta) {
     loadSprite(`trainers/field/${fieldSprite}.png`, { ...meta, delay: 240 }).then((sprite) => {
@@ -749,6 +756,25 @@ function startTrainer(session, spawnAt) {
     });
   }
   return state;
+}
+
+/**
+ * The walking sprite a gym leader is met in.
+ *
+ * Only a few of them were ever drawn for the road; the rest are shown as a
+ * trainer of their own type — the same one every time, chosen by the leader's
+ * id, rather than whichever class the roll happened to bring up.
+ *
+ * @param {any} leader
+ * @param {any[]} classes
+ * @returns {string|undefined}
+ */
+function leaderField(leader, classes) {
+  const overworld = gameData().actors?.overworld ?? {};
+  if (leader.field && overworld[leader.field]) return leader.field;
+  const suited = classes.filter((entry) => entry.field && overworld[entry.field] && entry.types?.includes(leader.type));
+  if (suited.length === 0) return undefined;
+  return suited[stableHash(leader.id ?? '') % suited.length].field;
 }
 
 /** @param {import('../engine/session.mjs').Session} session */

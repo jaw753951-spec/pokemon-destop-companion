@@ -13,7 +13,7 @@ import { decodePng, encodePng } from '../lib/png.mjs';
 import { concatX, crop, keyOut, opaqueBounds } from '../lib/image.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
-import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS } from '../sources.mjs';
+import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS, PLATINUM } from '../sources.mjs';
 
 /** Overworld people sheets are 16x32 frames; battle portraits are 64x64. */
 const PERSON_FRAME = { width: 16, height: 32 };
@@ -85,7 +85,7 @@ async function buildTrainerPortraits(assetDir, pool, log) {
  * class of their speciality, which the league screen does at draw time.
  */
 async function buildNamedPortraits(assetDir, pool) {
-  const roots = { emerald: EMERALD, firered: FIRERED, crystal: CRYSTAL };
+  const roots = { emerald: EMERALD, firered: FIRERED, crystal: CRYSTAL, platinum: PLATINUM };
 
   /** @type {Record<string, {width: number, height: number}>} */
   const out = {};
@@ -94,7 +94,7 @@ async function buildNamedPortraits(assetDir, pool) {
       pool(async () => {
         const file = await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
         if (!file) return;
-        const trimmed = trimKeyed(decodePng(file));
+        const trimmed = trimKeyed(lastFrame(decodePng(file)));
         if (!trimmed) return;
         await writeOut(
           join(assetDir, 'trainers', 'portraits', `${id}.png`),
@@ -577,6 +577,23 @@ const STAGE_SHEETS = new Set(['sprout', 'dirt_pile']);
 function keyed(png) {
   const key = png.palette?.[0] ?? [0, 0, 0];
   return keyOut({ width: png.width, height: png.height, data: png.data }, key);
+}
+
+/**
+ * A sheet of square frames stacked one above the other, a pixel apart —
+ * Platinum's trainer sprites, one frame per step of the entrance — cut down to
+ * the last, which is the pose the trainer holds once they have finished
+ * arriving (the first is often mid-leap, or sitting down). Anything already
+ * square, or wider than tall, is one picture and is left be.
+ *
+ * @param {import('../lib/png.mjs').DecodedPng} png
+ */
+function lastFrame(png) {
+  if (png.height <= png.width) return png;
+  const frames = Math.round((png.height + 1) / (png.width + 1));
+  const top = (frames - 1) * (png.width + 1);
+  const size = png.width * png.width * 4;
+  return { ...png, height: png.width, data: png.data.subarray(top * png.width * 4, top * png.width * 4 + size), indices: null };
 }
 
 /** @param {import('../lib/png.mjs').DecodedPng} png */

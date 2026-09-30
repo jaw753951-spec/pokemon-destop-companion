@@ -21,6 +21,21 @@ export const BALL_BONUS = {
   'great-ball': 1.5,
 };
 
+/**
+ * The special balls (everything but the Poké, Great, Ultra and Master) are
+ * worth little unless their condition is met, and a lot when it is: without
+ * the condition they are a little worse than a Poké Ball, with it a half
+ * again better than the games make them.
+ */
+export const SPECIAL_MISS = 0.6;
+export const SPECIAL_BOOST = 1.5;
+
+/**
+ * @param {boolean} met whether the ball's condition holds
+ * @param {number} bonus what the games give it when it does
+ */
+const special = (met, bonus) => (met ? bonus * SPECIAL_BOOST : SPECIAL_MISS);
+
 /** Status multipliers, as in Gen 5 onward. */
 export const STATUS_BONUS = { slp: 2.5, frz: 2.5, par: 1.5, brn: 1.5, psn: 1.5 };
 
@@ -68,40 +83,40 @@ export function ballBonus(ball, target = null, context = {}) {
 
   switch (ball) {
     case 'beast-ball':
-      return beast ? 5 : 0.1;
+      return beast ? 5 * SPECIAL_BOOST : 0.1;
     // The first ball thrown.
     case 'quick-ball':
-      return (context.throws ?? 0) === 0 ? 5 : 1;
+      return special((context.throws ?? 0) === 0, 5);
     // Better the longer it goes on: this game's clock is the balls thrown.
     case 'timer-ball':
-      return Math.min(4, 1 + ((context.throws ?? 0) * 1229) / 4096);
+      return Math.min(6, SPECIAL_MISS + ((context.throws ?? 0) * 1229 * SPECIAL_BOOST) / 4096);
     // At night, or in a cave.
     case 'dusk-ball':
-      return context.time === 'night' || tags.includes('cave') ? 3 : 1;
+      return special(context.time === 'night' || tags.includes('cave'), 3);
     case 'net-ball':
-      return species?.types.some((type) => type === 'water' || type === 'bug') ? 3.5 : 1;
+      return special(Boolean(species?.types.some((type) => type === 'water' || type === 'bug')), 3.5);
     // Anything found in or by the water.
     case 'dive-ball':
-      return tags.includes('water') || tags.includes('beach') ? 3.5 : 1;
+      return special(tags.includes('water') || tags.includes('beach'), 3.5);
     // The lower the level, the better, down from 30.
     case 'nest-ball':
-      return target ? Math.max(1, (41 - levelOf(target)) / 10) : 1;
+      return target ? Math.max(SPECIAL_MISS, ((41 - levelOf(target)) / 10) * SPECIAL_BOOST) : SPECIAL_MISS;
     case 'repeat-ball':
-      return target && context.caught?.has(target.speciesId) ? 3.5 : 1;
+      return special(Boolean(target && context.caught?.has(target.speciesId)), 3.5);
     case 'level-ball': {
-      if (!target || !context.active) return 1;
+      if (!target || !context.active) return SPECIAL_MISS;
       const mine = levelOf(context.active);
       const theirs = levelOf(target);
-      return mine >= theirs * 4 ? 8 : mine >= theirs * 2 ? 4 : mine > theirs ? 2 : 1;
+      return special(mine > theirs, mine >= theirs * 4 ? 8 : mine >= theirs * 2 ? 4 : 2);
     }
     case 'moon-ball':
-      return species?.evolutions?.some((evolution) => evolution.item === 'moon-stone') ? 4 : 1;
+      return special(Boolean(species?.evolutions?.some((evolution) => evolution.item === 'moon-stone')), 4);
     case 'fast-ball':
-      return (species?.stats?.spe ?? 0) >= 100 ? 4 : 1;
+      return special((species?.stats?.spe ?? 0) >= 100, 4);
     case 'love-ball': {
       const active = context.active;
-      if (!target || !active || active.speciesId !== target.speciesId) return 1;
-      return active.gender && target.gender && active.gender !== target.gender ? 8 : 1;
+      if (!target || !active || active.speciesId !== target.speciesId) return SPECIAL_MISS;
+      return special(Boolean(active.gender && target.gender && active.gender !== target.gender), 8);
     }
     // A Lure Ball wants a fishing rod, which this game does not have; a Heavy
     // Ball moves the catch rate rather than multiplying it (see `catchValue`).

@@ -6,13 +6,12 @@
  * the order the cartridges' bags list them in.
  *
  * - **Medicine**: HP (Potion up to Full Restore), status cures (one
- *   condition each, then Full Heal), revives, PP, then the stat items — the
- *   six vitamins in stat order, PP Up and PP Max, Exp. Candies small to
- *   large then the Rare Candy, the Ability Capsule and Patch, the Fresh-Start
- *   Mochi — and last the Mints, by the stat their nature raises.
+ *   condition each, then Full Heal), revives, PP, then the stat items — PP Up
+ *   and PP Max, Exp. Candies small to large then the Rare Candy, the Ability
+ *   Capsule and Patch — and last the Mints, by the stat their nature raises.
  * - **Berries**: healing, curing, PP, the type-resisting eighteen in the
- *   games' order, the pinch berries, the ones that answer a hit, the six that lower
- *   effort, and the catching berries.
+ *   games' order, the pinch berries, the ones that answer a hit, and the
+ *   catching berries.
  * - **Balls**: Poké, Great, Ultra and Master Ball, then the special balls,
  *   then the Apricorn balls.
  * - **Machines** go by kind and number — TMs, then HMs, then TRs, each from
@@ -22,8 +21,7 @@
  *   Pokémon uses — a Dialga's orb and crystal, an Arceus's plates, an
  *   Oricorio's nectars — kept together and in the order of the Pokédex; and
  *   last the items that only evolve something, the stones any number of
- *   families use first and then each family's own, the seven Sweets side by
- *   side.
+ *   families use first and then each family's own.
  */
 import { gameData, speciesIdBySlug } from '../core/data.mjs';
 import { name as localized } from '../core/i18n.mjs';
@@ -98,12 +96,10 @@ function medicineRank({ item }) {
     case 'pp-recovery':
       return [3, use.pp?.scope === 'all' ? 1 : 0, use.pp?.amount === 'full' ? 1 : 0];
     case 'vitamins':
-      if (use.effort) return [4, 0, statIndex(use.effort.stat), Number(use.effort.amount ?? 0)];
       if (use.ppUp) return [4, 1, Number(use.ppUp.fraction ?? 0)];
       if (use.experience) return [4, 2, Number(use.experience)];
       if (use.level) return [4, 2, Number.MAX_SAFE_INTEGER];
       if (use.ability) return [4, 3, use.ability === 'swap' ? 0 : 1];
-      if (use.resetEffort) return [4, 4];
       return [4, 5];
     case 'nature-mints': {
       const raised = gameData().natures?.[use.nature]?.increased;
@@ -118,7 +114,6 @@ function medicineRank({ item }) {
 function berryRank({ item }) {
   const held = item?.held;
   if (item?.capture || item?.category === 'catching-bonus') return [7];
-  if (item?.use?.effort) return [6, statIndex(item.use.effort.stat)];
   switch (held?.on) {
     case 'hp':
       if (held.heal) return [0, held.heal.amount ?? Math.round((held.heal.fraction ?? 0) * 1000)];

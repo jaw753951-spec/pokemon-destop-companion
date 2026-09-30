@@ -2,7 +2,7 @@
  * Stat, level and experience mathematics, following the main series.
  *
  * Formulas are the modern (Gen 3 onward) ones, which Gen 9 still uses:
- * stats from base + IV + EV + nature, experience by growth curve, and the
+ * stats from base + IV + nature (there is no effort here), experience by growth curve, and the
  * Gen 5+ experience yield that scales with the level gap.
  */
 
@@ -34,13 +34,12 @@ export function stageMultiplier(stage, isAccuracy = false) {
 /**
  * @param {number} base base stat
  * @param {number} iv 0..31
- * @param {number} ev 0..252
  * @param {number} level
  * @param {number} natureMultiplier 0.9, 1 or 1.1
  * @param {boolean} isHp
  */
-export function computeStat(base, iv, ev, level, natureMultiplier, isHp) {
-  const common = Math.floor(((2 * base + iv + Math.floor(ev / 4)) * level) / 100);
+export function computeStat(base, iv, level, natureMultiplier, isHp) {
+  const common = Math.floor(((2 * base + iv) * level) / 100);
   if (isHp) return common + level + 10;
   return Math.floor((common + 5) * natureMultiplier);
 }
@@ -50,17 +49,16 @@ export function computeStat(base, iv, ev, level, natureMultiplier, isHp) {
  *
  * @param {Record<string, number>} base
  * @param {Record<string, number>} ivs
- * @param {Record<string, number>} evs
  * @param {number} level
  * @param {{increased: string|null, decreased: string|null}} nature
  * @returns {Record<string, number>}
  */
-export function computeStats(base, ivs, evs, level, nature) {
+export function computeStats(base, ivs, level, nature) {
   /** @type {Record<string, number>} */
   const out = {};
   for (const stat of STATS) {
     const multiplier = stat === 'hp' ? 1 : natureMultiplierFor(nature, stat);
-    out[stat] = computeStat(base[stat] ?? 1, ivs[stat] ?? 0, evs[stat] ?? 0, level, multiplier, stat === 'hp');
+    out[stat] = computeStat(base[stat] ?? 1, ivs[stat] ?? 0, level, multiplier, stat === 'hp');
   }
   return out;
 }
@@ -143,53 +141,4 @@ export function experienceYield(defeated, winnerLevel, multiplier = 1) {
   const Lp = Math.max(1, winnerLevel);
   const scaled = ((b * L) / 5) * ((2 * L + 10) / (L + Lp + 10)) ** 2.5;
   return Math.max(1, Math.floor(scaled * multiplier) + 1);
-}
-
-/**
- * Effort values gained from a defeat.
- *
- * The games award the defeated species' EV yield; the companion trains itself,
- * so the yield is spread over the stats that species is strongest in, which is
- * both a reasonable approximation and keeps the hexagon graph meaningful.
- *
- * @param {Record<string, number>} baseStats of the defeated Pokémon
- * @param {number} total points to distribute
- * @returns {Record<string, number>}
- */
-export function effortYield(baseStats, total = 3) {
-  // Train what the species is already good at, which is what a Pokémon
-  // fending for itself would end up doing.
-  const ranked = [...STATS].sort((a, b) => (baseStats[b] ?? 0) - (baseStats[a] ?? 0));
-
-  /** @type {Record<string, number>} */
-  const out = {};
-  for (let i = 0; i < total; i++) {
-    const stat = ranked[i % Math.min(3, ranked.length)];
-    out[stat] = (out[stat] ?? 0) + 1;
-  }
-  return out;
-}
-
-/** A single stat's EV cap, and the total across all six. */
-export const EV_STAT_CAP = 252;
-export const EV_TOTAL_CAP = 510;
-
-/**
- * Add effort values while respecting both caps.
- * @param {Record<string, number>} current
- * @param {Record<string, number>} gained
- * @returns {Record<string, number>}
- */
-export function addEffort(current, gained) {
-  const out = { ...current };
-  let total = STATS.reduce((sum, stat) => sum + (out[stat] ?? 0), 0);
-
-  for (const [stat, amount] of Object.entries(gained)) {
-    if (total >= EV_TOTAL_CAP) break;
-    const room = Math.min(EV_STAT_CAP - (out[stat] ?? 0), EV_TOTAL_CAP - total, amount);
-    if (room <= 0) continue;
-    out[stat] = (out[stat] ?? 0) + room;
-    total += room;
-  }
-  return out;
 }

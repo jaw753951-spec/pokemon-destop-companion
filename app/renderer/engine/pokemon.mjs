@@ -5,12 +5,11 @@
  * derived value (stats, current level, which moves it could learn) is computed
  * from it on demand rather than stored twice.
  */
+import { randomLook } from '../../shared/alcremie.mjs';
 import { gameData, moveOf, speciesOf } from '../core/data.mjs';
 import { FORME_MOVES, HELD_FORMES, settleForme } from './forms.mjs';
 import {
-  addEffort,
   computeStats,
-  effortYield,
   experienceForLevel,
   experienceYield,
   levelForExperience,
@@ -24,7 +23,6 @@ import {
  * @property {number} experience
  * @property {string} nature
  * @property {Record<string, number>} ivs
- * @property {Record<string, number>} evs
  * @property {Array<{move: string, pp: number, ppUp?: number}>} moves
  * @property {number} hp remaining hit points
  * @property {string|null} status `brn`, `psn`, `par`, `slp`, `frz` or null
@@ -51,6 +49,9 @@ import {
  *   the box's top rows
  * @property {string[]} [newMoves] the ones among them not yet looked at in the
  *   move list, which the Pokémon tab marks
+ * @property {string} [look] an Alcremie's cream and sweet, rolled when it evolves
+ * @property {string[]} [badges] the gym badges it has won, by type
+ * @property {boolean} [champion] whether it has beaten the League's champion
  * @property {string} [forme] the alternate forme it is wearing, if any — the
  *   one it stands in (a held mask, a chosen Sky Forme) outside a battle, and
  *   whatever the battle has changed it into inside one, let go of after
@@ -113,7 +114,6 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     experience: experienceForLevel(species.growthRate, Math.max(1, level)),
     nature: natures.length ? rng.pick(natures) : 'hardy',
     ivs,
-    evs: Object.fromEntries(STATS.map((stat) => [stat, 0])),
     moves: [],
     hp: 0,
     status: null,
@@ -147,6 +147,8 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     pokemon.heldItem = rng.pick([null, ...masks.keys()]) ?? null;
     settleForme(pokemon);
   }
+
+  if (species.slug === 'alcremie') pokemon.look = randomLook(rng);
 
   pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
   pokemon.hp = maxHp(pokemon);
@@ -274,6 +276,29 @@ export const isAttack = (slug) => {
   return Boolean(move && move.damageClass !== 'status' && (move.power ?? 0) > 0);
 };
 
+/** The level every Pokémon is when it is caught, whatever level it was met at. */
+export const CAUGHT_LEVEL = 5;
+
+/**
+ * Put a Pokémon back at a given level, with the moves that level knows.
+ *
+ * A caught Pokémon is a fresh one: it goes into the box at level 5 whatever it
+ * was met at, so a catch is somebody to raise rather than a shortcut to a
+ * strong one.
+ *
+ * @param {Pokemon} pokemon
+ * @param {number} level
+ */
+export function resetToLevel(pokemon, level) {
+  const species = speciesOf(pokemon.speciesId);
+  pokemon.experience = experienceForLevel(species.growthRate, Math.max(1, level));
+  pokemon.moves = defaultMoves(pokemon).map((move) => ({ move, pp: moveOf(move)?.pp ?? 5 }));
+  // What it knows now is what it knows; nothing is waiting to be looked at.
+  delete pokemon.learned;
+  noteLearnedMoves(pokemon);
+  pokemon.hp = maxHp(pokemon);
+}
+
 /**
  * The four most recent level-up moves available at the Pokémon's level, which
  * is what the games give a freshly encountered Pokémon — with the guarantee
@@ -385,7 +410,7 @@ export function statsOf(pokemon, forme = pokemon.forme) {
     ? (species.forms ?? []).find((form) => form.slug === forme)?.stats ?? species.stats
     : species.stats;
   const nature = gameData().natures[pokemon.nature] ?? { increased: null, decreased: null };
-  return computeStats(base, pokemon.ivs, pokemon.evs, levelOf(pokemon), nature);
+  return computeStats(base, pokemon.ivs, levelOf(pokemon), nature);
 }
 
 /** @param {Pokemon} pokemon */
@@ -412,12 +437,12 @@ export function experienceProgress(pokemon) {
 }
 
 /**
- * Award experience and effort, and report what changed so the battle log can
+ * Award experience, and report what changed so the battle log can
  * narrate it.
  *
  * @param {Pokemon} pokemon
  * @param {{baseStats: Record<string, number>, baseExp: number, level: number}} defeated
- * @param {{trainerBattle?: boolean, experienceMultiplier?: number, effortMultiplier?: number, effortBonus?: {stat: string, amount: number}|null}} [options]
+ * @param {{trainerBattle?: boolean, experienceMultiplier?: number}} [options]
  * @returns {{experience: number, levelsGained: number, newLevel: number, learnable: string[]}}
  */
 export function gainFromDefeat(pokemon, defeated, options = {}) {
@@ -428,25 +453,12 @@ export function gainFromDefeat(pokemon, defeated, options = {}) {
     options.trainerBattle ? 1.5 : 1,
   );
 
-  // A Lucky Egg pays more experience and a Macho Brace more effort; both are
-  // held items, and both are applied to what the defeat was worth.
+  // A Lucky Egg pays more experience, applied to what the defeat was worth.
   // Level 100 is the top: experience stops at what reaching it takes, rather
   // than piling up behind a level that can no longer move.
   const ceiling = experienceForLevel(speciesOf(pokemon.speciesId)?.growthRate, 100);
   const gained = Math.max(0, Math.min(Math.round(amount * (options.experienceMultiplier ?? 1)), ceiling - pokemon.experience));
   pokemon.experience += gained;
-
-  const effort = effortYield(defeated.baseStats);
-  const effortMultiplier = options.effortMultiplier ?? 1;
-  const earned =
-    effortMultiplier === 1
-      ? { ...effort }
-      : Object.fromEntries(Object.entries(effort).map(([stat, value]) => [stat, value * effortMultiplier]));
-  // A Power item adds its own stat's worth on top of whatever the defeat
-  // paid, eight points a time.
-  const bonus = options.effortBonus;
-  if (bonus?.stat) earned[bonus.stat] = (earned[bonus.stat] ?? 0) + bonus.amount;
-  pokemon.evs = addEffort(pokemon.evs, earned);
 
   const after = levelOf(pokemon);
   // A level-up tops up the extra hit points immediately, as the games do.
@@ -784,11 +796,12 @@ function matchesTime(required, current) {
 }
 
 /**
- * Evolve in place, keeping level, effort, moves and nickname.
+ * Evolve in place, keeping level, moves and nickname.
  * @param {Pokemon} pokemon
  * @param {number} speciesId
+ * @param {{pick: <T>(list: T[]) => T}} [rng] rolls an Alcremie's look
  */
-export function evolveInto(pokemon, speciesId) {
+export function evolveInto(pokemon, speciesId, rng) {
   const ratio = pokemon.hp / maxHp(pokemon);
   const slot = abilitySlot(pokemon);
   // A female Lechonk grows into the female Oinkologne.
@@ -802,6 +815,8 @@ export function evolveInto(pokemon, speciesId) {
     const kept = species.abilities[slot] ?? species.abilities[0];
     pokemon.ability = kept?.name ?? pokemon.ability;
   }
+  // Whatever sweet the Milcery held, the Alcremie's look is left to chance.
+  if (species.slug === 'alcremie') pokemon.look = randomLook(rng);
   // A Type: Null that was already holding a memory is a Silvally of that
   // type the moment it becomes one.
   settleForme(pokemon);

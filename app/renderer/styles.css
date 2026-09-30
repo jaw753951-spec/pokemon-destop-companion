@@ -1642,33 +1642,20 @@ canvas {
   object-fit: contain;
 }
 
-/* --------------------------------------------------------- treasures tab */
+/* ------------------------------------------------------------ badges */
 
-.treasures-tab {
-  flex-direction: column;
+/* A Pokémon's badges, small, in two rows above its hit points. */
+.badge-strip {
+  display: grid;
+  grid-template-columns: repeat(5, 12px);
+  grid-auto-rows: 12px;
+  gap: 2px 3px;
+  padding: 1px 0;
 }
 
-.badge-grid {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-}
-
-.badge {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 8px;
-  border: 2px solid var(--frame);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.6);
-  font-size: 10px;
-}
-
-.badge-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
+.badge-strip .badge-art {
+  width: 12px;
+  height: 12px;
 }
 
 /*
@@ -1696,11 +1683,28 @@ canvas {
   mask-repeat: no-repeat;
 }
 
-.champion-mark {
-  margin-top: 6px;
-  color: var(--accent-dark);
-  font-size: 11px;
-  font-weight: 700;
+/* The champion's crown, a gold mask of its own rather than a sheet medal. */
+.badge-art.champion-badge {
+  --badge-color: #f6c630;
+  --badge-art: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath d='M1 13V4l4 4 3-6 3 6 4-4v9z'/%3E%3C/svg%3E");
+}
+
+/* The crown on a box space's bottom-left corner, clear of the star and the
+   shiny mark. */
+.champion-pin {
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  z-index: 1;
+  display: block;
+  pointer-events: none;
+}
+
+.champion-pin .badge-art {
+  display: block;
+  width: 11px;
+  height: 11px;
+  filter: drop-shadow(0 0 0.5px #7a5a00);
 }
 
 /* ------------------------------------------------------------ auto-battle */
@@ -1980,6 +1984,11 @@ canvas {
   width: 84px;
   height: 84px;
   object-fit: contain;
+}
+
+/* Somebody nobody drew: a figure to stand where they stand, with no face. */
+.league-portrait.silhouette {
+  filter: brightness(0) opacity(0.7);
 }
 
 .league-caption {

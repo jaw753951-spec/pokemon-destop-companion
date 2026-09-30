@@ -80,7 +80,6 @@ const pokemon = (speciesId, known) => ({
   experience: 1,
   nature: 'hardy',
   ivs: flat(),
-  evs: flat(),
   moves: known.map((move) => ({ move, pp: moves[move]?.pp ?? 5 })),
   hp: 30,
   status: null,

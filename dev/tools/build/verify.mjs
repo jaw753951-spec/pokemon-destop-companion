@@ -60,9 +60,10 @@ export async function verifyAssets({ assetDir, dataDir, log }) {
   // The build drops what belongs to a system this game will not have, and
   // keeps everything that acts on something it does — whether or not the
   // engine reads it yet. It also drops each generation's copy of something
-  // the bag already has, and the TRs a TM already covers, which leaves about
-  // six hundred; a build far under that has lost items it meant to keep.
-  note(Object.keys(items).length >= 550, `items: only ${Object.keys(items).length}`);
+  // the bag already has, and the TRs a TM already covers, and everything that only
+  // trained effort, which leaves about five hundred and seventy; a build far
+  // under that has lost items it meant to keep.
+  note(Object.keys(items).length >= 500, `items: only ${Object.keys(items).length}`);
   // Unless something evolves by it: a Gimmighoul Coin is filed with the TM materials.
   const retired = Object.entries(items).filter(([slug, item]) =>
     ['mega-stones', 'z-crystals', 'dynamax-crystals', 'tera-shard', 'curry-ingredients', 'tm-materials'].includes(
@@ -352,7 +353,7 @@ function evolutionItem(species, slug) {
       (evolution) =>
         evolution.item === slug ||
         evolution.heldItem === slug ||
-        // A Milcery takes any of the seven Sweets.
+        // A Milcery takes a Sweet.
         (evolution.heldItems ?? []).includes(slug) ||
         // A Linking Cord stands in for every trade.
         (evolution.trigger === 'trade' && slug === TRADE_ITEM),

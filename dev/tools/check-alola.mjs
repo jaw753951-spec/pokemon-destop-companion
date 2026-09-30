@@ -110,7 +110,7 @@ app.whenReady().then(async () => {
 
   const sessionState = await window.webContents.executeJavaScript(`(() => {
     const session = window.__pdcApp.session;
-    return { leagueRegion: session.leagueRegion, badges: session.badges.length };
+    return { leagueRegion: session.leagueRegion, badges: session.badges.length, alternate: session.leagueRun?.alternate ?? null };
   })()`, true);
   console.log('session:', JSON.stringify(sessionState));
 
@@ -130,8 +130,10 @@ app.whenReady().then(async () => {
     const leagues = (await import('./core/data.mjs')).gameData().leagues ?? [];
     const league = leagues.find((entry) => entry.region === session.leagueRegion);
     if (!league) return null;
+    // The roll is kept on the run, not folded into the shared data: the
+    // fourth seat is whoever of the alternates the challenge drew.
     return {
-      eliteFour: league.eliteFour.map((m) => m.id),
+      eliteFour: [...league.eliteFour.map((m) => m.id), ...(session.leagueRun?.alternate ? [session.leagueRun.alternate] : [])],
       champion: league.champion.id,
     };
   })()`, true);
