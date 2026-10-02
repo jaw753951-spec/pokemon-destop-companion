@@ -75,7 +75,7 @@ export class AudioEngine {
     this.musicGain = this.context.createGain();
     this.effectGain = this.context.createGain();
     this.cryGain = this.context.createGain();
-    this.musicGain.connect(this.context.destination);
+    connectMusic(this.context, this.musicGain);
     this.effectGain.connect(this.context.destination);
     this.cryGain.connect(this.context.destination);
     this.applyVolumes();
@@ -353,8 +353,11 @@ export class AudioEngine {
     gain.gain.setTargetAtTime(peak * voice.sustain, when + attack, Math.max(0.02, duration / 3));
     gain.gain.setTargetAtTime(0.0001, when + duration, release / 3);
 
+    // Stopped once the release has died away, not part way down it: at one
+    // release the envelope is still at a twentieth, and cutting a low note off
+    // there is a click.
     source.start(when);
-    source.stop(when + duration + release);
+    source.stop(when + duration + release * 2);
     source.onended = () => gain.disconnect();
   }
 
@@ -455,7 +458,10 @@ function voiceFor(program) {
   if (program >= 128) return { wave: 'noise', gain: 0.5, transpose: 0, attack: 0.002, sustain: 0.2, release: 0.08 };
   if (program < 8) return { wave: 'triangle', gain: 0.5, transpose: 0, attack: 0.004, sustain: 0.55, release: 0.12 };
   if (program < 32) return { wave: 'square', gain: 0.32, transpose: 0, attack: 0.006, sustain: 0.6, release: 0.1 };
-  if (program < 40) return { wave: 'sawtooth', gain: 0.42, transpose: -12, attack: 0.006, sustain: 0.7, release: 0.1 };
+  // At the pitch it is written at: the tracks already put their bass low, and
+  // an octave under that went down to 20 Hz, which a laptop speaker cannot
+  // play and breaks up trying to.
+  if (program < 40) return { wave: 'sawtooth', gain: 0.42, transpose: 0, attack: 0.006, sustain: 0.7, release: 0.1 };
   if (program < 56) return { wave: 'sawtooth', gain: 0.26, transpose: 0, attack: 0.03, sustain: 0.8, release: 0.18 };
   if (program < 80) return { wave: 'square', gain: 0.3, transpose: 0, attack: 0.012, sustain: 0.75, release: 0.12 };
   if (program < 112) return { wave: 'sawtooth', gain: 0.24, transpose: 0, attack: 0.02, sustain: 0.7, release: 0.16 };
@@ -463,6 +469,28 @@ function voiceFor(program) {
 }
 
 const midiToFrequency = (note) => 440 * 2 ** ((note - 69) / 12);
+
+/**
+ * Below this the music has nothing a small speaker can play, and what it
+ * cannot play it distorts on, so it is taken out before it gets there.
+ */
+const MUSIC_FLOOR_HZ = 35;
+
+/**
+ * Send the music channel to the speakers through a gentle high-pass at
+ * {@link MUSIC_FLOOR_HZ}.
+ *
+ * @param {BaseAudioContext} context
+ * @param {GainNode} music
+ */
+export function connectMusic(context, music) {
+  const floor = context.createBiquadFilter();
+  floor.type = 'highpass';
+  floor.frequency.value = MUSIC_FLOOR_HZ;
+  floor.Q.value = 0.7;
+  music.connect(floor);
+  floor.connect(context.destination);
+}
 
 /** @param {AudioContext} context */
 function createNoiseBuffer(context) {
