@@ -599,7 +599,7 @@ export function fieldScene(session) {
       // opened, the find held up — plays at the event hurry while held; the
       // walk up to it goes at the walk's.
       const eventPace = boostPace(boost, events?.walking ? HOLD_BOOST_WALK : HOLD_BOOST_EVENT);
-      if (!menuOpen) events?.update(deltaMs * eventPace, offset, app);
+      if (!menuOpen) events?.update(deltaMs * eventPace, offset, app, deltaMs);
       refreshArt(app);
       hud?.update(session);
     },

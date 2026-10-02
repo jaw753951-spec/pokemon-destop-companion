@@ -24,6 +24,7 @@ import {
   doorStep,
   gatherBob,
   keepInSight,
+  lookClock,
 } from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 
@@ -192,6 +193,20 @@ test('a companion bobs while it gathers and stands still otherwise', () => {
   // one hop.
   const rises = heights.filter((height, index) => index > 0 && height > heights[index - 1]).length;
   assert.ok(rises > 3, `expected a repeating bob, saw ${rises} rises`);
+});
+
+test('holding to hurry a gather makes it end sooner, not shake', () => {
+  // Two seconds of real time with the event hurried six times over: the bob
+  // follows the clock the player sees, not the hurried progress.
+  const hurried = [];
+  const plain = [];
+  for (let real = 0; real <= 2000; real += 20) {
+    hurried.push(gatherBob({ phase: 'gather', elapsed: real * 6, shown: real }));
+    plain.push(gatherBob({ phase: 'gather', elapsed: real }));
+  }
+  assert.deepEqual(hurried, plain);
+  assert.equal(lookClock({ elapsed: 900, shown: 150 }), 150);
+  assert.equal(lookClock({ elapsed: 900 }), 900, 'an event from before the clock existed');
 });
 
 test('a bobbing companion leaves its shadow on the ground', () => {
