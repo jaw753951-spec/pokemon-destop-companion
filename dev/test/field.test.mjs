@@ -196,15 +196,15 @@ test('a companion bobs while it gathers and stands still otherwise', () => {
 });
 
 test('holding to hurry a gather makes it end sooner, not shake', () => {
-  // Two seconds of real time with the event hurried six times over: the bob
-  // follows the clock the player sees, not the hurried progress.
+  // Two seconds with the event hurried six times over and the motions twice:
+  // the bob follows its own clock, not the hurried progress.
   const hurried = [];
-  const plain = [];
+  const double = [];
   for (let real = 0; real <= 2000; real += 20) {
-    hurried.push(gatherBob({ phase: 'gather', elapsed: real * 6, shown: real }));
-    plain.push(gatherBob({ phase: 'gather', elapsed: real }));
+    hurried.push(gatherBob({ phase: 'gather', elapsed: real * 6, shown: real * 2 }));
+    double.push(gatherBob({ phase: 'gather', elapsed: real * 2 }));
   }
-  assert.deepEqual(hurried, plain);
+  assert.deepEqual(hurried, double);
   assert.equal(lookClock({ elapsed: 900, shown: 150 }), 150);
   assert.equal(lookClock({ elapsed: 900 }), 900, 'an event from before the clock existed');
 });

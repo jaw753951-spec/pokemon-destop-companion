@@ -58,7 +58,7 @@ const GATHERING = new Set(['gather']);
 /**
  * How far off the ground the companion is at this point in a gather.
  *
- * On the clock the player sees ({@link lookClock}), so holding to hurry the
+ * On the motions' own clock ({@link lookClock}), so holding to hurry the
  * picking along makes it end sooner without the bob turning into a shake.
  *
  * @param {any} active
@@ -72,10 +72,11 @@ export function gatherBob(active) {
 
 /**
  * The clock an event's looping motions run on — a bob, a tree swaying, a
- * trainer's idle frames — which is real time, held or not.
+ * trainer's idle frames.
  *
  * `elapsed` is the event's progress, and holding hurries it six times over;
- * the motions that only show something going on stay at their own pace.
+ * the motions that only show something going on go at most twice as fast
+ * (`HOLD_BOOST_LOOK`), which reads as a hurry rather than a shake.
  *
  * @param {any} state
  */
@@ -264,8 +265,8 @@ export function createEventRunner({ session, onBattle }) {
      * @param {number} deltaMs how far the event moves on, hurried if held
      * @param {number} offset
      * @param {import('../core/app.mjs').App} app
-     * @param {number} [realMs] how much time actually passed, for the motions
-     *   that show it ({@link lookClock})
+     * @param {number} [realMs] how far the looping motions move on — the time
+     *   that passed, at most twice over when held ({@link lookClock})
      */
     update(deltaMs, offset, app, realMs = deltaMs) {
       if (!active) return;

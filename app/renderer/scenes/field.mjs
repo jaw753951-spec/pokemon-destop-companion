@@ -11,6 +11,7 @@ import {
   OVERPASS_RETRY_MS,
   FIELD_HEIGHT,
   HOLD_BOOST_EVENT,
+  HOLD_BOOST_LOOK,
   HOLD_BOOST_RATE,
   HOLD_BOOST_WALK,
   CROSSING_MS,
@@ -599,7 +600,7 @@ export function fieldScene(session) {
       // opened, the find held up — plays at the event hurry while held; the
       // walk up to it goes at the walk's.
       const eventPace = boostPace(boost, events?.walking ? HOLD_BOOST_WALK : HOLD_BOOST_EVENT);
-      if (!menuOpen) events?.update(deltaMs * eventPace, offset, app, deltaMs);
+      if (!menuOpen) events?.update(deltaMs * eventPace, offset, app, deltaMs * boostPace(boost, HOLD_BOOST_LOOK));
       refreshArt(app);
       hud?.update(session);
     },

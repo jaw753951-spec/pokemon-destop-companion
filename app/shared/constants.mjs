@@ -109,6 +109,14 @@ export const HOLD_BOOST_WALK = 2.5;
 export const HOLD_BOOST_EVENT = 6;
 
 /**
+ * How fast an event's looping motions go while the pointer is held — the
+ * companion bobbing as it gathers, the berry tree swaying, a trainer's idle
+ * frames. Livelier than at rest, so the hurry shows, but nowhere near the
+ * event clock's six times: at that the bob was a shake.
+ */
+export const HOLD_BOOST_LOOK = 2;
+
+/**
  * How the hurry comes on and goes off, in milliseconds.
  *
  * Switching the pace the instant the pointer moved made the road lurch: full
