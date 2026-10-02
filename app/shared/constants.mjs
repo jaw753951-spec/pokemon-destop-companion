@@ -154,6 +154,15 @@ export const COMPANION_WEAKNESS = 1.5;
 export const EVENT_RETRY_MS = 5 * 1000;
 
 /**
+ * How soon a turn held back by a bridge overhead is tried again.
+ *
+ * Sooner than {@link EVENT_RETRY_MS}: the road moves on by itself, and five
+ * seconds of walking is 170 field pixels, enough to step clean over a short
+ * stretch of open road between two spans.
+ */
+export const OVERPASS_RETRY_MS = 1000;
+
+/**
  * How long the walk from one area to the next takes, in milliseconds.
  *
  * Half of it is the screen shutting and half is it opening again, with the

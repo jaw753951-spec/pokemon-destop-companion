@@ -1382,14 +1382,16 @@ dist/                패키지 산출물 (gitignored)
 ## 배포 · 패키징
 
 `npm run dist` 은 `electron-builder` 로 현재 OS용 패키지를 만듭니다. 대상은
-Windows(zip), macOS(dmg, 애플 실리콘·인텔 공용 universal), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
+Windows(zip), macOS(dmg, 애플 실리콘용 arm64 · 인텔용 x64 따로), Linux(AppImage)이며 산출물은 `dist/` 에 떨어집니다.
 컨테이너에서 리눅스만 빨리 확인하려면 `npm run dist:linux` 를 쓰세요.
 
 윈도우는 설치본 없이 zip만 냅니다. 설치 프로그램은 서명이 없으면 경고가 한 겹 더 붙고,
 어차피 세이브와 설정을 앱 바깥에 두기 때문에 압축을 푸는 것 이상으로 해줄 일이 없습니다.
 
-에셋은 저장소에 없지만 **패키지 안에는 들어갑니다.** `assets/` 와 `data/` 를
-`extraResources` 로 복사하므로 설치본 하나만 받으면 추가 다운로드 없이 실행됩니다.
+에셋은 저장소에 없지만 **패키지 안에는 들어갑니다.** `assets/` 와 `data/generated`·`data/authored` 를
+`extraResources` 로 복사하므로 설치본 하나만 받으면 추가 다운로드 없이 실행됩니다. 에셋 빌드에만
+쓰는 `data/vendor`(원본 도트 보관)는 넣지 않고, 크로미움 언어 팩도 게임이 지원하는 한국어·영어만
+남깁니다(`electronLanguages`) — 게임 문구는 자체 i18n이라 이 팩과 상관이 없습니다.
 `app/main/paths.mjs` 가 `process.resourcesPath` 를 먼저 보고 없으면 저장소 경로로
 되돌아가므로, 개발 실행과 패키지 실행이 같은 코드로 동작합니다. 세이브와 설정은 패키지
 바깥의 `app.getPath('userData')` 에 저장되므로 업데이트해도 남습니다.

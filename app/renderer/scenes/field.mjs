@@ -8,6 +8,7 @@
  */
 import {
   EVENT_RETRY_MS,
+  OVERPASS_RETRY_MS,
   FIELD_HEIGHT,
   HOLD_BOOST_EVENT,
   HOLD_BOOST_RATE,
@@ -571,8 +572,10 @@ export function fieldScene(session) {
       if (event) {
         // Nor does one play out under a bridge: it waits until the road ahead
         // is open sky again.
-        if (events?.busy || menuOpen || crossing > 0 || nearOverpass(session.area, eventGround(offset))) {
+        if (events?.busy || menuOpen || crossing > 0) {
           session.eventTimer = EVENT_RETRY_MS;
+        } else if (nearOverpass(session.area, eventGround(offset))) {
+          session.eventTimer = OVERPASS_RETRY_MS;
         } else {
           // Running short of health, PP, potions or balls calls a rest stop
           // once; it is no longer one of the rolls.

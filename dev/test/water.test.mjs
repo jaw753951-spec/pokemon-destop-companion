@@ -6,8 +6,9 @@ import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData } from '../../app/renderer/core/data.mjs';
 import { createPokemon } from '../../app/renderer/engine/pokemon.mjs';
 import { rollTrainer } from '../../app/renderer/engine/encounter.mjs';
-import { waterDrop } from '../../app/renderer/render/field.mjs';
-import { stripRuns } from '../tools/build/areas.mjs';
+import { nearOverpass, waterDrop } from '../../app/renderer/render/field.mjs';
+import { eventGround } from '../../app/renderer/scenes/fieldevents.mjs';
+import { aboveTopLayer, stripRuns } from '../tools/build/areas.mjs';
 
 const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
@@ -20,6 +21,27 @@ test('water beside the lane is laid out the way the strip is', () => {
   assert.deepEqual(runs, [[6, 9, 1], [20, 23, 1]]);
   // Runs of different rows are kept apart.
   assert.deepEqual(stripRuns([1, -1], 1, 1), [[0, 1, 1], [1, 2, -1]]);
+});
+
+test('a lane up on a bridge deck walks over the top layer, one below it walks under', () => {
+  // Victory Road's upper floor, elevation 4, over a plank bridge marked 15:
+  // the planks keep the height the walker came onto them at.
+  assert.deepEqual(aboveTopLayer([4, 4, 15, 15, 4]), [true, true, true, true, true]);
+  // Route 110's lane at ground level under the Cycling Road.
+  assert.deepEqual(aboveTopLayer([3, 3, 15, 3]), [false, false, false, false]);
+  // A stairway between floors takes the height of the nearer one.
+  assert.deepEqual(aboveTopLayer([3, 0, 0, 0, 4]), [false, false, false, true, true]);
+  assert.deepEqual(aboveTopLayer([15, 15]), [false, false], 'nothing to go by');
+});
+
+test('every area leaves some road for an event to start on', withData, () => {
+  // Route 7's four roofs, each held a bridge's width of road either side,
+  // left none at all, and nothing ever happened there.
+  for (const area of gameData().areas) {
+    let open = 0;
+    for (let x = 0; x < area.width; x += 2) if (!nearOverpass(area, eventGround(x))) open++;
+    assert.ok(open / (area.width / 2) > 0.1, `${area.id}: ${open} open spots`);
+  }
 });
 
 test('a stretch is over water only when all of it is, and says how far out', () => {

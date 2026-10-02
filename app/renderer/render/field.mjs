@@ -249,15 +249,49 @@ export function drawOverlay(context, overlay, offset) {
 export const OVERPASS_MARGIN = 40;
 
 /**
- * Whether a stretch of road runs under, or too close to, something the map
- * draws over the lane.
+ * How far either side of a roof a prop that would vanish behind it is kept.
  *
- * @param {{width: number, covered?: Array<[number, number]>}|null|undefined} area
+ * A roof the lane runs behind hides only the lane's own block — the feet of
+ * whatever stands there — so it holds no event back. A ball, or a Pokémon no
+ * taller than that block, would be hidden whole, and is moved on past it.
+ */
+export const ROOF_MARGIN = 4;
+
+/** How much of whatever stands on the lane a roof's edge hides, in field pixels. */
+export const ROOF_COVER = 16;
+
+/**
+ * Whether a stretch of road runs under, or too close to, a bridge: something
+ * the map draws over the whole of whoever is on the lane.
+ *
+ * @param {{width: number, covered?: Array<[number, number, string?]>}|null|undefined} area
  * @param {[number, number]} ground strip coordinates before wrapping, as
  *   `eventGround` gives them
  * @param {number} [margin]
  */
-export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
+export function nearOverpass(area, ground, margin = OVERPASS_MARGIN) {
+  return nearSpans(area, ground, margin, (kind) => kind !== 'roof');
+}
+
+/**
+ * Whether a stretch of road runs behind a roof's edge, which hides the lane's
+ * own block and nothing above it.
+ *
+ * @param {{width: number, covered?: Array<[number, number, string?]>}|null|undefined} area
+ * @param {[number, number]} ground
+ * @param {number} [margin]
+ */
+export function behindRoof(area, ground, margin = ROOF_MARGIN) {
+  return nearSpans(area, ground, margin, (kind) => kind === 'roof');
+}
+
+/**
+ * @param {{width: number, covered?: Array<[number, number, string?]>}|null|undefined} area
+ * @param {[number, number]} ground
+ * @param {number} margin
+ * @param {(kind: string|undefined) => boolean} counts which spans to look at
+ */
+function nearSpans(area, [from, to], margin, counts) {
   const spans = area?.covered;
   if (!spans?.length || !area.width) return false;
   const width = area.width;
@@ -265,7 +299,8 @@ export function nearOverpass(area, [from, to], margin = OVERPASS_MARGIN) {
   // with the copies either side of it as well as its own.
   const base = Math.floor(from / width) * width;
   for (const shift of [base - width, base, base + width]) {
-    for (const [start, end] of spans) {
+    for (const [start, end, kind] of spans) {
+      if (!counts(kind)) continue;
       if (from < shift + end + margin && to > shift + start - margin) return true;
     }
   }

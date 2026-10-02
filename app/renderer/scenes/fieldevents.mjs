@@ -17,7 +17,18 @@ import { alreadyOwned } from '../engine/shop.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
-import { ACTOR_SCALE, actorScale, COMPANION_X, drawWalker, groundY, waterDrop } from '../render/field.mjs';
+import {
+  ACTOR_SCALE,
+  actorScale,
+  behindRoof,
+  COMPANION_X,
+  drawWalker,
+  groundY,
+  nearOverpass,
+  POKEMON_SCALE,
+  ROOF_COVER,
+  waterDrop,
+} from '../render/field.mjs';
 
 /** How far either side of a Swimmer's spot must be water, in field pixels: about its own half-width. */
 const SWIMMER_HALF_WIDTH = 10;
@@ -75,6 +86,58 @@ const EVENT_AHEAD = 80;
 export function eventGround(offset) {
   const spawnAt = offset + (FIELD_WIDTH - COMPANION_X) + SPAWN_MARGIN;
   return [COMPANION_X + spawnAt - MEET_GAP - EVENT_BEHIND, COMPANION_X + spawnAt + EVENT_AHEAD];
+}
+
+/**
+ * Move a prop on past a roof's edge if the edge would hide it whole.
+ *
+ * A roof the lane runs behind covers the lane's own block, so it holds no
+ * event back: a trainer or a Pokémon Center standing there has its feet
+ * behind the edge, as the companion does. A ball on the ground, or a Pokémon
+ * no taller than that block, would not be there at all — so its spot is
+ * walked on to the first open road past the roof, never onto a bridge.
+ *
+ * @param {{width: number, covered?: Array<[number, number, string?]>}|null|undefined} area
+ * @param {any} state
+ */
+export function keepInSight(area, state) {
+  const size = propSize(state);
+  if (!size || size.height > ROOF_COVER || !area?.width) return;
+  const half = size.width / 2;
+  const clear = (worldX) => {
+    const spot = COMPANION_X + worldX;
+    return !behindRoof(area, [spot - half, spot + half])
+      && !nearOverpass(area, [spot - MEET_GAP - EVENT_BEHIND, spot + EVENT_AHEAD]);
+  };
+  for (let step = 0; step * ROOF_STEP < area.width; step++) {
+    const worldX = state.worldX + step * ROOF_STEP;
+    if (clear(worldX)) {
+      state.worldX = worldX;
+      return;
+    }
+  }
+}
+
+/** How far at a time a prop is moved along to get out from behind a roof. */
+const ROOF_STEP = 4;
+
+/**
+ * How big a prop is drawn, in field pixels, where it is small enough for that
+ * to matter: a ball, or a wild Pokémon. Null for the rest, all of them taller
+ * than anything a roof hides.
+ *
+ * @param {any} state
+ * @returns {{width: number, height: number}|null}
+ */
+function propSize(state) {
+  const prop = state?.prop;
+  if (prop?.kind === 'ball') return { width: BALL_SIZE, height: BALL_SIZE };
+  if (prop?.kind === 'pokemon') {
+    const meta = artOf(prop.pokemon)?.meta;
+    if (!meta) return null;
+    return { width: meta.width * POKEMON_SCALE, height: meta.height * POKEMON_SCALE };
+  }
+  return null;
 }
 
 /**
@@ -177,6 +240,7 @@ export function createEventRunner({ session, onBattle }) {
         default:
           active = null;
       }
+      if (active) keepInSight(session.area, active);
     },
 
     /**
