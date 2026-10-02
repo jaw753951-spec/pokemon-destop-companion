@@ -57,13 +57,31 @@ const GATHERING = new Set(['gather']);
 
 /**
  * How far off the ground the companion is at this point in a gather.
+ *
+ * On the motions' own clock ({@link lookClock}), so holding to hurry the
+ * picking along makes it end sooner without the bob turning into a shake.
+ *
  * @param {any} active
  * @returns {number} field pixels
  */
 export function gatherBob(active) {
   if (!active || !GATHERING.has(active.phase)) return 0;
-  const elapsed = active.elapsed ?? 0;
+  const elapsed = lookClock(active);
   return Math.round(Math.abs(Math.sin((elapsed / GATHER_BOB_MS) * Math.PI)) * GATHER_BOB_PX);
+}
+
+/**
+ * The clock an event's looping motions run on — a bob, a tree swaying, a
+ * trainer's idle frames.
+ *
+ * `elapsed` is the event's progress, and holding hurries it six times over;
+ * the motions that only show something going on go at most twice as fast
+ * (`HOLD_BOOST_LOOK`), which reads as a hurry rather than a shake.
+ *
+ * @param {any} state
+ */
+export function lookClock(state) {
+  return state?.shown ?? state?.elapsed ?? 0;
 }
 
 /**
@@ -244,11 +262,13 @@ export function createEventRunner({ session, onBattle }) {
     },
 
     /**
-     * @param {number} deltaMs
+     * @param {number} deltaMs how far the event moves on, hurried if held
      * @param {number} offset
      * @param {import('../core/app.mjs').App} app
+     * @param {number} [realMs] how far the looping motions move on — the time
+     *   that passed, at most twice over when held ({@link lookClock})
      */
-    update(deltaMs, offset, app) {
+    update(deltaMs, offset, app, realMs = deltaMs) {
       if (!active) return;
 
       if (active.phase === 'approach') {
@@ -261,6 +281,7 @@ export function createEventRunner({ session, onBattle }) {
 
       active.timer -= deltaMs;
       active.elapsed = (active.elapsed ?? 0) + deltaMs;
+      active.shown = (active.shown ?? 0) + realMs;
       if (active.timer > 0) return;
 
 
@@ -921,7 +942,7 @@ function drawProp(context, state, screenX) {
   if (!prop?.sprite) return;
 
   if (prop.kind === 'berry-tree') {
-    drawBerryTree(context, prop, screenX, state.elapsed ?? 0);
+    drawBerryTree(context, prop, screenX, lookClock(state));
     return;
   }
   if (prop.kind === 'ball') {
@@ -956,7 +977,7 @@ function drawProp(context, state, screenX) {
   // A trainer waiting on the path, at the size the props are drawn at — or a
   // Swimmer in the water beside it.
   sprite.draw(context, screenX, groundY() + (prop.drop ?? 0), {
-    frame: sprite.frameAt(state.elapsed ?? 0),
+    frame: sprite.frameAt(lookClock(state)),
     scale: ACTOR_SCALE,
   });
 }
