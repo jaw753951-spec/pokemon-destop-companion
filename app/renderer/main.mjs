@@ -4,7 +4,7 @@
  */
 import { App, fitStage, runLoop, trackWindowDrag } from './core/app.mjs';
 import { AudioEngine } from './core/audio.mjs';
-import { saves, settings as settingsApi, windowControl } from './core/bridge.mjs';
+import { saves, settings as settingsApi } from './core/bridge.mjs';
 import { loadGameData } from './core/data.mjs';
 import { el } from './core/dom.mjs';
 import { setLanguage, t } from './core/i18n.mjs';
@@ -17,7 +17,6 @@ async function boot() {
 
   fitStage();
   window.addEventListener('resize', fitStage);
-  document.getElementById('minimize')?.addEventListener('click', () => windowControl.minimize());
   trackWindowDrag();
 
   const settings = await settingsApi.get();

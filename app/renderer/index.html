@@ -15,11 +15,10 @@
          picture, which is window rather than game and is therefore somewhere
          to pick the companion up by. The strip is the top edge of the picture
          itself, for the sizes where there is no margin at all. Neither draws
-         anything; only the minimize button is ever visible. -->
+         anything, and neither holds a control: the top of the companion only
+         ever moves it, never minimizes or maximizes it. -->
     <div id="dragframe" data-drag></div>
-    <div id="dragbar" data-drag>
-      <button id="minimize" type="button" title="Minimize">–</button>
-    </div>
+    <div id="dragbar" data-drag></div>
 
     <!-- Everything draws inside a fixed 480x270 stage that is scaled to the
          window, so a source pixel always maps to a whole number of screen ones. -->

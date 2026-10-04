@@ -26,7 +26,6 @@ contextBridge.exposeInMainWorld('pdc', {
     beginDrag: () => invoke('window:dragStart'),
     dragTo: (dx, dy) => invoke('window:dragTo', { dx, dy }),
     endDrag: () => invoke('window:dragEnd'),
-    minimize: () => invoke('window:minimize'),
   },
   app: {
     quit: (slot, save) => invoke('app:quit', { slot, save }),

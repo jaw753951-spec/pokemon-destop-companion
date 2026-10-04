@@ -41,7 +41,6 @@ export const windowControl = {
   dragTo: (dx, dy) => api().window.dragTo(dx, dy),
   /** Let go, and keep where it ended up. */
   endDrag: () => api().window.endDrag(),
-  minimize: () => api().window.minimize(),
 };
 
 export const appControl = {
