@@ -290,8 +290,15 @@ canvas {
   cursor: pointer;
 }
 
-.slot:hover {
+.slot:hover:not(:disabled) {
   border-color: var(--accent);
+}
+
+/* Shown for what it is, but not to be chosen: a move already in a slot. */
+.slot:disabled {
+  opacity: 0.45;
+  filter: grayscale(1);
+  cursor: default;
 }
 
 .slot.empty {

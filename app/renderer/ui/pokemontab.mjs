@@ -334,15 +334,19 @@ async function openReplace(app, session, slot, refresh) {
   const known = new Set(pokemon.moves.map((entry) => entry.move));
   const fresh = new Set(pokemon.newMoves ?? []);
   // The newest first, so what was just learned is at the top rather than
-  // somewhere down a list of forty; the new ones carry the dot.
-  const choices = movesByRecency(pokemon, session.machines)
-    .filter((move) => !known.has(move) || move === pokemon.moves[slot]?.move)
-    .map((move) => ({
-      value: move,
-      label: localized(moveOf(move)?.name, move),
-      detail: moveSummary(move),
-      fresh: fresh.has(move),
-    }));
+  // somewhere down a list of forty; the new ones carry the dot. The moves
+  // already in a slot stay in the list, greyed out, so the player can see the
+  // whole set while choosing — but a move cannot sit in two slots, so none of
+  // them can be picked.
+  const listed = movesByRecency(pokemon, session.machines);
+  const moves = [...listed, ...[...known].filter((move) => !listed.includes(move))];
+  const choices = moves.map((move) => ({
+    value: move,
+    label: localized(moveOf(move)?.name, move),
+    detail: moveSummary(move),
+    fresh: fresh.has(move),
+    disabled: known.has(move),
+  }));
 
   // Opening the list is looking at them.
   pokemon.newMoves = [];
