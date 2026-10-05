@@ -228,34 +228,35 @@ export const CAPTURE_ATTEMPTS = 3;
 export const BADGES_FOR_LEAGUE = 8;
 
 /**
- * How often a trainer encounter is a gym leader instead, and how many trainer
- * wins in a row summon one without the roll — by how far into the journey the
- * companion is.
+ * The level each badge is due by, first to eighth.
  *
- * One flat 5% and fifty wins made the late badges a long wait: by the sixth
- * badge the companion had long outgrown the road and was still walking it for
- * a leader who rarely came. So the odds rise with the badges in hand, or with
- * the companion's level for one that has levelled ahead of its badges —
- * whichever is further on. The wins that summon one were halved again, so a
- * leader is never more than a couple of dozen fights away.
- *
- * | stage | badges | or level | chance | wins |
- * |-------|--------|----------|--------|------|
- * | early |   0–3  |   < 30   |   5%   |  25  |
- * | mid   |   4–5  |  30–44   |  10%   |  15  |
- * | late  |   6–7  |   45+    |  15%   |  10  |
+ * Leaders used to come on odds that rose with the journey, which left where
+ * the eighth badge landed to how fast the companion happened to level: a
+ * Lucky Egg ran it far ahead of its badges, a run of lost leader battles far
+ * behind. So each badge now has a level it is due by, and a leader comes
+ * looking for a companion that has reached it — which puts the eighth badge
+ * around level 70, ready for a League that waits in the 70s.
  */
-export const LEADER_ODDS = [
-  { badges: 0, level: 0, chance: 0.05, wins: 25 },
-  { badges: 4, level: 30, chance: 0.1, wins: 15 },
-  { badges: 6, level: 45, chance: 0.15, wins: 10 },
-];
+export const BADGE_LEVELS = [12, 20, 28, 36, 44, 52, 60, 68];
 
-/** Trainer wins that summon a gym leader even without the random roll, at the start. */
-export const TRAINER_WINS_FOR_LEADER = LEADER_ODDS[0].wins;
-
-/** Chance a trainer encounter is a gym leader instead, at the start. */
-export const LEADER_ENCOUNTER_CHANCE = LEADER_ODDS[0].chance;
+/**
+ * How often a trainer encounter is a gym leader instead, and how many trainer
+ * wins since the last badge summon one without the roll.
+ *
+ * | the companion is…                 | chance | wins |
+ * |-----------------------------------|--------|------|
+ * | at or past the next badge's level |  50%   |   3  |
+ * | within 6 levels of it             |   8%   |   —  |
+ * | further below                     |    —   |   —  |
+ *
+ * A badge can come a little early, by luck, but not a whole gym early; and a
+ * companion that has reached its level meets the leader within a few fights.
+ */
+export const LEADER_ODDS = {
+  due: { chance: 0.5, wins: 3 },
+  near: { chance: 0.08, wins: Infinity, within: 6 },
+  early: { chance: 0, wins: Infinity },
+};
 
 /**
  * The leader odds for a companion this far along.
@@ -265,9 +266,8 @@ export const LEADER_ENCOUNTER_CHANCE = LEADER_ODDS[0].chance;
  * @returns {{chance: number, wins: number}}
  */
 export function leaderOdds(badges, level) {
-  let odds = LEADER_ODDS[0];
-  for (const stage of LEADER_ODDS) {
-    if (badges >= stage.badges || level >= stage.level) odds = stage;
-  }
-  return odds;
+  const due = BADGE_LEVELS[Math.min(badges, BADGE_LEVELS.length - 1)];
+  if (level >= due) return LEADER_ODDS.due;
+  if (level >= due - LEADER_ODDS.near.within) return LEADER_ODDS.near;
+  return LEADER_ODDS.early;
 }

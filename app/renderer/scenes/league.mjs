@@ -14,7 +14,7 @@ import { gameData, speciesOf } from '../core/data.mjs';
 import { stableHash } from '../core/rng.mjs';
 import { button, el, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
-import { createPokemon, levelOf } from '../engine/pokemon.mjs';
+import { createPokemon } from '../engine/pokemon.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEAGUE_PARTY_CAP } from '../engine/encounter.mjs';
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -22,13 +22,27 @@ import { earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { battleScene } from './battle.mjs';
 
 /**
- * How far above the challenger each round is pitched.
+ * The level each round's team stands at: the Elite Four in order, then the
+ * champion.
  *
- * A league is meant to be the end of a journey rather than a wall at the end
- * of one. The champion used to open twelve levels up, which on a single
- * Pokémon against a full team is not a climb — it is a stop.
+ * Fixed rather than pitched against the challenger. A league levelled to
+ * whoever walked in was the same climb at level 50 as at 90, so there was
+ * nothing to train for; this one sits in the 70s, where the eighth badge
+ * comes (see `BADGE_LEVELS`), and the champion at 80 at the top of it.
  */
-const LEVEL_STEP = [0, 1, 2, 3, 5];
+export const LEAGUE_LEVELS = [70, 72, 74, 76, 80];
+
+/**
+ * The level for one round of a league of so many, the last always the
+ * champion's.
+ *
+ * @param {number} index
+ * @param {number} count
+ */
+export function leagueLevel(index, count) {
+  const last = LEAGUE_LEVELS.length - 1;
+  return index >= count - 1 ? LEAGUE_LEVELS[last] : LEAGUE_LEVELS[Math.min(index, last - 1)];
+}
 
 /**
  * @param {{
@@ -126,7 +140,7 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     const round = rounds[index];
     const last = index === rounds.length - 1;
 
-    const foes = buildParty(session, round, LEVEL_STEP[Math.min(index, LEVEL_STEP.length - 1)]);
+    const foes = buildParty(session, round, leagueLevel(index, rounds.length));
     app.push(
       battleScene({
         session,
@@ -293,15 +307,13 @@ function generatedLeague(session) {
 
 /**
  * A league trainer's team: their named roster where one is on file, and
- * otherwise the strongest members of their speciality, always levelled
- * relative to the challenger so the ladder stays a ladder.
+ * otherwise the strongest members of their speciality.
  *
  * @param {import('../engine/session.mjs').Session} session
  * @param {any} trainer
- * @param {number} levelBonus
+ * @param {number} level the round's, from `leagueLevel`
  */
-export function buildParty(session, trainer, levelBonus) {
-  const level = Math.min(100, levelOf(session.active) + levelBonus);
+export function buildParty(session, trainer, level) {
   const roster = (trainer.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length

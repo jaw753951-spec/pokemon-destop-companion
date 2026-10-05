@@ -865,7 +865,7 @@ function leaderField(leader, classes) {
 /** @param {import('../engine/session.mjs').Session} session */
 function shouldSummonLeader(session) {
   if (session.badges.length >= 8) return false;
-  // Likelier the further along the journey is; see LEADER_ODDS.
+  // Due once the companion reaches the next badge's level; see BADGE_LEVELS.
   const odds = leaderOdds(session.badges.length, levelOf(session.active));
   if (session.trainerWins >= odds.wins) return true;
   return session.rng.chance(odds.chance);
