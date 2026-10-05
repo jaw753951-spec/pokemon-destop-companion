@@ -259,6 +259,18 @@ export const LEADER_ODDS = {
 };
 
 /**
+ * Trainer encounters after a lost leader battle that are ordinary trainers
+ * whatever the odds say.
+ *
+ * A companion that has reached a badge's level and lost to its leader was
+ * otherwise back in front of a leader — the odds at 50% and the wins long
+ * since counted — at the very next trainer, on the one hit point the loss
+ * left it and with nothing learned in between. Three ordinary fights give it
+ * a few levels' worth of road first.
+ */
+export const LEADER_REST_AFTER_LOSS = 3;
+
+/**
  * The leader odds for a companion this far along.
  *
  * @param {number} badges

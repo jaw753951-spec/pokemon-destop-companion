@@ -8,8 +8,16 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { BADGE_LEVELS, BADGES_FOR_LEAGUE, leaderOdds } from '../../app/shared/constants.mjs';
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
+import { Rng } from '../../app/renderer/core/rng.mjs';
+import { createPokemon } from '../../app/renderer/engine/pokemon.mjs';
+import { Session } from '../../app/renderer/engine/session.mjs';
+import { BADGE_LEVELS, BADGES_FOR_LEAGUE, LEADER_REST_AFTER_LOSS, leaderOdds } from '../../app/shared/constants.mjs';
+import { shouldSummonLeader } from '../../app/renderer/scenes/fieldevents.mjs';
 import { LEAGUE_LEVELS, leagueLevel } from '../../app/renderer/scenes/league.mjs';
+
+const ready = await useRealGameData();
+const options = { skip: ready ? false : NEEDS_ASSETS };
 
 test('every badge has a level it is due by, rising, the eighth around 70', () => {
   assert.equal(BADGE_LEVELS.length, BADGES_FOR_LEAGUE);
@@ -54,4 +62,34 @@ test('the champion is the last round whatever the league counts', () => {
   assert.equal(leagueLevel(5, 6), top, 'a six-round league ends on the champion');
   assert.ok(leagueLevel(4, 6) < top, 'and its fifth round is still an Elite Four member');
   assert.equal(leagueLevel(3, 4), top, 'a four-round league too');
+});
+
+/**
+ * A companion overdue for its first badge, with the wins counted long since:
+ * without the rest, the very next trainer is the leader.
+ */
+const overdue = () => {
+  const session = new Session({ slot: 0, save: { seed: 7, party: { active: createPokemon(new Rng(1), 4, BADGE_LEVELS[0] + 10), box: [] } } });
+  session.trainerWins = 10;
+  return session;
+};
+
+test('a leader lost to stays away for the next three trainers, then returns', options, () => {
+  const session = overdue();
+  assert.equal(shouldSummonLeader(session), true, 'overdue, the leader comes at once');
+
+  session.leaderRest = LEADER_REST_AFTER_LOSS;
+  for (let trainer = 1; trainer <= LEADER_REST_AFTER_LOSS; trainer++) {
+    assert.equal(shouldSummonLeader(session), false, `trainer ${trainer} after the loss is an ordinary one`);
+  }
+  assert.equal(session.leaderRest, 0);
+  assert.equal(shouldSummonLeader(session), true, 'the fourth is the leader again');
+});
+
+test('the rest after a lost leader battle survives a save and reload', options, () => {
+  const session = overdue();
+  session.leaderRest = 2;
+  const again = new Session({ slot: 0, save: session.toSave() });
+  assert.equal(again.leaderRest, 2);
+  assert.equal(new Session({ slot: 0, save: { seed: 1, party: { active: session.active, box: [] } } }).leaderRest, 0, 'an older save has none');
 });

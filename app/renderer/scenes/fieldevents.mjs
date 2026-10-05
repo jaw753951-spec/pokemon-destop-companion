@@ -862,9 +862,20 @@ function leaderField(leader, classes) {
   return suited[stableHash(leader.id ?? '') % suited.length].field;
 }
 
-/** @param {import('../engine/session.mjs').Session} session */
-function shouldSummonLeader(session) {
+/**
+ * Whether this trainer encounter is a gym leader instead.
+ *
+ * A leader just lost to stays away for a few trainers first (see
+ * `LEADER_REST_AFTER_LOSS`); each encounter spends one of them.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ */
+export function shouldSummonLeader(session) {
   if (session.badges.length >= 8) return false;
+  if (session.leaderRest > 0) {
+    session.leaderRest--;
+    return false;
+  }
   // Due once the companion reaches the next badge's level; see BADGE_LEVELS.
   const odds = leaderOdds(session.badges.length, levelOf(session.active));
   if (session.trainerWins >= odds.wins) return true;
