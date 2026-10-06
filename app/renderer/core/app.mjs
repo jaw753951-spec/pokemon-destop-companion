@@ -270,8 +270,6 @@ export function trackWindowDrag() {
   for (const handle of handles) {
     handle.addEventListener('pointerdown', (event) => {
       if (event.button !== 0) return;
-      // The minimize button is a control, not a handle.
-      if (/** @type {HTMLElement} */ (event.target).closest('#minimize')) return;
       from = { x: event.screenX, y: event.screenY };
       handle.setPointerCapture(event.pointerId);
       void windowControl.beginDrag();

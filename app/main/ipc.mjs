@@ -13,7 +13,7 @@ import { pathToFileURL } from 'node:url';
 import { ASSET_DIR, AUTHORED_DIR, DATA_DIR } from './paths.mjs';
 import { deleteSlot, listSlots, readSlot, writeSlot } from './save.mjs';
 import { loadSettings, saveSettings, SCALE_STEPS } from './settings.mjs';
-import { applyScale, beginDrag, dragTo, endDrag, getWindow } from './window.mjs';
+import { applyScale, beginDrag, dragTo, endDrag } from './window.mjs';
 
 /** Roots the `pdc://` protocol will serve, by host name. */
 const ROOTS = { assets: ASSET_DIR, data: DATA_DIR, authored: AUTHORED_DIR };
@@ -83,11 +83,6 @@ export function registerHandlers() {
     const at = endDrag();
     if (at) await saveSettings({ windowX: at.x, windowY: at.y });
     return at;
-  });
-
-  handle('window:minimize', () => {
-    getWindow()?.minimize();
-    return true;
   });
 
   handle('app:quit', async ({ slot, save } = {}) => {

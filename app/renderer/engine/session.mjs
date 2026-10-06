@@ -80,6 +80,8 @@ export class Session {
       if (pokemon && !Array.isArray(pokemon.badges)) pokemon.badges = [];
     }
     this.trainerWins = save.progress?.trainerWins ?? 0;
+    /** Trainer encounters still to pass before a leader lost to can return. */
+    this.leaderRest = Number.isInteger(save.progress?.leaderRest) ? Math.max(0, save.progress.leaderRest) : 0;
     /** The purse: what trainers pay out and the shop takes. */
     this.money = Number.isFinite(save.progress?.money) ? save.progress.money : STARTING_MONEY;
     this.playtime = save.progress?.playtime ?? 0;
@@ -356,6 +358,7 @@ export class Session {
         badges: this.badges,
         champion: this.champion,
         trainerWins: this.trainerWins,
+        leaderRest: this.leaderRest,
         money: this.money,
         playtime: Math.round(this.playtime),
         areaId: this.area?.id ?? null,

@@ -47,6 +47,7 @@ export function createWindow(settings) {
     backgroundColor: '#00000000',
     hasShadow: false,
     resizable: false,
+    minimizable: false,
     maximizable: false,
     fullscreenable: false,
     skipTaskbar: true,
@@ -65,6 +66,16 @@ export function createWindow(settings) {
   // point of a desktop companion; without it the window hides behind games.
   current.setAlwaysOnTop(true, 'screen-saver');
   current.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
+
+  // The window is only ever moved, never minimized, maximized or put full
+  // screen. The options above take those away from the window's own controls,
+  // but a window manager can still force them — a keyboard shortcut, a menu
+  // on the window, a double-click some desktops honour on any window — so
+  // each is undone the moment it happens. A minimized companion would be lost
+  // besides: it has no taskbar entry to bring it back by.
+  current.on('minimize', () => current?.restore());
+  current.on('maximize', () => current?.unmaximize());
+  current.on('enter-full-screen', () => current?.setFullScreen(false));
 
   current.loadFile(join(RENDERER_DIR, 'index.html'));
   current.on('closed', () => {

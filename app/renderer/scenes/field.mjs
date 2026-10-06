@@ -46,7 +46,7 @@ import { backdropForArea } from '../render/backdrop.mjs';
 import { drawWeather } from '../render/weather.mjs';
 import { closeDaylightLayer, openDaylightLayer } from '../render/daylight.mjs';
 import { weatherForArea } from '../../shared/area-tags.mjs';
-import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
+import { LEADER_REST_AFTER_LOSS, VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { createHud } from '../render/hud.mjs';
 import { battleScene } from './battle.mjs';
 import { captureScene } from './capture.mjs';
@@ -295,6 +295,8 @@ export function fieldScene(session) {
       // takes nothing.
       const paid = setup.trainer ? lossFor(session) : 0;
       if (paid > 0) earn(session, -paid);
+      // A leader lost to does not stand in the road again at the next trainer.
+      if (setup.leader) session.leaderRest = LEADER_REST_AFTER_LOSS;
       session.blackOut();
       app.toast([t(setup.trainer ? 'battle.lost' : 'battle.lostWild'), paid > 0 ? t('money.paid', { amount: formatMoney(paid) }) : null].filter(Boolean).join('\n'));
       restock(app);

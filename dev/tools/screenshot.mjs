@@ -232,7 +232,7 @@ const leagueBattle = async (round) => {
   session.heal();
 
   const { battleScene } = await import('./scenes/battle.mjs');
-  const { buildParty, resolveLeague } = await import('./scenes/league.mjs');
+  const { buildParty, leagueLevel, resolveLeague } = await import('./scenes/league.mjs');
   const { backdropForLeagueRound } = await import('./render/backdrop.mjs');
 
   const league = resolveLeague(session);
@@ -242,7 +242,7 @@ const leagueBattle = async (round) => {
 
   app().push(battleScene({
     session,
-    foes: buildParty(session, trainer, 4),
+    foes: buildParty(session, trainer, leagueLevel(index, rounds.length)),
     trainer,
     backdrop: backdropForLeagueRound(index, rounds.length),
     onFinish: () => app().pop(),

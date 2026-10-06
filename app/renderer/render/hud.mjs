@@ -8,6 +8,11 @@ import { button, el, setChildren, statusMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { leagueOpen } from '../engine/session.mjs';
 import { experienceProgress, levelOf, maxHp } from '../engine/pokemon.mjs';
+import { formatMoney } from '../engine/shop.mjs';
+import { badgeIcon, championIcon } from '../ui/badges.mjs';
+
+/** The gyms a League challenge needs, and so the badge case's empty places. */
+const BADGE_SLOTS = 8;
 
 /**
  * @param {{
@@ -49,15 +54,38 @@ export function createHud(handlers) {
 
   const tray = el('div', {
     style: {
-      position: 'absolute',
-      top: '20px',
-      right: '6px',
       display: 'flex',
       flexDirection: 'column',
       gap: '2px',
       alignItems: 'flex-end',
     },
   });
+
+  /**
+   * The badge case and the purse, opposite the status window.
+   *
+   * Both used to be a menu away — the badges on the Pokémon tab, the money
+   * only in the shop — and they are what a player checks on the way to the
+   * League. The case has a place for each of the eight gyms, so how far there
+   * is to go reads at a glance; the crown follows once the champion falls.
+   */
+  const badgeCase = el('div.hud-badges');
+  const moneyLabel = el('span.hud-money');
+  const purse = el('div.panel.hud-window.hud-purse', {}, [badgeCase, moneyLabel]);
+
+  // The tray hangs under the purse, so the two never overlap however long
+  // the tray grows.
+  const corner = el('div', {
+    style: {
+      position: 'absolute',
+      top: '20px',
+      right: '6px',
+      display: 'flex',
+      flexDirection: 'column',
+      gap: '4px',
+      alignItems: 'flex-end',
+    },
+  }, [purse, tray]);
 
   const status = el('div.panel.hud-window', {
     style: {
@@ -106,11 +134,13 @@ export function createHud(handlers) {
     el('div.hud-window', { style: { padding: '2px 8px' } }, [areaLabel]),
   ]);
 
-  const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, tray, buttons, areaBadge]);
-  for (const node of [status, tray, buttons, areaBadge]) node.style.pointerEvents = 'auto';
+  const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, corner, buttons, areaBadge]);
+  for (const node of [status, purse, tray, buttons, areaBadge]) node.style.pointerEvents = 'auto';
 
   /** What the tray was last built from, so it is only rebuilt when it changes. */
   let trayKey = '';
+  /** Likewise the badge case. */
+  let badgeKey = '';
 
   return {
     root,
@@ -147,6 +177,20 @@ export function createHud(handlers) {
       hpFill.style.width = `${ratio * 100}%`;
       hpFill.style.background = ratio > 0.5 ? '#63bb5b' : ratio > 0.2 ? '#f3d23b' : '#d8443c';
       expFill.style.width = `${progress.ratio * 100}%`;
+
+      const badges = pokemon.badges ?? [];
+      const nextBadgeKey = `${badges.join(',')}|${Boolean(pokemon.champion)}`;
+      if (nextBadgeKey !== badgeKey) {
+        badgeKey = nextBadgeKey;
+        const empty = Math.max(0, BADGE_SLOTS - badges.length);
+        setChildren(badgeCase, [
+          ...badges.map((type) => badgeIcon(type)),
+          ...Array.from({ length: empty }, () => el('span.badge-slot', { 'aria-hidden': 'true' })),
+          pokemon.champion ? championIcon() : null,
+        ]);
+        badgeCase.title = t('slot.badges', { count: badges.length });
+      }
+      moneyLabel.textContent = t('money.label', { amount: formatMoney(session.money) });
 
       areaLabel.textContent = localized(session.area?.name, session.area?.id ?? '');
       leagueButton.hidden = !leagueOpen(session);

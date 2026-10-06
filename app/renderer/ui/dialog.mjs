@@ -134,8 +134,9 @@ export function prompt(app, title, options = {}) {
  * @template T
  * @param {import('../core/app.mjs').App} app
  * @param {string} title
- * @param {Array<{value: T, label: string, detail?: string, fresh?: boolean}>} entries `fresh` marks
- *   one with the red new-thing dot
+ * @param {Array<{value: T, label: string, detail?: string, fresh?: boolean, disabled?: boolean}>} entries
+ *   `fresh` marks one with the red new-thing dot; `disabled` shows one greyed
+ *   out and not to be chosen
  * @param {{empty?: string}} [options] what to say when there is nothing to choose
  * @returns {Promise<T|null>}
  */
@@ -152,8 +153,10 @@ export function chooseFromList(app, title, entries, options = {}) {
                   'button.slot',
                   {
                     type: 'button',
+                    disabled: entry.disabled ?? false,
                     style: { padding: '3px 6px' },
                     onClick: () => {
+                      if (entry.disabled) return;
                       app.audio.blip('confirm');
                       dismiss();
                       resolve(entry.value);
@@ -166,7 +169,9 @@ export function chooseFromList(app, title, entries, options = {}) {
                     ]),
                   ],
                 ),
-              )
+              ).concat(entries.some((entry) => !entry.disabled)
+                ? []
+                : [el('p.meta', { text: options.empty ?? t('pokemon.noReplacement') })])
             : [el('p.meta', { text: options.empty ?? t('pokemon.noReplacement') })],
         ),
       );
