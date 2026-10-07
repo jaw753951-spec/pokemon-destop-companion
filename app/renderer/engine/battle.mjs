@@ -17,6 +17,7 @@ import {
   chargeOwnsStats,
   calledMove,
   failsBeforeUse,
+  boundToFail,
   fixedDamage,
   neverAutomatic,
   PARTNER_ONLY,
@@ -2241,12 +2242,15 @@ export class Battle {
    */
   stillAllowed(attacker, usable) {
     let left = usable;
+    const target = this.other(attacker);
     // A Fake Out after the first turn out is a move that fails, so it is not
-    // offered once that turn has gone — unless there is nothing else.
-    if (!this.firstTurnOut(attacker)) {
-      const others = left.filter((slot) => !FIRST_TURN_ONLY.has(slot.move));
-      if (others.length > 0) left = others;
-    }
+    // offered once that turn has gone — unless there is nothing else. Nor is
+    // anything else whose condition is plainly not met: a Poltergeist at a
+    // target holding nothing, a Dream Eater at one awake.
+    const firstTurn = this.firstTurnOut(attacker);
+    const working = left.filter((slot) =>
+      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move));
+    if (working.length > 0) left = working;
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
     }
@@ -2271,7 +2275,6 @@ export class Battle {
     if (narrowed.length > 0) left = narrowed;
     // A Future Sight is not chosen again while one is on its way to the same
     // target, nor straight after the one just used: the second fails.
-    const target = this.other(attacker);
     if ((target && this.field.futureSight[target.side]) || DELAYED_ATTACKS.has(attacker.lastMove)) {
       const fresh = left.filter((slot) => !DELAYED_ATTACKS.has(slot.move));
       if (fresh.length > 0) left = fresh;

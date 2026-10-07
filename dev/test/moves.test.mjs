@@ -66,6 +66,46 @@ test('a Fly says where its user went, and the move that comes down brings it bac
     .find((entry) => entry.kind === 'move')?.data?.reveal, undefined);
 });
 
+test('a move bound to fail is passed over, and taken up again once it would work', options, () => {
+  const GENGAR = 94;
+  const GOLURK = 623;
+  const target = () => punchbag(70, MACHAMP);
+  // Poltergeist hits far harder than Shadow Claw, so it is the strongest
+  // attack — and against a target holding nothing it fails, every turn.
+  const player = fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']);
+  const foe = target();
+  const battle = fight(player, foe);
+  for (let turn = 0; turn < 3; turn++) {
+    const log = battle.takeTurn();
+    const used = log.find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move;
+    assert.equal(used, 'shadow-claw', `turn ${turn + 1}: reached for ${used}`);
+    assert.ok(!log.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+  }
+  // Something to throw, and it is the move of choice again.
+  foe.heldItem = 'leftovers';
+  const log = battle.takeTurn();
+  assert.equal(log.find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move, 'poltergeist');
+
+  // Laid out in the move order, too: the order steps past it.
+  const ordered = fight(fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']), target(), {
+    policy: { ...defaultAutoBattle(), mode: 'repeatLast', order: ['poltergeist', null, null, null] },
+  });
+  assert.equal(ordered.chooseMove(ordered.player, /** @type {any} */ (ordered.foe)), 'shadow-claw');
+
+  // And the other side's trainers do not throw it either.
+  const foeSide = fight(target(), fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']));
+  assert.equal(foeSide.chooseMove(/** @type {any} */ (foeSide.foe), foeSide.player), 'shadow-claw');
+
+  // A Dream Eater waits for the target to be asleep; with nothing else, it is
+  // still used rather than nothing.
+  const eater = fight(fixed(GENGAR, 60, ['dream-eater', 'lick']), target());
+  assert.equal(eater.chooseMove(eater.player, /** @type {any} */ (eater.foe)), 'lick');
+  eater.foe.pokemon.status = STATUS.SLEEP;
+  assert.equal(eater.chooseMove(eater.player, /** @type {any} */ (eater.foe)), 'dream-eater');
+  const only = fight(fixed(GOLURK, 60, ['poltergeist']), target());
+  assert.equal(only.chooseMove(only.player, /** @type {any} */ (only.foe)), 'poltergeist');
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();
