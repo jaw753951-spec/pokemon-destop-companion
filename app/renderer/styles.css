@@ -617,6 +617,14 @@ canvas {
   font-size: 10px;
   text-align: center;
   white-space: pre-line;
+  cursor: pointer;
+}
+
+/* Over a menu the message rides above the bottom row, where the bag's Use and
+   Toss and the shop's Buy are: "cannot learn it" stood over the very Use
+   button the player wanted to press next. */
+#overlay:has(> .screen:not([hidden]) .screen-body) ~ #toast {
+  bottom: 36px;
 }
 
 /* ------------------------------------------------------------------ loading */
@@ -1240,22 +1248,32 @@ canvas {
 
 .box-space .shiny-mark {
   position: absolute;
-  top: 0;
+  top: 1px;
   right: 2px;
+  z-index: 1;
+  font-size: 10px;
+  line-height: 1;
+  /* A 1px dark rim, as the star and the crown have, so the mark stands off
+     the sprite under it and off the space's pale ground. */
+  text-shadow: 1px 0 #5b1411, -1px 0 #5b1411, 0 1px #5b1411, 0 -1px #5b1411, 1px 1px #5b1411, -1px 1px #5b1411,
+    1px -1px #5b1411, -1px -1px #5b1411;
 }
 
 /* A favourite: a yellow star on the space's top-left corner, where the catch
    tray puts its Poké Ball. */
 .favorite-mark {
   position: absolute;
-  top: -4px;
-  left: -4px;
+  top: -3px;
+  left: -3px;
   z-index: 1;
   width: 11px;
   height: 11px;
-  background: #f6c630;
-  clip-path: polygon(50% 0%, 61% 35%, 98% 35%, 68% 57%, 79% 91%, 50% 70%, 21% 91%, 32% 57%, 2% 35%, 39% 35%);
-  filter: drop-shadow(0 0 0.5px #7a5a00) drop-shadow(0 0 0.5px #7a5a00);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Cpath fill='%23f6c630' d='M50 0 61 35H98L68 57 79 91 50 70 21 91 32 57 2 35H39z'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  /* A 1px dark rim round the star, so it reads over any sprite. A clip-path
+     would cut the rim away with the rest, so the shape is the picture. */
+  filter: drop-shadow(1px 0 0 #5a4000) drop-shadow(-1px 0 0 #5a4000) drop-shadow(0 1px 0 #5a4000)
+    drop-shadow(0 -1px 0 #5a4000);
   pointer-events: none;
 }
 
@@ -1746,10 +1764,14 @@ canvas {
    shiny mark. */
 .champion-pin {
   position: absolute;
-  left: 0;
-  bottom: 0;
+  left: 1px;
+  bottom: 1px;
   z-index: 1;
   display: block;
+  /* The crown's rim goes on the pin: the crown is a mask, and a mask cuts
+     away any shadow drawn on the element it masks. */
+  filter: drop-shadow(1px 0 0 #5a4000) drop-shadow(-1px 0 0 #5a4000) drop-shadow(0 1px 0 #5a4000)
+    drop-shadow(0 -1px 0 #5a4000);
   pointer-events: none;
 }
 
@@ -1757,7 +1779,6 @@ canvas {
   display: block;
   width: 11px;
   height: 11px;
-  filter: drop-shadow(0 0 0.5px #7a5a00);
 }
 
 /* ------------------------------------------------------------ auto-battle */
