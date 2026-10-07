@@ -48,6 +48,11 @@ export class App {
 
     this.lastFrame = 0;
     this.toastTimer = 0;
+
+    // A message goes at the first press anywhere, so it never stands over the
+    // button the player wants next. A press on the message itself only clears
+    // it: the button that surfaces from under it is not pressed too.
+    window.addEventListener('pointerdown', () => this.dismissToast(), true);
   }
 
   /** The scene currently on top, or null before the first one is pushed. */
@@ -157,6 +162,12 @@ export class App {
     this.toastNode.textContent = message;
     this.toastNode.hidden = false;
     this.toastTimer = durationMs;
+  }
+
+  /** Take the message down before its time is up. */
+  dismissToast() {
+    this.toastTimer = 0;
+    this.toastNode.hidden = true;
   }
 
   /**
