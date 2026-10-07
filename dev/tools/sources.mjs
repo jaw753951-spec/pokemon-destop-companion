@@ -41,7 +41,15 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  * decompilation, whose front sprites are a strip of animation frames 80 pixels
  * wide; the last frame is the pose the trainer stands in.
  *
- * @type {Record<string, {source: 'firered'|'crystal'|'platinum', path: string}>}
+ * Everyone past Sinnoh, and Johto's leaders, come from the Smogon / Pokémon
+ * Showdown sprite repository (`smogon`, kept under `data/vendor/smogon-sprites`):
+ * HeartGold and SoulSilver's own sprites for Johto, Black and White's and
+ * Black 2 and White 2's for Unova, and — since the 3D games drew nobody in
+ * pixels — the community's sprites in the Black and White style for Kalos and
+ * Alola, credited in the game. Diantha, Grant, Galar, Paldea and Blueberry
+ * were never drawn there, and fall back to a trainer of their speciality.
+ *
+ * @type {Record<string, {source: 'firered'|'crystal'|'platinum'|'smogon', path: string}>}
  */
 export const NAMED_PORTRAITS = {
   bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
@@ -71,6 +79,57 @@ export const NAMED_PORTRAITS = {
   byron: { source: 'platinum', path: 'res/trainers/classes/leader_byron/front.png' },
   candice: { source: 'platinum', path: 'res/trainers/classes/leader_candice/front.png' },
   volkner: { source: 'platinum', path: 'res/trainers/classes/leader_volkner/front.png' },
+  // Johto's leaders, as HeartGold and SoulSilver drew them.
+  falkner: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Falkner.png' },
+  bugsy: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Bugsy.png' },
+  whitney: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Whitney.png' },
+  morty: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Morty.png' },
+  chuck: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Chuck.png' },
+  jasmine: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Jasmine.png' },
+  pryce: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Pryce.png' },
+  clair: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Clair.png' },
+  janine: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Janine.png' },
+  // Unova, from Black and White: the first leaders, the Elite Four, and Iris
+  // as the Opelucid leader she is there.
+  cress: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Cress.png' },
+  cilan: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Cilan.png' },
+  chili: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Chili.png' },
+  lenora: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Lenora.png' },
+  burgh: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Burgh.png' },
+  elesa: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Elesa.png' },
+  clay: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Clay.png' },
+  skyla: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Skyla.png' },
+  brycen: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Brycen.png' },
+  drayden: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Drayden.png' },
+  iris: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Iris.png' },
+  shauntal: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Shauntal.png' },
+  grimsley: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Grimsley.png' },
+  caitlin: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Caitlin.png' },
+  marshal: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Marshal.png' },
+  // Black 2 and White 2's new leaders, and Iris as the champion she becomes.
+  cheren: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Cheren.png' },
+  roxie: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Roxie.png' },
+  marlon: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Marlon.png' },
+  iris_champion: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Iris.png' },
+  // Kalos and Alola were drawn in 3D; these are the community's sprites in
+  // Black and White's style.
+  viola: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Viola.png' },
+  korrina: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Korrina.png' },
+  ramos: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Ramos.png' },
+  clemont: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Clemont.png' },
+  valerie: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Valerie.png' },
+  olympia: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Olympia.png' },
+  wulfric: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Wulfric.png' },
+  drasna: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Drasna.png' },
+  wikstrom: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Wikstrom.png' },
+  malva: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Malva.png' },
+  siebold: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Siebold.png' },
+  olivia: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Olivia.png' },
+  acerola: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Acerola.png' },
+  kahili: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Kahili.png' },
+  hau: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Hau.png' },
+  hala: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Hala.png' },
+  molayne: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Molayne.png' },
 };
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */

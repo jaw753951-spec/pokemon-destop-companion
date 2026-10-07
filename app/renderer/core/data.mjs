@@ -24,7 +24,7 @@ import { loadJson } from './bridge.mjs';
  * @property {Array<any>} trainerClasses
  * @property {Array<any>} leaders
  * @property {Array<any>} leagues
- * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}, custom?: {source: string, url: string, license: string, artists: string[]}}} credits who
+ * @property {{sprites?: {source: string, url: string, license: string, artists: string[]}, custom?: {source: string, url: string, license: string, artists: string[]}, trainers?: {source: string, url: string, license: string}}} credits who
  *   drew what the game borrows, for the credits the licence asks for
  */
 

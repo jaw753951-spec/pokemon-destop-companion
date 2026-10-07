@@ -155,6 +155,13 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
         license: 'fan art, with credit',
         artists: COMMUNITY_ARTISTS,
       },
+      // The league's Kalos and Alola people, whom the 3D games never drew in
+      // pixels (see NAMED_PORTRAITS).
+      trainers: {
+        source: 'Smogon / Pokémon Showdown',
+        url: 'https://github.com/smogon/sprites',
+        license: 'fan art, with credit',
+      },
     }),
   );
 

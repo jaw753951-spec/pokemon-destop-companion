@@ -165,6 +165,8 @@
   "credits.spritesNote": "The Pokémon are the official battle sprites of {source} (No. 1–649 and the formes of their day), {license}, used in a non-commercial fan game only.",
   "credits.custom": "Pokémon sprites (No. 650 on, regional forms and more)",
   "credits.customNote": "The Pokémon and formes Black & White never drew are the {source}’s sprites in the same style, shared for fan projects with credit, with thanks to every artist below.",
+  "credits.trainers": "Trainer sprites (Kalos and Alola)",
+  "credits.trainersNote": "Kalos and Alola's leaders, Elite Four and champions were never drawn in pixels; theirs are the {source} community's fan sprites in Black & White's style, shared with credit.",
   "credits.none": "Nothing to credit.",
   "items.afterBattle": "After a battle",
   "items.afterBattleNote": "After a win, healing items from the bag top the companion up to this much health, the smallest that closes the gap first. Set to full, a status condition is cured too, with the narrowest cure in the bag.",

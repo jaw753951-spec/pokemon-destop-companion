@@ -13,6 +13,7 @@ import { decodePng, encodePng } from '../lib/png.mjs';
 import { concatX, crop, keyOut, opaqueBounds } from '../lib/image.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
+import { saveVendored, vendored } from '../lib/vendor.mjs';
 import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS, PLATINUM } from '../sources.mjs';
 
 /** Overworld people sheets are 16x32 frames; battle portraits are 64x64. */
@@ -69,6 +70,7 @@ async function buildTrainerPortraits(assetDir, pool, log) {
 
   const named = await buildNamedPortraits(assetDir, pool);
   Object.assign(out, named);
+  await saveVendored(log);
 
   log(`trainer portraits ${Object.keys(out).length}/${names.length + Object.keys(named).length}`);
   return out;
@@ -81,8 +83,11 @@ async function buildTrainerPortraits(assetDir, pool, log) {
  * Elite Four from every region there is a roster for. The two Kanto-era
  * decompilations cover several of the rest — Fire Red draws them in the same
  * hand as everything else here, and Crystal draws the two nobody else does, in
- * four colours and proud of it. Everyone still missing falls back to a trainer
- * class of their speciality, which the league screen does at draw time.
+ * four colours and proud of it. Sinnoh is Platinum's; Johto's leaders and
+ * everyone past Sinnoh come from the Smogon sprite repository, kept in
+ * `data/vendor/` like the Pokémon (see `NAMED_PORTRAITS`). Everyone still
+ * missing falls back to a trainer class of their speciality, which the league
+ * screen does at draw time.
  */
 async function buildNamedPortraits(assetDir, pool) {
   const roots = { emerald: EMERALD, firered: FIRERED, crystal: CRYSTAL, platinum: PLATINUM };
@@ -92,9 +97,15 @@ async function buildNamedPortraits(assetDir, pool) {
   await Promise.all(
     Object.entries(NAMED_PORTRAITS).map(([id, { source, path }]) =>
       pool(async () => {
-        const file = await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
+        const file = source === 'smogon'
+          ? await vendored('smogon-sprites', path)
+          : await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
         if (!file) return;
-        const trimmed = trimKeyed(lastFrame(decodePng(file)));
+        // Only Platinum's pictures are strips of frames; anyone else drawn
+        // taller than wide is one tall picture, and cutting it to a square
+        // took the head off the top of it.
+        const decoded = decodePng(file);
+        const trimmed = trimKeyed(source === 'platinum' ? lastFrame(decoded) : decoded);
         if (!trimmed) return;
         await writeOut(
           join(assetDir, 'trainers', 'portraits', `${id}.png`),

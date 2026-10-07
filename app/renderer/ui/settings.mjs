@@ -232,7 +232,7 @@ function languageRows(app, rebuild) {
  * @returns {HTMLElement[]}
  */
 function creditRows() {
-  const { sprites, custom } = gameData().credits ?? {};
+  const { sprites, custom, trainers } = gameData().credits ?? {};
   if (!sprites && !custom) return [el('p.meta', { text: t('credits.none') })];
   return [
     ...(sprites
@@ -250,6 +250,14 @@ function creditRows() {
           el('p.meta', { text: t('credits.customNote', { source: custom.source }) }),
           el('p.meta.credits-url', { text: custom.url }),
           el('p.credits-names', { text: custom.artists.join(', ') }),
+        ]
+      : []),
+    // The league's people from the 3D games, drawn by the same community.
+    ...(trainers
+      ? [
+          el('div.section-title', { text: t('credits.trainers') }),
+          el('p.meta', { text: t('credits.trainersNote', { source: trainers.source }) }),
+          el('p.meta.credits-url', { text: trainers.url }),
         ]
       : []),
   ];

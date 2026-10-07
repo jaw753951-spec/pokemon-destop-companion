@@ -1,5 +1,5 @@
 {
-  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 도전할 수 있고, 리그에 들어설 때마다 이 중 한 묶음이 통째로 뽑힌다 — 사천왕 넷과 그 뒤의 챔피언은 한 게임의 사람들이라 따로 섞지 않는다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 공식 도트가 있는 사람(호연·석영·신오의 사천왕과 챔피언)에게만 있고 나머지는 리그 화면에서 실루엣으로 나온다. alternates 는 eliteFour 에서 한 명만 대신 나올 사람들 — 도전이 시작될 때 이 중 하나가 골라진다(알로라는 US/UM 기준 할라와 멀레인이 같은 자리를 번갈아 맡는다). 가라르는 사천왕이 없어 리그가 없다.",
+  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 도전할 수 있고, 리그에 들어설 때마다 이 중 한 묶음이 통째로 뽑힌다 — 사천왕 넷과 그 뒤의 챔피언은 한 게임의 사람들이라 따로 섞지 않는다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 도트가 있는 사람에게만 있다 — 호연·석영·신오·하나는 원작 도트, 칼로스·알로라는 스모곤 커뮤니티가 블랙·화이트 화풍으로 그린 팬 도트(dev/tools/sources.mjs 의 NAMED_PORTRAITS). 칼로스 챔피언 카르네와 팔데아·블루베리는 도트가 없어 리그 화면에서 실루엣으로 나온다. alternates 는 eliteFour 에서 한 명만 대신 나올 사람들 — 도전이 시작될 때 이 중 하나가 골라진다(알로라는 US/UM 기준 할라와 멀레인이 같은 자리를 번갈아 맡는다). 가라르는 사천왕이 없어 리그가 없다.",
   "leagues": [
     {
       "region": "johto",
@@ -289,7 +289,7 @@
             "en": "Shauntal"
           },
           "type": "ghost",
-          "portrait": null,
+          "portrait": "shauntal",
           "party": [
             563,
             426,
@@ -304,7 +304,7 @@
             "en": "Grimsley"
           },
           "type": "dark",
-          "portrait": null,
+          "portrait": "grimsley",
           "party": [
             510,
             560,
@@ -319,7 +319,7 @@
             "en": "Caitlin"
           },
           "type": "psychic",
-          "portrait": null,
+          "portrait": "caitlin",
           "party": [
             518,
             579,
@@ -334,7 +334,7 @@
             "en": "Marshal"
           },
           "type": "fighting",
-          "portrait": null,
+          "portrait": "marshal",
           "party": [
             538,
             539,
@@ -350,7 +350,7 @@
           "en": "Iris"
         },
         "type": "dragon",
-        "portrait": null,
+        "portrait": "iris_champion",
         "party": [
           635,
           621,
@@ -375,7 +375,7 @@
             "en": "Drasna"
           },
           "type": "dragon",
-          "portrait": null,
+          "portrait": "drasna",
           "party": [
             691,
             621,
@@ -390,7 +390,7 @@
             "en": "Wikstrom"
           },
           "type": "steel",
-          "portrait": null,
+          "portrait": "wikstrom",
           "party": [
             707,
             476,
@@ -405,7 +405,7 @@
             "en": "Malva"
           },
           "type": "fire",
-          "portrait": null,
+          "portrait": "malva",
           "party": [
             668,
             324,
@@ -420,7 +420,7 @@
             "en": "Siebold"
           },
           "type": "water",
-          "portrait": null,
+          "portrait": "siebold",
           "party": [
             693,
             130,
@@ -461,7 +461,7 @@
             "en": "Olivia"
           },
           "type": "rock",
-          "portrait": null,
+          "portrait": "olivia",
           "party": [
             369,
             703,
@@ -477,7 +477,7 @@
             "en": "Acerola"
           },
           "type": "ghost",
-          "portrait": null,
+          "portrait": "acerola",
           "party": [
             426,
             781,
@@ -493,7 +493,7 @@
             "en": "Kahili"
           },
           "type": "flying",
-          "portrait": null,
+          "portrait": "kahili",
           "party": [
             227,
             169,
@@ -511,7 +511,7 @@
             "en": "Hala"
           },
           "type": "fighting",
-          "portrait": null,
+          "portrait": "hala",
           "party": [
             297,
             740,
@@ -527,7 +527,7 @@
             "en": "Molayne"
           },
           "type": "steel",
-          "portrait": null,
+          "portrait": "molayne",
           "party": [
             707,
             625,
@@ -544,7 +544,7 @@
           "en": "Hau"
         },
         "type": null,
-        "portrait": null,
+        "portrait": "hau",
         "party": [
           26,
           128,
