@@ -6,6 +6,10 @@
 | 폴더 | 원본 | 고정한 커밋 | 쓰는 곳 |
 | --- | --- | --- | --- |
 | `pokeapi/` | PokeAPI/sprites 의 `sprites/pokemon/versions/generation-v/black-white` | `a13b1f4c` | 모든 포켓몬 그림 — 1~649번은 블랙·화이트 공식 전투 도트, 이후와 리전폼·새 폼은 스모곤 커뮤니티의 BW 스타일 도트(평범·이로치·암컷·폼) |
+| `smogon-sprites/` | smogon/sprites 의 `src/_uncategorized/…/trainers` | `bad55c7b` | 성도·하나 관장과 하나 사천왕의 원작 도트, 칼로스·알로라 사람들의 팬 도트 |
+| `pokerogue/` | pagefaultgames/pokerogue-assets 의 `images/trainer` (CC BY-NC-SA 4.0) | `056a1f40` | 자크로·카르네와 가라르·팔데아·블루베리 사람들 — 도트와 아틀라스(JSON), 첫 프레임을 씀 |
+| `showdown-trainers/` | worlds-collide-showdown/sprites 의 `sprites/trainers` (포켓몬 쇼다운 트레이너 도트의 사본) | `908f9e57` | 세이버리·도정 |
+| `pokehns/` | PokemonHnS-Development/pokehns-expansion 의 `graphics/object_events/pics/people/gym_leaders` | `167aa6d5` | 성도·관동 관장이 길 위를 걷는 도트 |
 
 파일은 원본 저장소에서의 경로 그대로 들어 있습니다.
 
@@ -25,5 +29,6 @@
 ## 라이선스와 크레딧
 
 1~649번의 도트는 포켓몬 블랙·화이트의 공식 도트이고, 그 밖의 것은 출처를 밝히는 조건으로 공개된 스모곤
-스프라이트 프로젝트의 팬 작품입니다. 게임의 **설정 → 크레딧** 탭이 PokeAPI가 적어 둔 작가 목록을 보여 줍니다.
+스프라이트 프로젝트의 팬 작품입니다. 사람 도트 중 원작에 없는 것은 위 표의 팬 작품이며, PokéRogue 의 것은
+CC BY-NC-SA 4.0 을 따릅니다(이 게임은 잘라서 쓰고, 같은 조건으로 둡니다). 게임의 **설정 → 크레딧** 탭이 PokeAPI가 적어 둔 작가 목록을 보여 줍니다.
 포켓몬의 권리는 Nintendo / Creatures Inc. / GAME FREAK inc. 에 있습니다.

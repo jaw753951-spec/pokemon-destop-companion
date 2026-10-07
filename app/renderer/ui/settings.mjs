@@ -252,12 +252,16 @@ function creditRows() {
           el('p.credits-names', { text: custom.artists.join(', ') }),
         ]
       : []),
-    // The league's people from the 3D games, drawn by the same community.
-    ...(trainers
+    // The leaders and the league's people the games never drew in pixels,
+    // and the leaders a fan remake taught to walk: one entry for each place
+    // their pictures come from, saying whose and for whom.
+    ...(Array.isArray(trainers) && trainers.length
       ? [
           el('div.section-title', { text: t('credits.trainers') }),
-          el('p.meta', { text: t('credits.trainersNote', { source: trainers.source }) }),
-          el('p.meta.credits-url', { text: trainers.url }),
+          ...trainers.flatMap((entry) => [
+            el('p.meta', { text: t(`credits.trainers.${entry.key}`, { source: entry.source, license: entry.license }) }),
+            el('p.meta.credits-url', { text: entry.url }),
+          ]),
         ]
       : []),
   ];

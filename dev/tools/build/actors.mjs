@@ -14,7 +14,7 @@ import { concatX, crop, keyOut, opaqueBounds } from '../lib/image.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
 import { saveVendored, vendored } from '../lib/vendor.mjs';
-import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS, PLATINUM } from '../sources.mjs';
+import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS, NAMED_WALKERS, PLATINUM } from '../sources.mjs';
 
 /** Overworld people sheets are 16x32 frames; battle portraits are 64x64. */
 const PERSON_FRAME = { width: 16, height: 32 };
@@ -31,6 +31,7 @@ const PERSON_FRAMES = { south: 0, north: 1, west: 2, walkWest: [7, 8] };
 export async function buildActors({ assetDir, dataDir, log, pool }) {
   const portraits = await buildTrainerPortraits(assetDir, pool, log);
   const overworld = await buildOverworldPeople(assetDir, pool, log);
+  Object.assign(overworld, await buildLeaderWalkers(assetDir, pool, log));
   const props = await buildProps(assetDir, pool, log);
 
   const manifest = { portraits, overworld, props };
@@ -97,15 +98,14 @@ async function buildNamedPortraits(assetDir, pool) {
   await Promise.all(
     Object.entries(NAMED_PORTRAITS).map(([id, { source, path }]) =>
       pool(async () => {
-        const file = source === 'smogon'
-          ? await vendored('smogon-sprites', path)
-          : await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
-        if (!file) return;
-        // Only Platinum's pictures are strips of frames; anyone else drawn
-        // taller than wide is one tall picture, and cutting it to a square
-        // took the head off the top of it.
-        const decoded = decodePng(file);
-        const trimmed = trimKeyed(source === 'platinum' ? lastFrame(decoded) : decoded);
+        const picture = await namedPicture(source, path, roots);
+        if (!picture) return;
+        // A sheet that marks its own see-through pixels is cut by them: keying
+        // out the first palette colour as well would take a PokéRogue
+        // sprite's black outline with it, which is the same black.
+        const trimmed = picture.ownAlpha
+          ? trimOpaque(picture.image)
+          : trimKeyed(/** @type {import('../lib/png.mjs').DecodedPng} */ (picture.image));
         if (!trimmed) return;
         await writeOut(
           join(assetDir, 'trainers', 'portraits', `${id}.png`),
@@ -116,6 +116,98 @@ async function buildNamedPortraits(assetDir, pool) {
     ),
   );
   return out;
+}
+
+/**
+ * One named person's picture, from wherever `NAMED_PORTRAITS` says it is.
+ *
+ * Only Platinum's pictures are strips of frames; anyone else drawn taller
+ * than wide is one tall picture, and cutting it to a square took the head off
+ * the top of it. A PokéRogue sprite is an animation sheet with an atlas, and
+ * the first frame of it is the picture.
+ *
+ * @param {string} source
+ * @param {string} path
+ * @param {Record<string, string>} roots
+ * @returns {Promise<{image: import('../lib/image.mjs').Raster, ownAlpha: true}|{image: import('../lib/png.mjs').DecodedPng, ownAlpha: boolean}|null>}
+ */
+async function namedPicture(source, path, roots) {
+  if (source === 'pokerogue') {
+    const [sheet, atlas] = await Promise.all([vendored('pokerogue', `${path}.png`), vendored('pokerogue', `${path}.json`)]);
+    if (!sheet || !atlas) return null;
+    const frame = JSON.parse(atlas.toString('utf8')).textures?.[0]?.frames?.[0]?.frame;
+    const image = decodePng(sheet);
+    if (!frame) return { image, ownAlpha: true };
+    return { image: crop(image, frame.x, frame.y, frame.w, frame.h), ownAlpha: true };
+  }
+  const file = source === 'smogon'
+    ? await vendored('smogon-sprites', path)
+    : source === 'showdown'
+      ? await vendored('showdown-trainers', path)
+      : await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
+  if (!file) return null;
+  const decoded = decodePng(file);
+  return { image: source === 'platinum' ? lastFrame(decoded) : decoded, ownAlpha: source === 'showdown' };
+}
+
+/**
+ * The gym leaders' own walking sprites (see `NAMED_WALKERS`), in the same
+ * three-frame westward strip as the trainer classes'.
+ */
+async function buildLeaderWalkers(assetDir, pool, log) {
+  const roots = { emerald: EMERALD, firered: FIRERED };
+  /** @param {'emerald'|'firered'|'hns'} source @param {string} path */
+  const sheetOf = async (source, path) => {
+    const file = source === 'hns'
+      ? await vendored('pokehns', path)
+      : await fetchBuffer(`${roots[source]}/${path}`, { allowMissing: true });
+    return file ? keyed(decodePng(file)) : null;
+  };
+
+  /** @type {Record<string, {width: number, height: number, frames: number}>} */
+  const out = {};
+  await Promise.all(
+    Object.entries(NAMED_WALKERS).map(([id, entry]) =>
+      pool(async () => {
+        const sheets = (await Promise.all([entry.path, entry.with].filter(Boolean).map((path) => sheetOf(entry.source, /** @type {string} */ (path))))).filter(Boolean);
+        if (sheets.length === 0) return;
+        // Each person's three frames, side by side when there are two of them.
+        const each = sheets.map((sheet) => walkFrames(/** @type {any} */ (sheet)));
+        if (each.some((frames) => !frames)) return;
+        const frames = [0, 1, 2].map((index) => concatX(each.map((frames) => /** @type {any} */ (frames)[index])));
+        const strip = concatX(frames);
+        await writeOut(join(assetDir, 'trainers', 'field', `${id}.png`), encodePng(strip.width, strip.height, strip.data));
+        out[id] = { width: frames[0].width, height: frames[0].height, frames: frames.length };
+      }),
+    ),
+  );
+  log(`gym leader field sprites ${Object.keys(out).length}/${Object.keys(NAMED_WALKERS).length}`);
+  await saveVendored(log);
+  return out;
+}
+
+/**
+ * A person's westward walk: the standing frame and the two steps of a full
+ * nine-frame sheet, or — for someone the games only ever stood in a gym, with
+ * three standing frames and nothing more — the standing frame, the same a
+ * pixel up, and the standing frame again, so they at least bob along the road.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet
+ */
+function walkFrames(sheet) {
+  const layout = frameLayout(sheet, PERSON_FRAME.width, Math.min(PERSON_FRAME.height, sheet.height));
+  if (layout.count >= 9) return [PERSON_FRAMES.west, ...PERSON_FRAMES.walkWest].map((index) => cropFrame(sheet, layout, index));
+  if (layout.count < 3) return null;
+  const stand = cropFrame(sheet, layout, PERSON_FRAMES.west);
+  return [stand, raised(stand), stand];
+}
+
+/** @param {import('../lib/image.mjs').Raster} frame the same picture a pixel higher */
+function raised(frame) {
+  const row = frame.width * 4;
+  const data = new Uint8Array(frame.data.length);
+  data.set(frame.data.subarray(row), 0);
+  return { width: frame.width, height: frame.height, data };
 }
 
 /**
@@ -605,6 +697,13 @@ function lastFrame(png) {
   const top = (frames - 1) * (png.width + 1);
   const size = png.width * png.width * 4;
   return { ...png, height: png.width, data: png.data.subarray(top * png.width * 4, top * png.width * 4 + size), indices: null };
+}
+
+/** @param {import('../lib/image.mjs').Raster} raster cut to what is drawn in it, by its own alpha */
+function trimOpaque(raster) {
+  const bounds = opaqueBounds(raster);
+  if (!bounds) return null;
+  return crop(raster, bounds.x, bounds.y, bounds.width, bounds.height);
 }
 
 /** @param {import('../lib/png.mjs').DecodedPng} png */

@@ -1,5 +1,5 @@
 {
-  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 도전할 수 있고, 리그에 들어설 때마다 이 중 한 묶음이 통째로 뽑힌다 — 사천왕 넷과 그 뒤의 챔피언은 한 게임의 사람들이라 따로 섞지 않는다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 도트가 있는 사람에게만 있다 — 호연·석영·신오·하나는 원작 도트, 칼로스·알로라는 스모곤 커뮤니티가 블랙·화이트 화풍으로 그린 팬 도트(dev/tools/sources.mjs 의 NAMED_PORTRAITS). 칼로스 챔피언 카르네와 팔데아·블루베리는 도트가 없어 리그 화면에서 실루엣으로 나온다. alternates 는 eliteFour 에서 한 명만 대신 나올 사람들 — 도전이 시작될 때 이 중 하나가 골라진다(알로라는 US/UM 기준 할라와 멀레인이 같은 자리를 번갈아 맡는다). 가라르는 사천왕이 없어 리그가 없다.",
+  "_comment": "포켓몬 리그. 뱃지 8개를 모으면 도전할 수 있고, 리그에 들어설 때마다 이 중 한 묶음이 통째로 뽑힌다 — 사천왕 넷과 그 뒤의 챔피언은 한 게임의 사람들이라 따로 섞지 않는다. party 는 원작 게임의 실제 파티(석영리그=HGSS, 호연=에메랄드, 신오=플라티나, 하나=B2W2, 칼로스=XY, 알로라=US/UM, 팔데아=SV, 블루베리=제로의 비보)이며 레벨만 도전자에 맞춰 조정된다. type 은 로스터가 비었을 때의 파티 구성 기준. portrait 은 도트가 있는 사람에게만 있다 — 호연·석영·신오·하나는 원작 도트, 칼로스·알로라는 스모곤 커뮤니티가 블랙·화이트 화풍으로 그린 팬 도트(dev/tools/sources.mjs 의 NAMED_PORTRAITS). 카르네와 팔데아·블루베리는 팬 게임 PokéRogue 의 도트다. alternates 는 eliteFour 에서 한 명만 대신 나올 사람들 — 도전이 시작될 때 이 중 하나가 골라진다(알로라는 US/UM 기준 할라와 멀레인이 같은 자리를 번갈아 맡는다). 가라르는 사천왕이 없어 리그가 없다.",
   "leagues": [
     {
       "region": "johto",
@@ -436,7 +436,7 @@
           "en": "Diantha"
         },
         "type": null,
-        "portrait": null,
+        "portrait": "diantha",
         "party": [
           701,
           697,
@@ -569,7 +569,7 @@
             "en": "Rika"
           },
           "type": "ground",
-          "portrait": null,
+          "portrait": "rika",
           "party": [
             340,
             323,
@@ -585,7 +585,7 @@
             "en": "Poppy"
           },
           "type": "steel",
-          "portrait": null,
+          "portrait": "poppy",
           "party": [
             879,
             437,
@@ -601,7 +601,7 @@
             "en": "Larry"
           },
           "type": "flying",
-          "portrait": null,
+          "portrait": "larry",
           "party": [
             357,
             398,
@@ -617,7 +617,7 @@
             "en": "Hassel"
           },
           "type": "dragon",
-          "portrait": null,
+          "portrait": "hassel",
           "party": [
             715,
             691,
@@ -634,7 +634,7 @@
           "en": "Geeta"
         },
         "type": null,
-        "portrait": null,
+        "portrait": "geeta",
         "party": [
           956,
           713,
@@ -659,7 +659,7 @@
             "en": "Crispin"
           },
           "type": "fire",
-          "portrait": null,
+          "portrait": "crispin",
           "party": [
             479,
             663,
@@ -675,7 +675,7 @@
             "en": "Amarys"
           },
           "type": "steel",
-          "portrait": null,
+          "portrait": "amarys",
           "party": [
             227,
             579,
@@ -691,7 +691,7 @@
             "en": "Lacey"
           },
           "type": "fairy",
-          "portrait": null,
+          "portrait": "lacey",
           "party": [
             547,
             210,
@@ -707,7 +707,7 @@
             "en": "Drayton"
           },
           "type": "dragon",
-          "portrait": null,
+          "portrait": "drayton",
           "party": [
             149,
             254,
@@ -724,7 +724,7 @@
           "en": "Kieran"
         },
         "type": null,
-        "portrait": null,
+        "portrait": "kieran",
         "party": [
           186,
           474,
