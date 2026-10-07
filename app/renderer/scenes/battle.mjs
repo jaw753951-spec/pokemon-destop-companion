@@ -123,6 +123,15 @@ const MESSAGE_TOP = FIELD_HEIGHT - 21;
  * plate, are cut off there.
  */
 const FOE_SPOT = { x: Math.round(FIELD_WIDTH * 0.73), y: Math.round(FIELD_HEIGHT * 0.55) + FOE_PLATFORM_DROP };
+
+/**
+ * A gym leader stands on their side of the field while their challenge is
+ * read out, as the cartridges show the trainer before the first Pokémon: this
+ * much longer than the line would otherwise stay up, and then they step off
+ * to the right, the way they came, as their first ball is thrown.
+ */
+const LEADER_HOLD_MS = 700;
+const LEADER_EXIT_MS = 360;
 const PLAYER_SPOT = { x: Math.round(FIELD_WIDTH * 0.26), y: MESSAGE_TOP - 3 };
 
 /**
@@ -193,6 +202,15 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
    * Pokémon was never in one: it is standing there from the start.
    */
   const sentOut = { player: false, foe: !trainer };
+
+  /**
+   * The gym leader's own picture, standing where their Pokémon will (see
+   * `LEADER_HOLD_MS`): how long ago they started to leave, or -1 while they
+   * are still there, and whether the line has yet to send them off.
+   */
+  const leaderFigure = { image: /** @type {HTMLImageElement|null} */ (null), leaving: -1, pending: false };
+  const leaderArt = leader && trainer?.portrait && gameData().actors?.portraits?.[trainer.portrait] ? trainer.portrait : null;
+  if (leaderArt) loadImage(`trainers/portraits/${leaderArt}.png`).then((image) => { leaderFigure.image = image; }).catch(() => {});
   /**
    * Balls in the air, and the light each opens in once it lands.
    * @type {Array<{side: 'player'|'foe', pokemon: any, image: HTMLImageElement|null,
@@ -249,6 +267,20 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       if (entry.pokemon && entry.side === 'player') app.audio.playCry(entry.pokemon.speciesId);
     }
     tosses = tosses.filter((entry) => entry.elapsed < TOSS_MS + BURST_MS);
+  };
+
+  /**
+   * The gym leader on the far platform, feet where their Pokémon's will be,
+   * until they have stepped off the right of the screen.
+   *
+   * @param {CanvasRenderingContext2D} context field space
+   */
+  const drawLeader = (context) => {
+    const image = leaderFigure.image;
+    if (!image || leaderFigure.leaving >= LEADER_EXIT_MS) return;
+    const progress = leaderFigure.leaving < 0 ? 0 : leaderFigure.leaving / LEADER_EXIT_MS;
+    const left = Math.round(FOE_SPOT.x - image.width / 2 + progress * progress * (FIELD_WIDTH - FOE_SPOT.x + image.width));
+    context.drawImage(image, left, Math.round(FOE_SPOT.y - image.height));
   };
 
   /** @param {CanvasRenderingContext2D} context field space */
@@ -449,9 +481,17 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       updateTosses(deltaMs, app);
       playerBar.update(deltaMs);
       foeBar.update(deltaMs);
+      if (leaderFigure.leaving >= 0) leaderFigure.leaving += deltaMs;
 
       if (finished) return;
       beat -= deltaMs;
+      // The leader has been looked at long enough — or the player clicked on —
+      // and steps off as the first ball goes up.
+      if (leaderFigure.pending && beat <= BEAT_MS.intro) {
+        leaderFigure.pending = false;
+        leaderFigure.leaving = 0;
+        toss('foe', shownFoe ?? battle.foe?.pokemon ?? null);
+      }
       if (beat > 0) return;
 
       if (queue.length === 0) {
@@ -494,6 +534,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
 
       inFieldSpace(context, (field) => {
         if (backdropImage) drawBackdrop(field, backdropImage);
+        drawLeader(field);
         foeBattler?.draw(field);
         playerBattler?.draw(field);
         drawTosses(field);
@@ -600,6 +641,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           ? t(leader ? 'event.leader' : 'event.trainer', { trainer: localized(trainer.name, '') })
           : t('event.wild', { name: nameOf(foe) }));
         // A trainer's Pokémon comes out of a ball; a wild one is already there.
+        // A gym leader is seen first, and throws once the line has been read.
+        if (leaderArt) {
+          leaderFigure.pending = true;
+          return BEAT_MS.intro + LEADER_HOLD_MS;
+        }
         if (trainer) toss('foe', foe);
         return BEAT_MS.intro;
 
