@@ -2382,13 +2382,19 @@ export class Battle {
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
       attacker.charging = moveName;
       const charge = CHARGE_TURNS[moveName];
-      if (charge) this.say(attacker, charge.key);
+      // Off into the sky, under the ground or the water, or out of sight: the
+      // line that says so carries where, so the screen can take the sprite
+      // away with it.
+      const hides = SEMI_INVULNERABLE[moveName] ?? null;
+      if (charge) this.say(attacker, charge.key, hides ? { hide: hides } : {});
       else log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
       if (charge?.stat) this.applyStage(attacker, charge.stat, 1, log, { source: 'self' });
-      if (SEMI_INVULNERABLE[moveName]) attacker.marks.hidden = SEMI_INVULNERABLE[moveName];
+      if (hides) attacker.marks.hidden = hides;
       // A Power Herb that was not needed yet is spent on the far side of it.
       if (!charge?.stat || !this.skipsChargeAfterBoost(attacker, moveName, log)) return;
     }
+    // Back from wherever the charge turn took it, as the move comes down.
+    const reappears = Boolean(attacker.marks.hidden);
     attacker.marks.hidden = null;
 
     // PP was already spent on the charge turn.
@@ -2427,7 +2433,7 @@ export class Battle {
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
 
-    log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
+    log.push({ kind: 'move', side: attacker.side, data: reappears ? { move: moveName, reveal: true } : { move: moveName } });
     const moveLogStart = log.length;
 
     // A move that calls another uses that one in its place: a Metronome, a

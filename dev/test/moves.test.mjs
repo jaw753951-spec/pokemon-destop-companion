@@ -48,6 +48,24 @@ function fight(player, foe, extra = {}) {
 /** How many times one move landed on the foe: a multi-hit move reports them in one entry. */
 const hitsOf = (log) => log.find((entry) => entry.kind === 'damage' && entry.side === 'foe')?.data?.hits ?? 0;
 
+test('a Fly says where its user went, and the move that comes down brings it back', options, () => {
+  const PIDGEOT = 18;
+  const battle = fight(fixed(PIDGEOT, 60, ['fly']), punchbag());
+  const charge = battle.takeTurn();
+  assert.equal(charge.find((entry) => entry.data?.key === 'move.charge.fly')?.data?.hide, 'sky');
+  assert.equal(battle.player.marks.hidden, 'sky');
+  const strike = battle.takeTurn();
+  const used = strike.find((entry) => entry.kind === 'move' && entry.side === 'player');
+  assert.equal(used?.data?.move, 'fly');
+  assert.equal(used?.data?.reveal, true);
+  assert.equal(battle.player.marks.hidden, null);
+  // A move that never left says nothing about coming back.
+  const again = battle.takeTurn();
+  assert.equal(again.find((entry) => entry.data?.key === 'move.charge.fly')?.data?.hide, 'sky');
+  assert.equal(fight(fixed(MACHAMP, 60, ['close-combat']), punchbag()).takeTurn()
+    .find((entry) => entry.kind === 'move')?.data?.reveal, undefined);
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();

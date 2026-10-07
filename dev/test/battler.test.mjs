@@ -128,6 +128,49 @@ test('a fainted Pokémon stays down', () => {
   assert.equal(battler.pose, 'lose');
 });
 
+test('a Pokémon off on a Fly or a Dig is not drawn at all until it comes back', () => {
+  for (const place of ['sky', 'ground', 'water', 'vanished']) {
+    const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+    /** How many times the sprite itself was drawn in one frame. */
+    const drawn = () => {
+      let count = 0;
+      const stub = { ...sprite, draw() { count++; } };
+      battler.sprite = /** @type {any} */ (stub);
+      battler.draw(/** @type {any} */ (recorder()));
+      return count;
+    };
+    battler.goAway(place);
+    battler.showStatus('brn');
+    for (let step = 0; step < 10; step++) battler.update(60);
+    assert.ok(battler.gone, `${place}: should have left`);
+    // Nothing of it: no sprite, and no burn flickering over the empty spot.
+    const context = recorder();
+    battler.draw(/** @type {any} */ (context));
+    assert.equal(context.points.length, 0, `${place}: an effect was drawn over an empty spot`);
+    assert.equal(drawn(), 0, `${place}: the sprite was drawn while away`);
+    // A hit it takes there — an Earthquake on a Dig — still shows nothing.
+    battler.setPose('hit');
+    assert.equal(drawn(), 0, `${place}: a hit brought it back into view`);
+
+    battler.comeBack();
+    for (let step = 0; step < 10; step++) battler.update(60);
+    assert.equal(battler.gone, false);
+    assert.equal(drawn(), 1, `${place}: should be back on its spot`);
+    assert.equal(battler.travel().dy, 0);
+  }
+});
+
+test('a Fly leaves up off the screen, a Dig down through the ground', () => {
+  const fly = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  const dig = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
+  fly.goAway('sky');
+  dig.goAway('ground');
+  fly.update(300);
+  dig.update(300);
+  assert.ok(fly.travel().dy < 0 && !fly.travel().clip);
+  assert.ok(dig.travel().dy > 0 && dig.travel().clip);
+});
+
 test('a battler bobs while it waits', () => {
   const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1, scale: 1.5 });
 

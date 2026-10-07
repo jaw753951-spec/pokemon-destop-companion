@@ -617,6 +617,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           name: nameOf(attacker),
           move: move ? localized(move.name, entry.data?.move) : t('battle.struggle'),
         }));
+        if (entry.data?.reveal) battlerFor(entry.side)?.comeBack();
         battlerFor(entry.side)?.setPose('attack');
         break;
       }
@@ -726,6 +727,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           count: data.count ?? '',
           stat: data.stat ? t(`stat.${data.stat}`) : '',
         }));
+        // "flew up high", "dug a hole": the Pokémon goes where the line says,
+        // and is not seen again until its move comes down.
+        if (data.hide) battlerFor(entry.side)?.goAway(data.hide);
         updateBars();
         break;
       }
@@ -1110,6 +1114,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       }
 
       case 'end':
+        // A battle that ends while one side is up in the sky or under the
+        // ground brings it back to see the end.
+        playerBattler?.comeBack();
+        foeBattler?.comeBack();
         if (battle.outcome === 'won') {
           // The games say nothing more after a wild Pokémon's faint and the
           // experience — the fight is simply over — and name the trainer beaten.
