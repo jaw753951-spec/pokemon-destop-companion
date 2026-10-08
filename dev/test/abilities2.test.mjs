@@ -202,7 +202,8 @@ test('Frisk reads what the other side holds', options, () => {
 
 test("a critical hit is counted for a Farfetch'd", options, () => {
   const battle = fight(make('farfetchd-galar', 50, ['leaf-blade']), make('chansey', 90, ['splash']));
-  battle.player.stages.crit = 6;
+  // Three stages is a sure critical hit, so the count does not wait on luck.
+  battle.player.marks.critStages = 3;
   battle.takeTurn();
   assert.ok((battle.player.marks.crits ?? 0) >= 1);
 });

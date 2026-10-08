@@ -3,21 +3,21 @@
  * being inspected on the right, at roughly three to two.
  *
  * The key pocket holds what is kept for good rather than carried: the charms,
- * and every Pokémon's badges — the gym badges it has won and the champion's
- * crown — one row per Pokémon that has any, the travelling one first.
+ * and the badges the travelling Pokémon has won — each gym's, and the
+ * champion's crown — which change with whichever Pokémon is travelling.
  *
  * A last tab holds what the bag does by itself — which berry to hand over
  * after a battle, and when to throw a potion during one.
  */
 import { url } from '../core/bridge.mjs';
-import { artPath, gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
 import { pocketOrder } from '../engine/bagorder.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
-import { badgeIcon, badgeStrip, championIcon } from './badges.mjs';
+import { badgeIcon, championIcon } from './badges.mjs';
 import { moveSummary } from './movecard.mjs';
 import { chooseAction, chooseFromList, chooseItem, confirm } from './dialog.mjs';
 
@@ -68,10 +68,10 @@ export function itemsTab(app, session, refresh, state) {
   const worthShowing = (/** @type {string} */ slug) => fits(slug) && !knownMoves.has(itemOf(slug)?.move ?? '');
 
   const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || worthShowing(entry.slug));
-  const holders = pocket === 'key' ? badgeHolders(session) : [];
+  const badges = pocket === 'key' ? badgeEntries(session) : [];
   // What was being read survives a refresh — using one of three Potions
   // leaves the other two on the panel — but not the last of it going.
-  const shown = [...entries.map((entry) => entry.slug), ...holders.map((holder) => holder.id)];
+  const shown = [...entries.map((entry) => entry.slug), ...badges.map((badge) => badge.id)];
   if (state.selected && !shown.includes(state.selected)) state.selected = null;
 
   const inspector = el('div.item-inspector');
@@ -85,7 +85,7 @@ export function itemsTab(app, session, refresh, state) {
 
   const list = scrollable(el('div.item-list'));
 
-  if (entries.length === 0 && holders.length === 0) {
+  if (entries.length === 0 && badges.length === 0) {
     list.append(el('div.empty', { text: onlyLearnable ? t('items.noLearnable') : t('items.empty') }));
   } else {
     list.append(
@@ -110,21 +110,22 @@ export function itemsTab(app, session, refresh, state) {
           ]),
         ),
     );
-    if (holders.length) list.append(el('div.pocket-heading', { text: t('items.badges') }));
+    if (badges.length) {
+      list.append(el('div.pocket-heading', { text: t('items.badgesOf', { name: pokemonName(session.active) }) }));
+    }
     list.append(
-      ...holders.map(({ id, pokemon }) =>
+      ...badges.map((badge) =>
         el('button.item-row.badge-row', {
           type: 'button',
-          dataset: { slug: id },
-          'aria-pressed': String(id === state.selected),
+          dataset: { slug: badge.id },
+          'aria-pressed': String(badge.id === state.selected),
           onClick: () => {
             app.audio.blip('select');
-            select(id);
+            select(badge.id);
           },
         }, [
-          el('img', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
-          el('span.item-name', { text: pokemonName(pokemon) }),
-          badgeStrip(pokemon),
+          badge.type ? badgeIcon(badge.type) : championIcon(),
+          el('span.item-name', { text: badgeName(badge) }),
         ]),
       ),
     );
@@ -392,9 +393,9 @@ function showInspector(app, session, inspector, slug, refresh) {
     inspector.replaceChildren(el('span.meta.inspect-hint', { text: t('items.inspectHint') }));
     return;
   }
-  const holder = badgeHolders(session).find((entry) => entry.id === slug);
-  if (holder) {
-    showBadgeCase(inspector, holder.pokemon);
+  const badge = badgeEntries(session).find((entry) => entry.id === slug);
+  if (badge) {
+    showBadge(inspector, badge);
     return;
   }
   const item = itemOf(slug);
@@ -512,22 +513,26 @@ function itemButtons(app, session, slug, refresh) {
   ]);
 }
 
-/** What a badge row is selected by: the travelling Pokémon's, or a box space's. */
-const BADGES = 'badges:';
-
 /**
- * Every Pokémon with a badge or the champion's crown to show, the travelling
- * one first and then the box in its own order.
+ * The badges the travelling Pokémon holds, as the key pocket lists them: each
+ * gym's in the order it was won, then the champion's crown.
  *
  * @param {import('../engine/session.mjs').Session} session
- * @returns {Array<{id: string, pokemon: import('../engine/pokemon.mjs').Pokemon}>}
+ * @returns {Array<{id: string, type: string|null}>}
  */
-export function badgeHolders(session) {
-  const decorated = (/** @type {any} */ pokemon) => Boolean(pokemon && ((pokemon.badges?.length ?? 0) > 0 || pokemon.champion));
+export function badgeEntries(session) {
+  const pokemon = session.active;
+  if (!pokemon) return [];
   return [
-    ...(decorated(session.active) ? [{ id: `${BADGES}active`, pokemon: session.active }] : []),
-    ...session.box.flatMap((pokemon, index) => (decorated(pokemon) ? [{ id: `${BADGES}box:${index}`, pokemon: /** @type {any} */ (pokemon) }] : [])),
+    ...(pokemon.badges ?? []).map((type) => ({ id: `badge:${type}`, type })),
+    ...(pokemon.champion ? [{ id: 'badge:champion', type: null }] : []),
   ];
+}
+
+/** @param {{type: string|null}} badge */
+function badgeName(badge) {
+  if (!badge.type) return t('slot.champion');
+  return `${localized(gameData().types[badge.type]?.name, badge.type)} ${t('badge.word')}`;
 }
 
 /** @param {import('../engine/pokemon.mjs').Pokemon} pokemon */
@@ -536,26 +541,19 @@ function pokemonName(pokemon) {
 }
 
 /**
- * One Pokémon's badges on the panel: each one large and named for its type,
- * and the crown if it has beaten the League.
+ * One badge on the panel, large, with what it was won for.
  *
  * @param {HTMLElement} inspector
- * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ * @param {{type: string|null}} badge
  */
-function showBadgeCase(inspector, pokemon) {
-  const badges = pokemon.badges ?? [];
+function showBadge(inspector, badge) {
   setChildren(inspector, [
-    el('img.inspect-icon.inspect-pokemon', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
-    el('span.inspect-name', { text: pokemonName(pokemon) }),
-    el('span.meta', { text: t('slot.badges', { count: badges.length }) }),
-    el('div.badge-case', {}, [
-      ...badges.map((type) => el('div.badge-case-entry', {}, [
-        badgeIcon(type),
-        el('span', { text: `${localized(gameData().types[type]?.name, type)} ${t('badge.word')}` }),
-      ])),
-      pokemon.champion
-        ? el('div.badge-case-entry', {}, [championIcon(), el('span', { text: t('slot.champion') })])
-        : null,
-    ]),
+    el('div.inspect-badge', {}, [badge.type ? badgeIcon(badge.type) : championIcon()]),
+    el('span.inspect-name', { text: badgeName(badge) }),
+    el('p.inspect-text', {
+      text: badge.type
+        ? t('items.badgeText', { type: localized(gameData().types[badge.type]?.name, badge.type) })
+        : t('items.championText'),
+    }),
   ]);
 }

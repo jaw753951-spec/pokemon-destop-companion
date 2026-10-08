@@ -68,8 +68,8 @@ const STEPS = [
   // pocket tab.
   { name: '11-bag-options', script: 'clickText("button.chip", ["사용 설정", "Use"]) && await wait(300)' },
   { name: '12-bag-box', script: 'seedBox() && clickText("button.tab", ["박스", "Box"])' },
-  // The badges are in the key pocket, a row per Pokémon beside the charms,
-  // with the first row's badges open on the panel.
+  // The badges are in the key pocket under the charms, the travelling
+  // Pokémon's own, with the first open on the panel.
   { name: '13-bag-badges', script: 'seedBadges(8) && seedKeyPocket() && clickText("button.tab", ["아이템", "Items"]) && await wait(250) && clickText("button.chip", ["소중한 것", "Key Items"]) && await wait(250) && clickFirst(".badge-row")' },
   { name: '14-auto-battle', script: 'clickText("button.tab", ["포켓몬", "Pokémon"]) && await wait(250) && clickText("button", ["자동전투", "Auto-battle"])' },
   // The list behind one of those conditions, which is where a kind is switched
@@ -290,15 +290,11 @@ const seedBadges = (count) => {
   app().session.badges = BADGE_TYPES.slice(0, count);
   return true;
 };
-/** A charm in the bag, and a champion in the box with badges of its own. */
+/** A charm in the bag, and the champion's crown after the badges. */
 const seedKeyPocket = () => {
   const session = app().session;
   session.addItem('shiny-charm');
-  const boxed = session.box.find(Boolean);
-  if (boxed) {
-    boxed.badges = ['water', 'ice', 'dragon'];
-    boxed.champion = true;
-  }
+  session.active.champion = true;
   return true;
 };
 /** Click the first element a selector finds. */

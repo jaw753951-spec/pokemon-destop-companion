@@ -86,9 +86,10 @@ test('a move bound to fail is passed over, and taken up again once it would work
   const log = battle.takeTurn();
   assert.equal(log.find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move, 'poltergeist');
 
-  // Laid out in the move order, too: the order steps past it.
+  // First in the slots, too, when they are gone through in turn: the turn
+  // steps past it.
   const ordered = fight(fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']), target(), {
-    policy: { ...defaultAutoBattle(), mode: 'repeatLast', order: ['poltergeist', null, null, null] },
+    policy: { ...defaultAutoBattle(), mode: 'repeatLast' },
   });
   assert.equal(ordered.chooseMove(ordered.player, /** @type {any} */ (ordered.foe)), 'shadow-claw');
 
@@ -271,6 +272,8 @@ test('Leech Seed drains the target and feeds the user', options, () => {
 
 test('Toxic poisons badly, and the damage climbs each turn', options, () => {
   const battle = fight(fixed(SNORLAX, 60, ['toxic']), punchbag(60));
+  // Toxic can miss, and the climb is what is being checked.
+  battle.player.stages.acc = 6;
   battle.takeTurn();
   const foe = battle.foe.pokemon;
   assert.equal(foe.status, STATUS.POISON);

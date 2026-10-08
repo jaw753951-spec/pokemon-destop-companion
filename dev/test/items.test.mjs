@@ -424,24 +424,21 @@ test('a Shiny Charm raises the odds on the road, is not sold, and is the first t
   assert.equal(championPrize(session), 'master-ball');
 });
 
-test('the key pocket shows each Pokémon with a badge or the crown, the travelling one first', withData, async () => {
+test('the key pocket shows the travelling Pokémon\'s own badges, the crown last', withData, async () => {
   const { Session } = await import('../../app/renderer/engine/session.mjs');
-  const { badgeHolders } = await import('../../app/renderer/ui/itemstab.mjs');
+  const { badgeEntries } = await import('../../app/renderer/ui/itemstab.mjs');
   const session = new Session({ slot: 0, save: { seed: 1, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
-  assert.deepEqual(badgeHolders(session), [], 'nobody has won anything yet');
+  assert.deepEqual(badgeEntries(session), [], 'nothing won yet');
 
-  const plain = createPokemon(new Rng(2), 25, 20);
-  const badged = createPokemon(new Rng(3), 7, 30);
-  badged.badges = ['water', 'rock'];
-  const crowned = createPokemon(new Rng(4), 1, 80);
-  crowned.champion = true;
-  session.storeInBox(plain);
-  session.storeInBox(badged);
-  session.storeInBox(crowned);
-  assert.deepEqual(badgeHolders(session).map((entry) => entry.pokemon), [badged, crowned]);
+  // A Pokémon in the box keeps its badges to itself.
+  const boxed = createPokemon(new Rng(3), 7, 30);
+  boxed.badges = ['water', 'rock'];
+  boxed.champion = true;
+  session.storeInBox(boxed);
+  assert.deepEqual(badgeEntries(session), []);
 
-  session.badges = ['fire'];
-  const holders = badgeHolders(session);
-  assert.equal(holders[0].pokemon, session.active, 'the travelling Pokémon leads');
-  assert.equal(new Set(holders.map((entry) => entry.id)).size, holders.length, 'each row has its own id');
+  session.badges = ['fire', 'grass'];
+  session.active.champion = true;
+  assert.deepEqual(badgeEntries(session).map((entry) => entry.type), ['fire', 'grass', null]);
+  assert.equal(new Set(badgeEntries(session).map((entry) => entry.id)).size, 3, 'each row has its own id');
 });

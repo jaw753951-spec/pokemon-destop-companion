@@ -37,22 +37,6 @@ export function championIcon() {
   return el('span.badge-art.champion-badge', { role: 'img', title: t('dex.championBadge') });
 }
 
-/**
- * Every badge a Pokémon holds, small, in the two rows a row of the bag's key
- * pocket has room for — the champion's crown last.
- *
- * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
- * @returns {HTMLElement|null} null when it holds none
- */
-export function badgeStrip(pokemon) {
-  const badges = pokemon.badges ?? [];
-  if (badges.length === 0 && !pokemon.champion) return null;
-  return el('div.badge-strip', {}, [
-    ...badges.map((type) => badgeIcon(type)),
-    pokemon.champion ? championIcon() : null,
-  ]);
-}
-
 /** @param {string} type */
 function badgeArt(type) {
   const badges = gameData().battle?.badges ?? [];

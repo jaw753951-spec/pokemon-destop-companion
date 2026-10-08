@@ -196,14 +196,23 @@ test('confusion runs out, and hurts on the way', options, () => {
   // Already confused is not confused twice.
   assert.equal(battle.confuse(battle.player, []), false);
 
-  const before = player.hp;
-  let hitItself = false;
-  for (let turn = 0; turn < 12 && battle.running; turn++) {
-    if (battle.takeTurn().some((entry) => entry.kind === 'confusionDamage')) hitItself = true;
-  }
-  assert.ok(hitItself, 'twelve turns confused and it never once hit itself');
-  assert.ok(player.hp < before);
+  for (let turn = 0; turn < 12 && battle.running; turn++) battle.takeTurn();
   assert.equal(hasVolatile(battle.player, VOLATILE.CONFUSION), false, 'it should have worn off');
+
+  // A third of the turns spent confused go on hurting itself, so across a
+  // few fights it does, whichever way any one of them rolls.
+  let hitItself = false;
+  for (let seed = 1; seed <= 6 && !hitItself; seed++) {
+    const again = fixed(PIKACHU, 50, ['tackle']);
+    const confused = fight(again, punchbag(), { rng: new Rng(seed) });
+    confused.confuse(confused.player, []);
+    const before = again.hp;
+    for (let turn = 0; turn < 12 && confused.running; turn++) {
+      if (confused.takeTurn().some((entry) => entry.kind === 'confusionDamage')) hitItself = true;
+    }
+    if (hitItself) assert.ok(again.hp < before);
+  }
+  assert.ok(hitItself, 'six fights confused and it never once hit itself');
 });
 
 test('a Persim Berry is eaten the moment the confusion lands', options, () => {
