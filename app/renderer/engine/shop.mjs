@@ -76,6 +76,8 @@ const CATEGORY_PRICES = {
  * key item, a thing kept for show.
  */
 const NOT_SOLD_CATEGORIES = new Set([
+  // A charm is a title's prize, and only that.
+  'charms',
   'plot-advancement', 'gameplay', 'unused', 'event-items', 'dex-completion', 'species-candies',
   'tm-materials', 'picnic', 'loot', 'collectibles', 'memories', 'plates',
 ]);

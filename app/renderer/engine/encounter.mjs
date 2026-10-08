@@ -95,9 +95,10 @@ export function spreadFor(level) {
  * @param {import('./pokemon.mjs').Pokemon} companion
  * @param {number|null} [previous] the species of the wild Pokémon met last
  * @param {Set<number>} [owned] species already in the box, met a little less often
+ * @param {number} [shinyOdds] better than the usual with a Shiny Charm in the bag
  * @returns {import('./pokemon.mjs').Pokemon}
  */
-export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set()) {
+export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set(), shinyOdds = undefined) {
   const level = rollLevel(rng, companion);
   const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
   let speciesId = draw();
@@ -108,7 +109,7 @@ export function rollWildPokemon(rng, area, companion, previous = null, owned = n
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
-  const wild = createPokemon(rng, speciesId, level, { hiddenAbility: true });
+  const wild = createPokemon(rng, speciesId, level, { hiddenAbility: true, shinyOdds });
 
   // And whatever it turned out to be carrying, which the cartridges roll off
   // the lead party Pokémon's ability — the companion, here.

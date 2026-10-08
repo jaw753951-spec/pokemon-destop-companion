@@ -13,7 +13,7 @@ import { name as localized, t } from '../core/i18n.mjs';
 import { stableHash } from '../core/rng.mjs';
 import { BALL_TIERS } from '../../shared/ball-tiers.mjs';
 import { TAG_TYPES } from '../../shared/area-tags.mjs';
-import { alreadyOwned } from '../engine/shop.mjs';
+import { alreadyOwned, priceOf } from '../engine/shop.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
@@ -344,6 +344,13 @@ export function createEventRunner({ session, onBattle }) {
 }
 
 /**
+ * How many berries one tree gives: a handful, as a tree in the games bears
+ * several. One at a time, the restock order and the after-battle berries ate
+ * through a find before the next tree turned up.
+ */
+export const BERRY_HARVEST = { min: 2, max: 4 };
+
+/**
  * A berry tree grows at the roadside; the companion picks from it for ten
  * seconds, and the tree is left bare.
  */
@@ -352,6 +359,7 @@ function startBerry(session, spawnAt) {
     .filter(([, item]) => item.pocket === 'berries' && item.sprite)
     .map(([slug]) => slug);
   const berry = session.rng.pick(berries.length ? berries : ['oran-berry']);
+  const count = session.rng.int(BERRY_HARVEST.min, BERRY_HARVEST.max);
 
   const trees = gameData().actors?.props?.berryTrees ?? {};
   const tree = treeFor(berry, trees);
@@ -367,14 +375,14 @@ function startBerry(session, spawnAt) {
     carried: null,
     onArrive: () => 'gather',
     onGathered: (app) => {
-      session.addItem(berry);
+      session.addItem(berry, count);
       state.prop.frame = 'bare';
       state.carried = { icon: `items/${berry}.png`, sprite: null, scale: CARRIED_BERRY_SCALE };
       loadImage(`items/${berry}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
       });
       app.audio.playJingle(gameData().bgm.cues.obtainBerry ?? null);
-      app.toast(t('event.berryFound', { name: localized(itemOf(berry)?.name, berry) }));
+      app.toast(t('event.itemsFound', { name: localized(itemOf(berry)?.name, berry), count }));
     },
   };
 
@@ -479,6 +487,7 @@ function startBall(session, spawnAt) {
   );
   // Now and then, the item the travelling legendary is waiting on.
   const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
+  const count = foundCount(session.rng, item);
 
   const state = {
     kind: 'ball',
@@ -491,7 +500,7 @@ function startBall(session, spawnAt) {
     carried: null,
     onArrive: () => 'gather',
     onGathered: (app) => {
-      session.addItem(item);
+      session.addItem(item, count);
       state.prop.frame = 'open';
       // When it was opened, so the fade knows how far along it is.
       state.prop.openedAt = state.elapsed ?? 0;
@@ -501,7 +510,8 @@ function startBall(session, spawnAt) {
       });
       const cue = itemOf(item)?.pocket === 'machines' ? 'obtainTm' : 'obtainItem';
       app.audio.playJingle(gameData().bgm.cues[cue] ?? null);
-      app.toast(t('event.itemFound', { name: localized(itemOf(item)?.name, item) }));
+      const name = localized(itemOf(item)?.name, item);
+      app.toast(count > 1 ? t('event.itemsFound', { name, count }) : t('event.itemFound', { name }));
     },
   };
 
@@ -509,6 +519,33 @@ function startBall(session, spawnAt) {
     state.prop.sprite = { image, meta: { width: image.naturalWidth, height: image.naturalHeight, frames: 1 } };
   });
   return state;
+}
+
+/**
+ * How many of a ball an item ball on the road holds, by what the ball is
+ * worth: a handful of the everyday ones, a couple of the dear ones, and a
+ * Master Ball alone. One ball at a time was spent on the next catch before
+ * the next one turned up. Anything else is found one at a time.
+ *
+ * @type {Array<{upTo: number, min: number, max: number}>} cheapest first
+ */
+export const FOUND_BALLS = [
+  { upTo: 1000, min: 3, max: 5 },
+  { upTo: 10000, min: 2, max: 3 },
+  { upTo: Infinity, min: 1, max: 1 },
+];
+
+/**
+ * How many of an item one find on the road is.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {string} slug
+ */
+export function foundCount(rng, slug) {
+  if (itemOf(slug)?.pocket !== 'pokeballs') return 1;
+  const price = priceOf(slug) ?? Infinity;
+  const band = FOUND_BALLS.find((entry) => price <= entry.upTo) ?? FOUND_BALLS[FOUND_BALLS.length - 1];
+  return rng.int(band.min, band.max);
 }
 
 /**
@@ -771,7 +808,7 @@ const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session));
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session), session.shinyOdds);
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 

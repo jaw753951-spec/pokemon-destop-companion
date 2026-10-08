@@ -106,6 +106,123 @@ test('a move bound to fail is passed over, and taken up again once it would work
   assert.equal(only.chooseMove(only.player, /** @type {any} */ (only.foe)), 'poltergeist');
 });
 
+test('a move the target was seen to shrug off is not used on it again', options, () => {
+  const EXPLOUD = 295;
+  const MR_MIME = 122;
+  const PIKACHU = 25;
+  const LANTURN = 171;
+  /** The player's moves, turn by turn. */
+  const usedOver = (battle, turns) => {
+    const used = [];
+    for (let turn = 0; turn < turns && battle.running; turn++) {
+      used.push(battle.takeTurn().find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move);
+    }
+    return used;
+  };
+
+  // A sound at a Soundproof: once, and then the other move.
+  const mime = fixed(MR_MIME, 70, ['defense-curl']);
+  mime.ability = 'soundproof';
+  const loud = fight(fixed(EXPLOUD, 40, ['hyper-voice', 'pound']), mime);
+  assert.deepEqual(usedOver(loud, 3), ['hyper-voice', 'pound', 'pound']);
+
+  // An Electric move into a Volt Absorb, which only heals it.
+  const lanturn = fixed(LANTURN, 70, ['defense-curl']);
+  lanturn.ability = 'volt-absorb';
+  const zap = fight(fixed(PIKACHU, 40, ['thunderbolt', 'quick-attack']), lanturn);
+  assert.deepEqual(usedOver(zap, 3), ['thunderbolt', 'quick-attack', 'quick-attack']);
+
+  // A miss says nothing about the next turn, and nothing is remembered.
+  assert.equal(zap.player.marks.wasted?.moves.has('quick-attack') ?? false, false);
+
+  // With nothing else to use, it is still used rather than nothing at all.
+  const stubborn = fixed(MR_MIME, 70, ['defense-curl']);
+  stubborn.ability = 'soundproof';
+  assert.deepEqual(usedOver(fight(fixed(EXPLOUD, 40, ['hyper-voice']), stubborn), 2), ['hyper-voice', 'hyper-voice']);
+});
+
+test('a run is tried before anybody moves, and nobody runs from a trainer', options, async () => {
+  const { Battle } = await import('../../app/renderer/engine/battle.mjs');
+  // As fast or faster: away at once, and the foe never moves.
+  const quick = fight(fixed(MACHAMP, 90, ['tackle']), fixed(SNORLAX, 5, ['tackle']));
+  assert.equal(quick.queueEscape(), true);
+  const away = quick.takeTurn();
+  assert.equal(quick.outcome, 'escaped');
+  assert.ok(away.some((entry) => entry.data?.key === 'battle.gotAway'));
+  assert.ok(!away.some((entry) => entry.kind === 'move'));
+
+  // Much slower: the first try can fail, which spends the companion's turn;
+  // each try is likelier than the last, so it gets away in the end.
+  const slow = fight(fixed(SNORLAX, 5, ['tackle']), fixed(MACHAMP, 90, ['bulk-up']));
+  let tries = 0;
+  while (slow.running && tries < 20) {
+    slow.queueEscape();
+    const log = slow.takeTurn();
+    tries++;
+    if (slow.running) {
+      assert.ok(log.some((entry) => entry.data?.key === 'battle.cantEscape'));
+      assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'), 'a failed run is the turn');
+    }
+  }
+  assert.equal(slow.outcome, 'escaped');
+
+  const trainer = new Battle({ rng: new Rng(7), player: fixed(MACHAMP, 90, ['tackle']), foes: [punchbag()], policy: defaultAutoBattle(), trainerBattle: true });
+  assert.equal(trainer.queueEscape(), false);
+  assert.equal(trainer.pendingEscape, false);
+});
+
+test('an Ether thrown in battle goes to the move the player names', options, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { ppItems, throwItem } = await import('../../app/renderer/engine/items.mjs');
+  const { maxPp } = await import('../../app/renderer/engine/pokemon.mjs');
+  const pokemon = fixed(MACHAMP, 60, ['tackle', 'karate-chop']);
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: pokemon, box: [] } } });
+  session.addItem('ether', 1);
+  session.addItem('elixir', 1);
+  assert.deepEqual(ppItems(session, pokemon), [], 'nothing to put back yet');
+  pokemon.moves[0].pp = 0;
+  pokemon.moves[1].pp = 0;
+  assert.deepEqual(ppItems(session, pokemon).map((entry) => [entry.slug, entry.scope]), [['ether', 'one'], ['elixir', 'all']]);
+  assert.equal(throwItem(session, 'ether', pokemon, { move: 1 }), true);
+  assert.equal(pokemon.moves[0].pp, 0);
+  assert.equal(pokemon.moves[1].pp, Math.min(10, maxPp(pokemon.moves[1])));
+});
+
+test('what the screen shows is never tried; only an ability or an item is learned', options, () => {
+  const GENGAR = 94;
+  const STEELIX = 208;
+  const PIKACHU = 25;
+  const GOLEM = 76;
+  const first = (battle) => battle.chooseMove(battle.player, /** @type {any} */ (battle.foe));
+
+  // A Toxic at a Steel type, a Thunder Wave at a Ground type: not once.
+  assert.equal(first(fight(fixed(GENGAR, 50, ['toxic', 'shadow-ball']), fixed(STEELIX, 50, ['defense-curl']))), 'shadow-ball');
+  assert.equal(first(fight(fixed(PIKACHU, 50, ['thunder-wave', 'quick-attack']), fixed(GOLEM, 50, ['defense-curl']))), 'quick-attack');
+
+  // A Hypnosis at something already asleep, or behind a substitute.
+  const asleep = fight(fixed(GENGAR, 50, ['hypnosis', 'shadow-ball']), fixed(MACHAMP, 50, ['defense-curl']));
+  assert.equal(first(asleep), 'hypnosis');
+  asleep.foe.pokemon.status = STATUS.SLEEP;
+  assert.equal(first(asleep), 'shadow-ball');
+  asleep.foe.pokemon.status = null;
+  asleep.foe.volatile.substitute = 20;
+  assert.equal(first(asleep), 'shadow-ball');
+
+  // None of it was learned by trying: nothing is remembered.
+  assert.equal(asleep.player.marks.wasted, undefined);
+
+  // An Air Balloon says so as its holder comes out, so an Earthquake is not
+  // tried at it; once a hit pops it, the Earthquake is back.
+  const floating = fixed(MACHAMP, 50, ['defense-curl']);
+  floating.heldItem = 'air-balloon';
+  const quake = fight(fixed(GOLEM, 50, ['earthquake', 'rock-throw']), floating);
+  assert.ok(quake.opening.some((entry) => entry.data?.key === 'item.balloon.float'), 'the balloon is announced');
+  assert.equal(first(quake), 'rock-throw');
+  const popped = quake.takeTurn();
+  assert.ok(popped.some((entry) => entry.data?.key === 'item.balloon.popped'));
+  assert.equal(first(quake), 'earthquake');
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();

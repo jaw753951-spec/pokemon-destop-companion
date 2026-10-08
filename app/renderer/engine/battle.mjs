@@ -292,7 +292,7 @@ export class Battle {
    *   policy: any,
    *   items?: {
    *     choose: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
-   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon) => boolean,
+   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon, choice?: {move?: number}) => boolean,
    *   }|null,
    *   trainerBattle?: boolean,
    *   weather?: string|null,
@@ -310,6 +310,14 @@ export class Battle {
     /** An item the player has chosen to throw, used instead of next turn's move. */
     /** @type {string|null} */
     this.pendingItem = null;
+    /** Which move an Ether is for, when it is one. @type {{move?: number}} */
+    this.pendingChoice = {};
+    /** Whether the player asked to run, which is tried before next turn's moves. */
+    this.pendingEscape = false;
+    /** How many times the player has tried, each one likelier than the last. */
+    this.escapeAttempts = 0;
+    /** Whether the companion's turn went on a run that failed. */
+    this.playerSpent = false;
     this.trainerBattle = trainerBattle;
 
     this.player = makeCombatant(player, 'player');
@@ -387,6 +395,10 @@ export class Battle {
       usedMove: null,
     }, log);
 
+    // An Air Balloon says so as its holder comes out, as the games show it —
+    // which is what puts it on the screen rather than up its holder's sleeve.
+    if (this.onBalloon(combatant)) log.push({ kind: 'message', side: combatant.side, data: { key: 'item.balloon.float' } });
+
     const ability = this.abilityOf(combatant);
     if (!ability?.start || !other) return;
 
@@ -402,6 +414,15 @@ export class Battle {
     }
   }
 
+  /**
+   * Whether a Pokémon is up on an Air Balloon that has not yet been popped.
+   *
+   * @param {Combatant} combatant
+   */
+  onBalloon(combatant) {
+    return heldPassive(combatant.pokemon, 'immune')?.moveType === 'ground' && !combatant.marks.popped;
+  }
+
   /** @returns {boolean} whether the battle is still running */
   get running() {
     return this.outcome === 'ongoing';
@@ -414,8 +435,52 @@ export class Battle {
    *
    * @param {string} slug
    */
-  queueItem(slug) {
+  queueItem(slug, choice = {}) {
     this.pendingItem = slug;
+    this.pendingChoice = choice;
+    this.pendingEscape = false;
+  }
+
+  /**
+   * Try to run on the next turn, which the games do before anybody moves: a
+   * Pokémon as fast as its opponent always gets away, a slower one less often,
+   * and each failed try makes the next one likelier. Nobody runs from a
+   * trainer.
+   */
+  queueEscape() {
+    if (this.trainerBattle) return false;
+    this.pendingEscape = true;
+    this.pendingItem = null;
+    return true;
+  }
+
+  /**
+   * The run itself, at the top of a turn. Whether it worked; a failed one
+   * spends the companion's turn.
+   *
+   * @param {LogEntry[]} log
+   */
+  tryToRun(log) {
+    this.pendingEscape = false;
+    const player = this.player;
+    if (!this.foe || this.trainerBattle) return false;
+    if (!this.canEscape(player)) {
+      this.say(player, 'battle.cantEscape');
+      return false;
+    }
+    this.escapeAttempts++;
+    // Generation III onward: always away when at least as fast; otherwise
+    // the speed ratio out of 128, and thirty more for every try so far.
+    const mine = this.speedOf(player);
+    const theirs = Math.max(1, this.speedOf(this.foe));
+    const odds = Math.floor((mine * 128) / theirs) + 30 * this.escapeAttempts;
+    if (mine >= theirs || odds > 255 || this.rng.int(0, 255) < odds) {
+      this.say(player, 'battle.gotAway');
+      this.finish('escaped', log);
+      return true;
+    }
+    this.say(player, 'battle.cantEscape');
+    return false;
   }
 
   /**
@@ -1512,8 +1577,7 @@ export class Battle {
     if (this.field.gravity > 0 || combatant.volatile.smackedDown || combatant.volatile.ingrain) return true;
     if (combatant.volatile.magnetRise > 0) return false;
 
-    const balloon = heldPassive(combatant.pokemon, 'immune');
-    if (balloon?.moveType === 'ground' && !combatant.marks.popped) return false;
+    if (this.onBalloon(combatant)) return false;
     if (this.abilityOf(combatant)?.floats) return false;
     return !this.typesOf(combatant).includes('flying');
   }
@@ -1610,6 +1674,14 @@ export class Battle {
       this.opening = [];
     }
 
+    // A run is tried before anybody moves, and a failed one is the
+    // companion's turn gone.
+    this.playerSpent = false;
+    if (this.pendingEscape) {
+      if (this.tryToRun(log)) return log;
+      this.playerSpent = true;
+    }
+
     const first = this.orderOfPlay();
     // A Focus Punch is tightened before anybody moves, so a hit in between
     // can break it.
@@ -1621,6 +1693,7 @@ export class Battle {
       if (!this.running || !this.foe) break;
       // One that was dragged out or went back this turn has no turn left.
       if (attacker !== this.player && attacker !== this.foe) continue;
+      if (attacker === this.player && this.playerSpent) continue;
       const defender = attacker === this.player ? this.foe : this.player;
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
@@ -2012,7 +2085,10 @@ export class Battle {
 
     // Nothing was thrown by hand, so the policy gets its say before the turn
     // is planned.
-    if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+    if (!this.pendingItem && !this.playerSpent) {
+      this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+      this.pendingChoice = {};
+    }
 
     // An item takes the companion's own action: it is used when the companion
     // would have moved, in its place in the order, instead of a move. It used
@@ -2246,10 +2322,18 @@ export class Battle {
     // A Fake Out after the first turn out is a move that fails, so it is not
     // offered once that turn has gone — unless there is nothing else. Nor is
     // anything else whose condition is plainly not met: a Poltergeist at a
-    // target holding nothing, a Dream Eater at one awake.
+    // target holding nothing, a Dream Eater at one awake. Nor a move this
+    // target has already been seen to shrug off for a reason it had kept to
+    // itself (see `shrugsOff`): a sound at a Soundproof, an Electric move into
+    // a Volt Absorb. And nothing the screen already rules out, untried (see
+    // `visiblyUseless`): a Toxic at a Steel type, a Spore at a Pokémon already
+    // asleep, a Thunder Wave behind a substitute.
     const firstTurn = this.firstTurnOut(attacker);
+    // And nothing already seen to do nothing to this very target.
+    const wasted = attacker.marks.wasted?.target === target ? attacker.marks.wasted.moves : null;
     const working = left.filter((slot) =>
-      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move));
+      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move) &&
+      !wasted?.has(slot.move) && !this.visiblyUseless(attacker, target, slot.move));
     if (working.length > 0) left = working;
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
@@ -2309,8 +2393,10 @@ export class Battle {
     // state — asleep, flinching, paralysed — can stop it.
     if (attacker.side === 'player' && this.pendingItem) {
       const slug = this.pendingItem;
+      const choice = this.pendingChoice;
       this.pendingItem = null;
-      const used = this.items?.throw(slug, attacker.pokemon) ?? false;
+      this.pendingChoice = {};
+      const used = this.items?.throw(slug, attacker.pokemon, choice) ?? false;
       // A medicine that clears conditions clears the two that never reach the
       // save as well, which is what a player throwing a Full Heal expects.
       if (used && itemOf(slug)?.use?.status === 'any') this.cureVolatile(attacker, log);
@@ -2552,8 +2638,9 @@ export class Battle {
     // a bullet at a Bulletproof, a powder at a Grass type or a pair of Safety
     // Goggles, a Thunder Wave at a Ground type — never gets as far as an
     // accuracy roll.
-    if (this.movePrevented(attacker, defender, move)) {
-      log.push({ kind: 'noEffect', side: defender.side });
+    const prevented = this.preventedBy(attacker, defender, move);
+    if (prevented) {
+      log.push({ kind: 'noEffect', side: defender.side, data: { cause: prevented } });
       this.crash(attacker, move, log);
       this.breakLock(attacker);
       this.afterMove(attacker, defender, moveName, moveLogStart, log);
@@ -2699,6 +2786,12 @@ export class Battle {
         (entry.kind === 'effectiveness' && entry.data?.effectiveness === 0),
     );
     const move = moveOf(moveName);
+    if (move && this.shrugsOff(attacker, defender, move, lines)) {
+      // Seen to do nothing to this one, for a reason that will not change
+      // while it stands there: not chosen against it again.
+      if (attacker.marks.wasted?.target !== defender) attacker.marks.wasted = { target: defender, moves: new Set() };
+      attacker.marks.wasted.moves.add(moveName);
+    }
 
     // Half the user's health, hit or miss.
     if ((move?.rules?.mindBlownRecoil || moveName === 'chloroblast') && attacker.pokemon.hp > 0 && !attacker.marks.spent) {
@@ -2957,6 +3050,22 @@ export class Battle {
    * @param {any} move
    */
   movePrevented(attacker, defender, move) {
+    return this.preventedBy(attacker, defender, move) !== null;
+  }
+
+  /**
+   * What, if anything, seals the defender against a move — and whether it is
+   * something on the screen (`seen`: a type, the terrain, a Magnet Rise, an
+   * Air Balloon its holder came out announcing, the attacker's own Prankster) or something the defender is keeping to itself
+   * (`item`, `ability`). The automatic battler never reaches for a move the
+   * screen already rules out, and only learns the hidden ones by trying.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant} defender
+   * @param {any} move
+   * @returns {'seen'|'item'|'ability'|null}
+   */
+  preventedBy(attacker, defender, move) {
     // A Dark type sees through a status move a Prankster hurried.
     if (
       move.damageClass === 'status' &&
@@ -2965,19 +3074,19 @@ export class Battle {
       this.abilityOf(attacker)?.prankster &&
       this.typesOf(defender).includes('dark')
     ) {
-      return true;
+      return 'seen';
     }
     // Psychic Terrain refuses a move that would cut the queue.
-    if (terrainBlocksPriority(this.field.terrain, move.priority ?? 0, this.grounded(defender))) return true;
+    if (terrainBlocksPriority(this.field.terrain, move.priority ?? 0, this.grounded(defender))) return 'seen';
 
     // Powder does nothing to a Grass type, which is the one classification the
     // games gate on a type rather than on an ability.
-    if (hasFlag(move, 'powder') && this.typesOf(defender).includes('grass')) return true;
+    if (hasFlag(move, 'powder') && this.typesOf(defender).includes('grass')) return 'seen';
 
     // Status moves ignore the type chart, all but Thunder Wave: electricity
     // still has to reach its target, and a Ground type is out of its way.
     if (TYPE_CHECKED_STATUS.has(this.slugOf(move)) && typeEffectiveness(move.type, this.typesOf(defender)) === 0) {
-      return true;
+      return 'seen';
     }
 
     // A Ground move does not reach something off the ground — an Air
@@ -2991,14 +3100,94 @@ export class Battle {
       !this.typesOf(defender).includes('flying') &&
       !this.abilityOf(defender, attacker)?.floats
     ) {
-      return true;
+      // An Air Balloon announced itself on the way in, so it is in plain
+      // view like a Magnet Rise.
+      return 'seen';
     }
 
     const shield = heldShield(defender.pokemon, 'flags');
-    if (shield && move.flags?.some((flag) => shield.includes(flag))) return true;
+    if (shield && move.flags?.some((flag) => shield.includes(flag))) return 'item';
 
-    return Boolean(this.abilityOf(defender, attacker)?.blockMove?.(this.abilityContext(defender, attacker, []), move));
+    return this.abilityOf(defender, attacker)?.blockMove?.(this.abilityContext(defender, attacker, []), move) ? 'ability' : null;
   }
+
+  /**
+   * Whether the screen alone says a move would do nothing to this target —
+   * no need to try it to know. Its types, the condition it already has, a
+   * substitute, a Safeguard, the terrain: all of it in plain view, as it is
+   * to a player choosing a move. What only a try reveals — an ability, a held
+   * item — is `shrugsOff`'s.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant|null} defender
+   * @param {string} slug
+   */
+  visiblyUseless(attacker, defender, slug) {
+    const move = moveOf(slug);
+    if (!move || !defender || defender === attacker || !aimsAtTarget(move)) return false;
+    const types = this.typesOf(defender);
+    if (this.preventedBy(attacker, defender, move) === 'seen') return true;
+
+    // An attack its type cannot touch, as the attacker's own ability types
+    // it — a Pixilate Hyper Voice is Fairy — unless the attacker's own Scrappy
+    // reaches a Ghost with it.
+    if (move.damageClass !== 'status') {
+      const type = this.effectiveMove(attacker, defender, move, slug).type;
+      if (!type || typeEffectiveness(type, types) !== 0) return false;
+      const ghostOnly = types.includes('ghost') && typeEffectiveness(type, types.filter((entry) => entry !== 'ghost')) !== 0;
+      return !(ghostOnly && this.abilityOf(attacker)?.hitsGhosts && (type === 'normal' || type === 'fighting'));
+    }
+
+    // A move that is only a condition, at a target that cannot take it.
+    const ailment = move.meta?.ailment ?? 'none';
+    const status = AILMENT_TO_STATUS[ailment];
+    if ((status || ailment === 'confusion') && categoryOf(move) === 'status') {
+      const sealed = this.field.sides[defender.side].safeguard > 0 && !this.abilityOf(attacker)?.infiltrates;
+      const doll = defender.volatile.substitute > 0 && !hasFlag(move, 'sound') && !this.abilityOf(attacker)?.infiltrates;
+      if (sealed || doll) return true;
+      if (ailment === 'confusion') return hasVolatile(defender, VOLATILE.CONFUSION) || (this.field.terrain === TERRAIN.MISTY && this.grounded(defender));
+      if (defender.pokemon.status) return true;
+      if (terrainBlocksStatus(this.field.terrain, status) && this.grounded(defender)) return true;
+      const corrodes = status === STATUS.POISON && this.abilityOf(attacker)?.corrodes;
+      return !corrodes && Boolean(IMMUNE_TYPES[status]?.some((type) => types.includes(type)));
+    }
+    if (slug === 'leech-seed') return Boolean(defender.volatile.leechSeed) || types.includes('grass');
+    return false;
+  }
+
+  /**
+   * Whether a move just used did nothing to its target for a reason the
+   * target had kept hidden, and that will not change while it stands there:
+   * an ability that refuses it — a Soundproof, a Levitate, a Volt Absorb that
+   * drinks it, an Insomnia, a Magic Bounce — or a held item that does, a pair
+   * of Safety Goggles. A miss, a Protect or a Magic Coat says nothing about
+   * the next turn; a type, a substitute, a Safeguard or an Air Balloon (which
+   * says so as its holder comes out) is on the screen, and is never tried in
+   * the first place (`visiblyUseless`).
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant|null} defender
+   * @param {any} move
+   * @param {LogEntry[]} lines what the move did, and nothing before it
+   */
+  shrugsOff(attacker, defender, move, lines) {
+    if (!defender || defender === attacker || !aimsAtTarget(move)) return false;
+    const theirs = (/** @type {LogEntry} */ entry) => entry.side === defender.side;
+    // Only what the defender kept to itself is learned: its ability showing
+    // itself, or a sealing that came from its ability or its held item.
+    // Anything on the screen is `visiblyUseless`'s, and never needs a try.
+    const answered = lines.some((entry) => theirs(entry) && entry.kind === 'ability');
+    if (lines.some((entry) => theirs(entry) && entry.kind === 'noEffect' && (entry.data?.cause === 'ability' || entry.data?.cause === 'item'))) {
+      return true;
+    }
+    if (!answered) return false;
+    if (lines.some((entry) => theirs(entry) && entry.kind === 'damage')) return false;
+    return attacker.marks.lastFailed || move.damageClass !== 'status' ||
+      lines.some((entry) => entry.kind === 'bounced' ||
+        (theirs(entry) && (entry.kind === 'statusBlocked' || entry.kind === 'volatileBlocked' ||
+          (entry.kind === 'effectiveness' && entry.data?.effectiveness === 0))));
+  }
+
 
   /**
    * Whether the Pokémon in front got behind something this turn, and what
@@ -3802,7 +3991,7 @@ export class Battle {
     const balloon = heldPassive(defender.pokemon, 'immune');
     if (balloon?.popped && !defender.marks.popped) {
       defender.marks.popped = true;
-      log.push({ kind: 'berry', side: defender.side, data: { item: defender.pokemon.heldItem } });
+      log.push({ kind: 'message', side: defender.side, data: { key: 'item.balloon.popped' } });
       defender.pokemon.heldItem = null;
     }
 

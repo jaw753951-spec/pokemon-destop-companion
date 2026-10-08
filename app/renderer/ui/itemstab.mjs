@@ -166,29 +166,58 @@ function optionsPane(app, session, refresh) {
   ]);
 }
 
-/** How far a win tops the companion back up, fullest last. */
+/**
+ * How far a win tops the companion back up, fullest last — and, under the
+ * health it aims for, whether its condition and its low PP are seen to as
+ * well, each a switch of its own.
+ */
 function afterBattleRow(app, policy, refresh) {
   const target = policy.afterBattle;
 
-  return el('div.setting.item-option', {}, [
-    el('span.label', { text: t('items.afterBattleTarget') }),
-    el('span.spacer'),
-    el(`button.chip${target === 'never' ? '.off' : ''}`, {
+  /**
+   * @param {'afterBattleStatus'|'afterBattlePp'} key
+   * @param {string} label
+   */
+  const toggle = (key, label, title = '') => {
+    const on = Boolean(policy[key]);
+    return el(`button.chip${on ? '' : '.off'}`, {
       type: 'button',
-      text: t(`items.afterBattle.${target}`),
-      onClick: async () => {
+      text: label,
+      title: title || undefined,
+      'aria-pressed': String(on),
+      onClick: () => {
         app.audio.blip('select');
-        const chosen = await chooseFromList(app, t('items.afterBattleTarget'),
-          Object.keys(AFTER_BATTLE_TARGETS).map((value) => ({
-            value,
-            label: t(`items.afterBattle.${value}`),
-            detail: value === target ? t('auto.current') : '',
-          })));
-        if (chosen === null) return;
-        policy.afterBattle = chosen;
+        policy[key] = !on;
         refresh();
       },
-    }),
+    });
+  };
+
+  return el('div.setting.item-option.after-battle-option', {}, [
+    el('span.label', { text: t('items.afterBattleTarget') }),
+    el('span.spacer'),
+    el('div.after-battle-choices', {}, [
+      el(`button.chip${target === 'never' ? '.off' : ''}`, {
+        type: 'button',
+        text: t(`items.afterBattle.${target}`),
+        onClick: async () => {
+          app.audio.blip('select');
+          const chosen = await chooseFromList(app, t('items.afterBattleTarget'),
+            Object.keys(AFTER_BATTLE_TARGETS).map((value) => ({
+              value,
+              label: t(`items.afterBattle.${value}`),
+              detail: value === target ? t('auto.current') : '',
+            })));
+          if (chosen === null) return;
+          policy.afterBattle = chosen;
+          refresh();
+        },
+      }),
+      el('div.after-battle-extras', {}, [
+        toggle('afterBattleStatus', t('items.afterBattleStatus')),
+        toggle('afterBattlePp', t('items.afterBattlePp'), t('items.afterBattlePpNote')),
+      ]),
+    ]),
   ]);
 }
 

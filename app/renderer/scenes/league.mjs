@@ -18,7 +18,7 @@ import { createPokemon } from '../engine/pokemon.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEAGUE_PARTY_CAP } from '../engine/encounter.mjs';
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
-import { earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
+import { alreadyOwned, earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { battleScene } from './battle.mjs';
 
 /**
@@ -195,6 +195,8 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
   /** @param {import('../core/app.mjs').App} app */
   function crown(app) {
+    const reward = championPrize(session);
+    session.addItem(reward);
     session.champion = true;
     session.champions.add(session.active.speciesId);
     session.leagueRegion = league.region;
@@ -202,9 +204,22 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
     const name = session.active.nickname || localized(speciesOf(session.active.speciesId)?.name, '');
     app.audio.playJingle(gameData().bgm.cues.victoryLeague ?? null, { intro: true });
-    app.toast(`${t('league.crowned', { name })}\n${t('league.wentHome')}`, 5000);
+    const prize = t('league.reward', { item: localized(gameData().items[reward]?.name, reward) });
+    app.toast(`${t('league.crowned', { name })}\n${prize}\n${t('league.wentHome')}`, 5000);
     onCrowned();
   }
+}
+
+/**
+ * What a title in the League is worth: a Shiny Charm the first time, and a
+ * Master Ball every time after — one charm is all anybody keeps, and the
+ * League is the only place it comes from.
+ *
+ * @param {import('../engine/session.mjs').Session} session before it is crowned
+ */
+export function championPrize(session) {
+  const first = !session.champion && !alreadyOwned(session, 'shiny-charm') && Boolean(gameData().items['shiny-charm']);
+  return first ? 'shiny-charm' : 'master-ball';
 }
 
 /**

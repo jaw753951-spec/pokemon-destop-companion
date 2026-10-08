@@ -411,7 +411,11 @@ export function fieldScene(session) {
    * @param {import('../core/app.mjs').App} app
    */
   function patchUp(app) {
-    const used = healAfterBattle(session, session.active, session.itemPolicy?.afterBattle ?? 'full');
+    const policy = session.itemPolicy;
+    const used = healAfterBattle(session, session.active, policy?.afterBattle ?? 'full', {
+      status: policy?.afterBattleStatus ?? true,
+      pp: policy?.afterBattlePp ?? false,
+    });
     if (used.length === 0) return;
     const items = used
       .map(({ slug, count }) => {

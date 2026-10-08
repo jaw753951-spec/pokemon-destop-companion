@@ -8,11 +8,11 @@
 import { AUTOSAVE_INTERVAL_MS, BADGES_FOR_LEAGUE, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { ALCREMIE_LOOKS, randomLook } from '../../shared/alcremie.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { pocketOrder } from './bagorder.mjs';
 import { EventScheduler } from './events.mjs';
-import { ensureAttack, fullyHeal } from './pokemon.mjs';
+import { ensureAttack, fullyHeal, shinyOddsFor } from './pokemon.mjs';
 import { settleForme } from './forms.mjs';
 import { STARTING_MONEY } from './shop.mjs';
 
@@ -228,6 +228,17 @@ export class Session {
   }
 
   /**
+   * The odds a wild Pokémon is shiny: the usual one in 4096, or as many rolls
+   * of it as a Shiny Charm in the bag gives (see the charm in `dex.mjs`).
+   */
+  get shinyOdds() {
+    const rolls = Object.keys(this.bag ?? {})
+      .filter((slug) => this.countOf(slug) > 0)
+      .reduce((best, slug) => Math.max(best, itemOf(slug)?.charm?.shinyRolls ?? 1), 1);
+    return shinyOddsFor(rolls);
+  }
+
+  /**
    * @param {string} item
    * @param {number} [count]
    */
@@ -413,7 +424,8 @@ export function defaultAutoBattle() {
  * at — `never` for a player who
  * would rather do it by hand. `afterBattle` is how far a win tops the
  * companion back up from the bag: a key of `AFTER_BATTLE_TARGETS`, a full bar
- * unless the player says otherwise.
+ * unless the player says otherwise; `afterBattleStatus` cures its condition
+ * as well, and `afterBattlePp` puts PP back into a move running low.
  */
 export function defaultItemPolicy() {
   return {
@@ -422,6 +434,8 @@ export function defaultItemPolicy() {
     autoBerry: true,
     healing: { item: /** @type {string|null} */ (null), condition: 'hpThird' },
     afterBattle: 'full',
+    afterBattleStatus: true,
+    afterBattlePp: false,
   };
 }
 
@@ -444,6 +458,12 @@ export function normalizeItemPolicy(policy) {
     },
     // A save from before the setting existed takes the default, like a new one.
     afterBattle: typeof policy.afterBattle === 'string' ? policy.afterBattle : fresh.afterBattle,
+    // A save from before these switches cured a condition only on the way to
+    // a full bar, and put no PP back.
+    afterBattleStatus: typeof policy.afterBattleStatus === 'boolean'
+      ? policy.afterBattleStatus
+      : (typeof policy.afterBattle === 'string' ? policy.afterBattle === 'full' : fresh.afterBattleStatus),
+    afterBattlePp: typeof policy.afterBattlePp === 'boolean' ? policy.afterBattlePp : fresh.afterBattlePp,
   };
 }
 

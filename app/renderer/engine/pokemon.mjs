@@ -69,6 +69,16 @@ import {
 export const SHINY_ODDS = 1 / 4096;
 
 /**
+ * The odds of a shiny over so many rolls — a Shiny Charm's, which the games
+ * roll as so many tries rather than one multiplied chance.
+ *
+ * @param {number} rolls
+ */
+export function shinyOddsFor(rolls) {
+  return 1 - (1 - SHINY_ODDS) ** Math.max(1, rolls);
+}
+
+/**
  * How often a wild Pokémon turns out to be carrying something.
  *
  * Straight from the cartridge: a hundred-sided roll, under 45 and it carries
@@ -94,8 +104,9 @@ export const WILD_ITEM_ODDS_COMPOUND_EYES = { nothing: 20, common: 80 };
  *   ball?: string|null,
  *   hiddenAbility?: boolean,
  *   shiny?: boolean,
+ *   shinyOdds?: number,
  *   gender?: 'male'|'female'|null,
- * }} [options]
+ * }} [options] `shinyOdds` for something other than the usual one in 4096
  * @returns {Pokemon}
  */
 export function createPokemon(rng, speciesId, level, options = {}) {
@@ -121,7 +132,7 @@ export function createPokemon(rng, speciesId, level, options = {}) {
     heldItem: null,
     ability: pickAbility(rng, species, options.hiddenAbility ?? false),
     gender: options.gender !== undefined ? options.gender : rollGender(rng, species),
-    shiny: options.shiny ?? rng.chance(SHINY_ODDS),
+    shiny: options.shiny ?? rng.chance(options.shinyOdds ?? SHINY_ODDS),
     caughtAt: Date.now(),
     friendship: options.ball === 'friend-ball' ? 150 : species.baseHappiness ?? 70,
     ball: options.ball ?? null,

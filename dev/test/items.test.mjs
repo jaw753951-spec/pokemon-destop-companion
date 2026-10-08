@@ -6,7 +6,7 @@ import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
 import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
-import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
+import { createPokemon, maxHp, maxPp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
@@ -124,11 +124,12 @@ test('an item the engine reads states what it does', withData, () => {
   }
 
   // Everything marked as working has a rule the engine can follow — a use
-  // effect, a held one, an evolution, or a pocket that is its own effect.
+  // effect, a held one, a charm kept in the bag, an evolution, or a pocket
+  // that is its own effect.
   for (const [slug, item] of Object.entries(items)) {
     if (!item.works) continue;
     const explained =
-      item.use || item.held || item.capture || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
+      item.use || item.held || item.capture || item.charm || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
     assert.ok(explained, `${slug} claims to work with nothing behind it`);
   }
 
@@ -278,11 +279,36 @@ test('a top-up to full cures the condition too, with the narrowest cure', withDa
   pokemon.status = 'brn';
   assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'full-heal', count: 1 }]);
 
-  // And only a full top-up does it.
+  // Left to itself, only a full top-up does it; the switch decides
+  // otherwise, whatever the health target.
   pokemon.status = 'par';
   pokemon.hp = maxHp(pokemon) - 1;
   healAfterBattle(session, pokemon, 'hpHalf');
   assert.equal(pokemon.status, 'par');
+  pokemon.hp = maxHp(pokemon);
+  healAfterBattle(session, pokemon, 'full', { status: false });
+  assert.equal(pokemon.status, 'par');
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { status: true }), [{ slug: 'full-restore', count: 1 }]);
+  assert.equal(pokemon.status, null);
+});
+
+test('a top-up puts PP back into a move run low, one Ether at a time, when asked', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ ether: 2, elixir: 1 });
+  const full = maxPp(pokemon.moves[0]);
+
+  // A little spent is left alone, and nothing happens with the switch off.
+  pokemon.moves[0].pp = full - 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { pp: true }), []);
+  pokemon.moves[0].pp = 0;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { pp: false }), []);
+  assert.equal(pokemon.moves[0].pp, 0);
+
+  // Run dry: an Ether, on that move alone.
+  const used = healAfterBattle(session, pokemon, 'never', { pp: true });
+  assert.equal(used[0].slug, 'ether');
+  assert.ok(pokemon.moves[0].pp > full / 4);
+  assert.equal(session.countOf('elixir'), 1, 'the Elixir is kept while there are Ethers');
 });
 
 test('a top-up stops at the target the player set, and never is never', withData, () => {
@@ -361,4 +387,34 @@ test('every move says what it does in Korean, not in English', withData, () => {
   }
   assert.deepEqual(blank, [], 'moves with no Korean description');
   assert.deepEqual(borrowed, [], 'moves whose Korean description is the English one');
+});
+
+test('a Shiny Charm raises the odds on the road, is not sold, and is the first title\'s prize', withData, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { SHINY_ODDS, shinyOddsFor } = await import('../../app/renderer/engine/pokemon.mjs');
+  const { buy, isConsumable, priceOf } = await import('../../app/renderer/engine/shop.mjs');
+  const { rollWildPokemon } = await import('../../app/renderer/engine/encounter.mjs');
+  const { championPrize } = await import('../../app/renderer/scenes/league.mjs');
+
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
+  assert.equal(session.shinyOdds, SHINY_ODDS);
+  assert.equal(championPrize(session), 'shiny-charm');
+
+  // Not for sale; kept for good once won.
+  assert.equal(priceOf('shiny-charm'), null);
+  session.money = 9_000_000;
+  assert.equal(buy(session, 'shiny-charm'), 'unsold');
+  assert.equal(isConsumable('shiny-charm'), false);
+
+  // Won: eight rolls of the usual one in 4096 — about one in 512.
+  session.addItem(championPrize(session));
+  assert.equal(session.shinyOdds, shinyOddsFor(8));
+  assert.ok(Math.abs(1 / session.shinyOdds - 512) < 3, `1 in ${Math.round(1 / session.shinyOdds)}`);
+  // And the wild roll uses what it is handed.
+  const area = session.area ?? { tags: ['grass'], encounters: [] };
+  assert.equal(rollWildPokemon(new Rng(2), area, session.active, null, new Set(), 1).shiny, true);
+
+  // Every title after the first pays a Master Ball.
+  session.champion = true;
+  assert.equal(championPrize(session), 'master-ball');
 });

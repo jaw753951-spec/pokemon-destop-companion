@@ -684,40 +684,62 @@ export const AFTER_BATTLE_TARGETS = { never: 0, hpHalf: 1 / 2, hpTwoThirds: 2 / 
 /** A backstop on one top-up, so a bag that somehow stops helping cannot spin. */
 const MAX_TOP_UP_ITEMS = 12;
 
+/** A move is topped up after a battle once it is down to this share of its PP. */
+export const PP_LOW_SHARE = 1 / 4;
+
 /**
- * Top a Pokémon up from the bag after a battle, as far as `target` asks.
+ * Top a Pokémon up from the bag after a battle, as far as `target` asks, and
+ * — each where its switch is on — cure its condition and put PP back into
+ * the moves running low.
  *
- * Each item is the smallest that closes what is left of the gap, and the
+ * Each potion is the smallest that closes what is left of the gap, and the
  * largest on hand when none does — the same "whatever fits" the automatic
  * throw uses, aimed at the target rather than at a full bar, so a Potion is
  * not spent where a Potion's worth is not missing and a Hyper Potion is not
- * spent on a scratch.
+ * spent on a scratch. A condition takes the narrowest cure the bag has. A
+ * move down to a quarter of its PP takes the smallest Ether, one move at a
+ * time, and an Elixir only when there is no Ether left.
  *
  * @param {import('./session.mjs').Session} session
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {string} target a key of {@link AFTER_BATTLE_TARGETS}
+ * @param {{status?: boolean, pp?: boolean}} [also] the condition, and the PP
  * @returns {Array<{slug: string, count: number}>} what was used, in order
  */
-export function healAfterBattle(session, pokemon, target) {
+export function healAfterBattle(session, pokemon, target, also = {}) {
+  if (pokemon.hp <= 0) return [];
   const share = AFTER_BATTLE_TARGETS[target] ?? 0;
-  if (share <= 0 || pokemon.hp <= 0) return [];
   const goal = Math.ceil(maxHp(pokemon) * share);
+  const cure = also.status ?? target === 'full';
 
   /** @type {Map<string, number>} */
   const used = new Map();
-  for (let step = 0; step < MAX_TOP_UP_ITEMS && pokemon.hp < goal; step++) {
+  const spend = (/** @type {string} */ slug) => used.set(slug, (used.get(slug) ?? 0) + 1);
+  for (let step = 0; share > 0 && step < MAX_TOP_UP_ITEMS && pokemon.hp < goal; step++) {
     const available = healingItems(session, pokemon);
     if (available.length === 0) break;
     const gap = goal - pokemon.hp;
     const pick = available.find((entry) => entry.power >= gap) ?? available[available.length - 1];
     if (!throwItem(session, pick.slug, pokemon)) break;
-    used.set(pick.slug, (used.get(pick.slug) ?? 0) + 1);
+    spend(pick.slug);
   }
-  // A full top-up is a full recovery: the condition goes too, with the
-  // narrowest cure the bag has for it.
-  if (target === 'full' && pokemon.status) {
-    const cure = statusCures(session, pokemon)[0];
-    if (cure && throwItem(session, cure.slug, pokemon)) used.set(cure.slug, (used.get(cure.slug) ?? 0) + 1);
+  if (cure && pokemon.status) {
+    const remedy = statusCures(session, pokemon)[0];
+    if (remedy && throwItem(session, remedy.slug, pokemon)) spend(remedy.slug);
+  }
+  if (also.pp) {
+    for (let step = 0; step < MAX_TOP_UP_ITEMS; step++) {
+      // The move furthest down first.
+      const low = pokemon.moves
+        .map((entry, index) => ({ entry, index, share: entry ? entry.pp / Math.max(1, maxPp(entry)) : 1 }))
+        .filter(({ share: left }) => left <= PP_LOW_SHARE)
+        .sort((a, b) => a.share - b.share)[0];
+      if (!low) break;
+      const items = ppItems(session, pokemon);
+      const pick = items.find((entry) => entry.scope === 'one') ?? items[0];
+      if (!pick || !throwItem(session, pick.slug, pokemon, { move: low.index })) break;
+      spend(pick.slug);
+    }
   }
   return [...used].map(([slug, count]) => ({ slug, count }));
 }
@@ -742,18 +764,40 @@ export function statusCures(session, pokemon) {
 }
 
 /**
+ * The PP medicine a battle can throw: an Ether or a Max Ether for one move
+ * run low, an Elixir or a Max Elixir for all of them — the ones that would
+ * put something back: the one-move kind first, the smaller of each first.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {Array<{slug: string, count: number, item: any, scope: 'one'|'all'}>}
+ */
+export function ppItems(session, pokemon) {
+  if (pokemon.hp <= 0) return [];
+  const short = pokemon.moves.some((entry) => entry && entry.pp < maxPp(entry));
+  if (!short) return [];
+  return session
+    .pocket('medicine')
+    .filter(({ item }) => item.use?.pp)
+    .map(({ slug, count, item }) => ({ slug, count, item, scope: item.use.pp.scope === 'one' ? /** @type {const} */ ('one') : /** @type {const} */ ('all') }))
+    // One move's worth before every move's, then the smaller of each first.
+    .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === 'one' ? -1 : 1) || (a.item.cost ?? 0) - (b.item.cost ?? 0) || a.slug.localeCompare(b.slug));
+}
+
+/**
  * Take one healing item from the bag and apply it, wherever it was thrown
  * from.
  *
  * @param {import('./session.mjs').Session} session
  * @param {string} slug
  * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {{move?: number}} [choice] which move an Ether is for
  * @returns {boolean} whether it was used
  */
-export function throwItem(session, slug, pokemon) {
+export function throwItem(session, slug, pokemon, choice = {}) {
   const item = itemOf(slug);
   if (!item || session.countOf(slug) <= 0) return false;
-  if (!applyUse(pokemon, item)) return false;
+  if (!applyUse(pokemon, item, choice)) return false;
   session.removeItem(slug);
   return true;
 }
