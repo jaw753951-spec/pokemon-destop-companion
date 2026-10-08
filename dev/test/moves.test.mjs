@@ -188,6 +188,30 @@ test('an Ether thrown in battle goes to the move the player names', options, asy
   assert.equal(pokemon.moves[1].pp, Math.min(10, maxPp(pokemon.moves[1])));
 });
 
+test('what the screen shows is never tried; only an ability or an item is learned', options, () => {
+  const GENGAR = 94;
+  const STEELIX = 208;
+  const PIKACHU = 25;
+  const GOLEM = 76;
+  const first = (battle) => battle.chooseMove(battle.player, /** @type {any} */ (battle.foe));
+
+  // A Toxic at a Steel type, a Thunder Wave at a Ground type: not once.
+  assert.equal(first(fight(fixed(GENGAR, 50, ['toxic', 'shadow-ball']), fixed(STEELIX, 50, ['defense-curl']))), 'shadow-ball');
+  assert.equal(first(fight(fixed(PIKACHU, 50, ['thunder-wave', 'quick-attack']), fixed(GOLEM, 50, ['defense-curl']))), 'quick-attack');
+
+  // A Hypnosis at something already asleep, or behind a substitute.
+  const asleep = fight(fixed(GENGAR, 50, ['hypnosis', 'shadow-ball']), fixed(MACHAMP, 50, ['defense-curl']));
+  assert.equal(first(asleep), 'hypnosis');
+  asleep.foe.pokemon.status = STATUS.SLEEP;
+  assert.equal(first(asleep), 'shadow-ball');
+  asleep.foe.pokemon.status = null;
+  asleep.foe.volatile.substitute = 20;
+  assert.equal(first(asleep), 'shadow-ball');
+
+  // None of it was learned by trying: nothing is remembered.
+  assert.equal(asleep.player.marks.wasted, undefined);
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();
