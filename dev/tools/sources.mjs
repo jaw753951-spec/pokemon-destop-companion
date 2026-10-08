@@ -53,8 +53,10 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  * BY-NC-SA 4.0, kept under `data/vendor/pokerogue`), whose trainer sprites
  * are an animation sheet and a TexturePacker atlas side by side — `path`
  * names both without the extension, and the first frame is the picture.
- * Avery and Klara, who are not there, come from Pokémon Showdown's trainer
- * sprites (`showdown`, through a mirror of its sprite folder).
+ * Avery and Klara, who are not there and were drawn nowhere else, come from
+ * Pokémon Showdown's trainer sprites (`showdown`, through a mirror of its
+ * sprite folder) — Brumirage's, shared on condition of credit and no edits,
+ * so the build only trims their empty margin.
  *
  * @type {Record<string, {source: 'firered'|'crystal'|'platinum'|'smogon'|'pokerogue'|'showdown', path: string}>}
  */

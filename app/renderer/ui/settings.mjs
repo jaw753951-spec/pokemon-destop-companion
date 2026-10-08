@@ -259,7 +259,7 @@ function creditRows() {
       ? [
           el('div.section-title', { text: t('credits.trainers') }),
           ...trainers.flatMap((entry) => [
-            el('p.meta', { text: t(`credits.trainers.${entry.key}`, { source: entry.source, license: entry.license }) }),
+            el('p.meta', { text: t(`credits.trainers.${entry.key}`, { source: entry.source, license: entry.license, artist: entry.artist ?? '' }) }),
             el('p.meta.credits-url', { text: entry.url }),
           ]),
         ]
