@@ -205,6 +205,7 @@
   "dex.weight": "Weight",
   "event.berryFound": "Obtained a {name}!",
   "event.itemFound": "Obtained a {name}!",
+  "event.itemsFound": "Found {count} {name}!",
   "event.healed": "Your Pokémon's HP and PP were fully restored!",
   "event.supplied": "Got {count} {name}!",
   "event.wild": "A wild {name} appeared!",

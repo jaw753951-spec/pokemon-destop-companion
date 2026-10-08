@@ -205,6 +205,7 @@
   "dex.weight": "무게",
   "event.berryFound": "{name}을(를) 손에 넣었다!",
   "event.itemFound": "{name}을(를) 손에 넣었다!",
+  "event.itemsFound": "{name}을(를) {count}개 손에 넣었다!",
   "event.healed": "체력과 기술을 모두 회복했다!",
   "event.supplied": "{name}을(를) {count}개 받았다!",
   "event.wild": "앗! 야생 {name}이(가) 나타났다!",

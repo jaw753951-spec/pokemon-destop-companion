@@ -18,6 +18,7 @@ import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants
 import {
   BALL_SIZE,
   ballSupply,
+  foundCount,
   CENTER_STEPS,
   centerBeat,
   closingDoorFrame,
@@ -27,6 +28,7 @@ import {
   lookClock,
 } from '../../app/renderer/scenes/fieldevents.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
+import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 
 test('the walk cycle is driven by distance, not by the clock', () => {
   // Standing on the same spot must not advance the legs, however long the
@@ -342,6 +344,21 @@ test('a rest stop hands over one or two balls, and the better ones early', () =>
   assert.equal(ballSupply(rng, 15).item, 'great-ball');
   assert.equal(ballSupply(rng, 30).item, 'ultra-ball');
   assert.equal(ballSupply(rng, 100).item, 'ultra-ball');
+});
+
+test('a ball found on the road is a handful, a dear one a couple, a Master Ball one', async (t) => {
+  if (!(await useRealGameData())) return t.skip(NEEDS_ASSETS);
+  const rng = new Rng(3);
+  const range = (slug) => {
+    const seen = new Set();
+    for (let roll = 0; roll < 200; roll++) seen.add(foundCount(rng, slug));
+    return [Math.min(...seen), Math.max(...seen)];
+  };
+  assert.deepEqual(range('poke-ball'), [3, 5]);
+  assert.deepEqual(range('ultra-ball'), [3, 5]);
+  assert.deepEqual(range('luxury-ball'), [2, 3]);
+  assert.deepEqual(range('master-ball'), [1, 1]);
+  assert.deepEqual(range('potion'), [1, 1], 'anything but a ball is found one at a time');
 });
 
 test('an event is kept off the road under a bridge, and a little way either side', () => {
