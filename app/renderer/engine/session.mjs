@@ -8,11 +8,11 @@
 import { AUTOSAVE_INTERVAL_MS, BADGES_FOR_LEAGUE, EVENT_INTERVAL_MS, EVENTS_PER_AREA, TRAY_LIMIT } from '../../shared/constants.mjs';
 import { saves } from '../core/bridge.mjs';
 import { ALCREMIE_LOOKS, randomLook } from '../../shared/alcremie.mjs';
-import { gameData, speciesOf } from '../core/data.mjs';
+import { gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { Rng } from '../core/rng.mjs';
 import { pocketOrder } from './bagorder.mjs';
 import { EventScheduler } from './events.mjs';
-import { ensureAttack, fullyHeal } from './pokemon.mjs';
+import { ensureAttack, fullyHeal, shinyOddsFor } from './pokemon.mjs';
 import { settleForme } from './forms.mjs';
 import { STARTING_MONEY } from './shop.mjs';
 
@@ -225,6 +225,17 @@ export class Session {
   markCaught(speciesId) {
     this.seen.add(speciesId);
     this.caught.add(speciesId);
+  }
+
+  /**
+   * The odds a wild Pokémon is shiny: the usual one in 4096, or three rolls
+   * of it while a Shiny Charm is in the bag.
+   */
+  get shinyOdds() {
+    const rolls = Object.keys(this.bag ?? {})
+      .filter((slug) => this.countOf(slug) > 0)
+      .reduce((best, slug) => Math.max(best, itemOf(slug)?.charm?.shinyRolls ?? 1), 1);
+    return shinyOddsFor(rolls);
   }
 
   /**

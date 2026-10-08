@@ -345,6 +345,8 @@ const TIER_QUANTILES = [0.6, 0.85, 0.97];
 const SIGNATURE = signatureItems();
 
 const EXCLUDED_CATEGORIES = new Set([
+  // A charm is earned or bought, never found.
+  'charms',
   'plates',
   'species-specific',
   'all-mail',

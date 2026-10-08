@@ -362,6 +362,7 @@
   "league.prepare": "Get ready",
   "league.healed": "Your Pokémon was fully healed!",
   "league.crowned": "{name} became the Champion!",
+  "league.reward": "Received the {item} as a prize!",
   "league.wentHome": "You went home.",
   "badge.obtained": "Obtained the {name} Badge!",
   "badge.word": "Badge",

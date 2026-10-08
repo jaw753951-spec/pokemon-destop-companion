@@ -800,7 +800,7 @@ const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session));
+  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session), session.shinyOdds);
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 

@@ -125,13 +125,15 @@ function shippedItems(items, { machines, moves, species, log }) {
 
     const formItem = FORM_ITEMS[slug];
     if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
+    const charm = CHARM_ITEMS[slug];
+    if (charm) item = { ...item, ...charm, pocket: 'misc' };
     // Whatever some Pokémon evolves by stays, wherever PokeAPI filed it: a
     // Galarica Cuff is a story item there and a Slowpoke's way on here.
     const evolves = evolutionItems.has(slug);
     if (evolves && item.pocket === 'key') item = { ...item, pocket: 'misc' };
 
     const reason =
-      KEPT_ITEMS[slug] || formItem || evolves ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+      KEPT_ITEMS[slug] || formItem || charm || evolves ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
     if (reason) {
       dropped[reason] = (dropped[reason] ?? 0) + 1;
       continue;
@@ -145,6 +147,7 @@ function shippedItems(items, { machines, moves, species, log }) {
         Boolean(item.capture) ||
         item.pocket === 'pokeballs' ||
         item.pocket === 'machines' ||
+        Boolean(item.charm) ||
         evolutionItems.has(slug),
     };
   }
@@ -205,6 +208,22 @@ const KEPT_ITEMS = {
   // What a Honey Gather brings back, and what a Pokémon smells from off the
   // path: used from the bag, it calls the next wild Pokémon out.
   honey: true,
+};
+
+/**
+ * The charms the games hand to a trainer who has done enough, and what each
+ * does here: kept in the bag, never used up, never found on the road (their
+ * category is their own, which the road's find pool leaves out). PokeAPI
+ * files them as key items for a world with towns in it, which would retire
+ * them.
+ *
+ * `charm.shinyRolls` is how many times a wild Pokémon is rolled for being
+ * shiny while the charm is in the bag: three, as the games roll it.
+ *
+ * @type {Record<string, {category: string, charm: {shinyRolls?: number}}>}
+ */
+const CHARM_ITEMS = {
+  'shiny-charm': { category: 'charms', charm: { shinyRolls: 3 } },
 };
 
 /**

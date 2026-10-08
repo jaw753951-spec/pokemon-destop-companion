@@ -124,11 +124,12 @@ test('an item the engine reads states what it does', withData, () => {
   }
 
   // Everything marked as working has a rule the engine can follow — a use
-  // effect, a held one, an evolution, or a pocket that is its own effect.
+  // effect, a held one, a charm kept in the bag, an evolution, or a pocket
+  // that is its own effect.
   for (const [slug, item] of Object.entries(items)) {
     if (!item.works) continue;
     const explained =
-      item.use || item.held || item.capture || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
+      item.use || item.held || item.capture || item.charm || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
     assert.ok(explained, `${slug} claims to work with nothing behind it`);
   }
 
@@ -386,4 +387,37 @@ test('every move says what it does in Korean, not in English', withData, () => {
   }
   assert.deepEqual(blank, [], 'moves with no Korean description');
   assert.deepEqual(borrowed, [], 'moves whose Korean description is the English one');
+});
+
+test('a Shiny Charm triples the odds on the road, is sold dearly, and is the first title\'s prize', withData, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { SHINY_ODDS, shinyOddsFor } = await import('../../app/renderer/engine/pokemon.mjs');
+  const { buy, isConsumable, priceOf } = await import('../../app/renderer/engine/shop.mjs');
+  const { rollWildPokemon } = await import('../../app/renderer/engine/encounter.mjs');
+  const { championPrize } = await import('../../app/renderer/scenes/league.mjs');
+
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
+  assert.equal(session.shinyOdds, SHINY_ODDS);
+  assert.equal(championPrize(session), 'shiny-charm');
+
+  // Kept for good, sold once, at five Master Balls.
+  assert.equal(priceOf('shiny-charm'), 500000);
+  assert.equal(isConsumable('shiny-charm'), false);
+  session.money = 1_000_000;
+  assert.equal(buy(session, 'shiny-charm'), 'bought');
+  assert.equal(buy(session, 'shiny-charm'), 'owned');
+
+  // Three rolls of the usual one in 4096, as the games roll it.
+  assert.ok(Math.abs(session.shinyOdds - 3 / 4096) < 1e-5);
+  assert.equal(session.shinyOdds, shinyOddsFor(3));
+  // And the wild roll uses what it is handed.
+  const area = session.area ?? { tags: ['grass'], encounters: [] };
+  assert.equal(rollWildPokemon(new Rng(2), area, session.active, null, new Set(), 1).shiny, true);
+
+  // Bought before the first title: that title pays a Master Ball instead,
+  // and so does every title after the first.
+  assert.equal(championPrize(session), 'master-ball');
+  const again = new Session({ slot: 1, save: { seed: 2, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
+  again.champion = true;
+  assert.equal(championPrize(again), 'master-ball');
 });
