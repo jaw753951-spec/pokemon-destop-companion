@@ -235,6 +235,8 @@
   "battle.itemUsed": "{name}에게 {item}을(를) 사용했다!",
   "battle.berryEaten": "{name}이(가) {item}을(를) 먹었다!",
   "battle.heldFired": "{name}의 {item}이(가) 발동했다!",
+  "item.balloon.float": "{name}은(는) 풍선으로 떠 있다!",
+  "item.balloon.popped": "{name}의 풍선이 터졌다!",
   "battle.endured": "{name}은(는) {item} 덕분에 버텨냈다!",
   "battle.wonTrainer": "{trainer}과(와)의 승부에서 이겼다!",
   "battle.wonLeader": "체육관 관장 {trainer}과(와)의 승부에서 이겼다!",

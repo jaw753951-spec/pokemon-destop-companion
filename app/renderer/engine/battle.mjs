@@ -395,6 +395,10 @@ export class Battle {
       usedMove: null,
     }, log);
 
+    // An Air Balloon says so as its holder comes out, as the games show it —
+    // which is what puts it on the screen rather than up its holder's sleeve.
+    if (this.onBalloon(combatant)) log.push({ kind: 'message', side: combatant.side, data: { key: 'item.balloon.float' } });
+
     const ability = this.abilityOf(combatant);
     if (!ability?.start || !other) return;
 
@@ -408,6 +412,15 @@ export class Battle {
     if (log.length > before) {
       log.splice(before, 0, { kind: 'ability', side: combatant.side, data: { ability: slug } });
     }
+  }
+
+  /**
+   * Whether a Pokémon is up on an Air Balloon that has not yet been popped.
+   *
+   * @param {Combatant} combatant
+   */
+  onBalloon(combatant) {
+    return heldPassive(combatant.pokemon, 'immune')?.moveType === 'ground' && !combatant.marks.popped;
   }
 
   /** @returns {boolean} whether the battle is still running */
@@ -1564,8 +1577,7 @@ export class Battle {
     if (this.field.gravity > 0 || combatant.volatile.smackedDown || combatant.volatile.ingrain) return true;
     if (combatant.volatile.magnetRise > 0) return false;
 
-    const balloon = heldPassive(combatant.pokemon, 'immune');
-    if (balloon?.moveType === 'ground' && !combatant.marks.popped) return false;
+    if (this.onBalloon(combatant)) return false;
     if (this.abilityOf(combatant)?.floats) return false;
     return !this.typesOf(combatant).includes('flying');
   }
@@ -3043,8 +3055,8 @@ export class Battle {
 
   /**
    * What, if anything, seals the defender against a move — and whether it is
-   * something on the screen (`seen`: a type, the terrain, a Magnet Rise, the
-   * attacker's own Prankster) or something the defender is keeping to itself
+   * something on the screen (`seen`: a type, the terrain, a Magnet Rise, an
+   * Air Balloon its holder came out announcing, the attacker's own Prankster) or something the defender is keeping to itself
    * (`item`, `ability`). The automatic battler never reaches for a move the
    * screen already rules out, and only learns the hidden ones by trying.
    *
@@ -3088,8 +3100,9 @@ export class Battle {
       !this.typesOf(defender).includes('flying') &&
       !this.abilityOf(defender, attacker)?.floats
     ) {
-      const balloon = heldPassive(defender.pokemon, 'immune');
-      return balloon?.moveType === 'ground' && !defender.marks.popped ? 'item' : 'seen';
+      // An Air Balloon announced itself on the way in, so it is in plain
+      // view like a Magnet Rise.
+      return 'seen';
     }
 
     const shield = heldShield(defender.pokemon, 'flags');
@@ -3147,9 +3160,10 @@ export class Battle {
    * target had kept hidden, and that will not change while it stands there:
    * an ability that refuses it — a Soundproof, a Levitate, a Volt Absorb that
    * drinks it, an Insomnia, a Magic Bounce — or a held item that does, a pair
-   * of Safety Goggles or an Air Balloon. A miss, a Protect or a Magic Coat
-   * says nothing about the next turn; a type, a substitute or a Safeguard is
-   * on the screen, and is never tried in the first place (`visiblyUseless`).
+   * of Safety Goggles. A miss, a Protect or a Magic Coat says nothing about
+   * the next turn; a type, a substitute, a Safeguard or an Air Balloon (which
+   * says so as its holder comes out) is on the screen, and is never tried in
+   * the first place (`visiblyUseless`).
    *
    * @param {Combatant} attacker
    * @param {Combatant|null} defender
@@ -3977,7 +3991,7 @@ export class Battle {
     const balloon = heldPassive(defender.pokemon, 'immune');
     if (balloon?.popped && !defender.marks.popped) {
       defender.marks.popped = true;
-      log.push({ kind: 'berry', side: defender.side, data: { item: defender.pokemon.heldItem } });
+      log.push({ kind: 'message', side: defender.side, data: { key: 'item.balloon.popped' } });
       defender.pokemon.heldItem = null;
     }
 

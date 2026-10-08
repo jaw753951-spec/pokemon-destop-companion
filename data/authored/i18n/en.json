@@ -235,6 +235,8 @@
   "battle.itemUsed": "Used the {item} on {name}!",
   "battle.berryEaten": "{name} ate its {item}!",
   "battle.heldFired": "{name}'s {item} took effect!",
+  "item.balloon.float": "{name} floats in the air with its Air Balloon!",
+  "item.balloon.popped": "{name}'s Air Balloon popped!",
   "battle.endured": "{name} hung on with its {item}!",
   "battle.wonTrainer": "You defeated {trainer}!",
   "battle.wonLeader": "You defeated Gym Leader {trainer}!",

@@ -210,6 +210,17 @@ test('what the screen shows is never tried; only an ability or an item is learne
 
   // None of it was learned by trying: nothing is remembered.
   assert.equal(asleep.player.marks.wasted, undefined);
+
+  // An Air Balloon says so as its holder comes out, so an Earthquake is not
+  // tried at it; once a hit pops it, the Earthquake is back.
+  const floating = fixed(MACHAMP, 50, ['defense-curl']);
+  floating.heldItem = 'air-balloon';
+  const quake = fight(fixed(GOLEM, 50, ['earthquake', 'rock-throw']), floating);
+  assert.ok(quake.opening.some((entry) => entry.data?.key === 'item.balloon.float'), 'the balloon is announced');
+  assert.equal(first(quake), 'rock-throw');
+  const popped = quake.takeTurn();
+  assert.ok(popped.some((entry) => entry.data?.key === 'item.balloon.popped'));
+  assert.equal(first(quake), 'earthquake');
 });
 
 test('Close Combat lowers its own user, not the target', options, () => {
