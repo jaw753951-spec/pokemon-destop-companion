@@ -2246,10 +2246,15 @@ export class Battle {
     // A Fake Out after the first turn out is a move that fails, so it is not
     // offered once that turn has gone — unless there is nothing else. Nor is
     // anything else whose condition is plainly not met: a Poltergeist at a
-    // target holding nothing, a Dream Eater at one awake.
+    // target holding nothing, a Dream Eater at one awake. Nor a move this
+    // target has already been seen to shrug off (see `shrugsOff`): a sound at
+    // a Soundproof, an Electric move into a Volt Absorb.
     const firstTurn = this.firstTurnOut(attacker);
+    // And nothing already seen to do nothing to this very target.
+    const wasted = attacker.marks.wasted?.target === target ? attacker.marks.wasted.moves : null;
     const working = left.filter((slot) =>
-      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move));
+      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move) &&
+      !wasted?.has(slot.move));
     if (working.length > 0) left = working;
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
@@ -2699,6 +2704,12 @@ export class Battle {
         (entry.kind === 'effectiveness' && entry.data?.effectiveness === 0),
     );
     const move = moveOf(moveName);
+    if (move && this.shrugsOff(attacker, defender, move, lines)) {
+      // Seen to do nothing to this one, for a reason that will not change
+      // while it stands there: not chosen against it again.
+      if (attacker.marks.wasted?.target !== defender) attacker.marks.wasted = { target: defender, moves: new Set() };
+      attacker.marks.wasted.moves.add(moveName);
+    }
 
     // Half the user's health, hit or miss.
     if ((move?.rules?.mindBlownRecoil || moveName === 'chloroblast') && attacker.pokemon.hp > 0 && !attacker.marks.spent) {
@@ -2998,6 +3009,41 @@ export class Battle {
     if (shield && move.flags?.some((flag) => shield.includes(flag))) return true;
 
     return Boolean(this.abilityOf(defender, attacker)?.blockMove?.(this.abilityContext(defender, attacker, []), move));
+  }
+
+  /**
+   * Whether a move just used did nothing to its target for a reason that is
+   * the target's own and lasting: an ability that refuses it — a Soundproof,
+   * a Levitate, a Volt Absorb that drinks it, an Insomnia, a Magic Bounce — or
+   * a type the move cannot touch, a Steel type's skin against a Toxic among
+   * them. A miss, a Protect, a substitute or a Safeguard says nothing about the
+   * next turn, and is not counted.
+   *
+   * @param {Combatant} attacker
+   * @param {Combatant|null} defender
+   * @param {any} move
+   * @param {LogEntry[]} lines what the move did, and nothing before it
+   */
+  shrugsOff(attacker, defender, move, lines) {
+    if (!defender || defender === attacker || !aimsAtTarget(move)) return false;
+    const theirs = (/** @type {LogEntry} */ entry) => entry.side === defender.side;
+    if (lines.some((entry) => entry.kind === 'bounced')) return true;
+    if (lines.some((entry) => theirs(entry) && (entry.kind === 'noEffect' || (entry.kind === 'effectiveness' && entry.data?.effectiveness === 0)))) {
+      return true;
+    }
+    const hurt = lines.some((entry) => theirs(entry) && entry.kind === 'damage');
+    if (hurt) return false;
+    const answered = lines.some((entry) => theirs(entry) && entry.kind === 'ability');
+    const nothing = attacker.marks.lastFailed || move.damageClass !== 'status' ||
+      lines.some((entry) => theirs(entry) && (entry.kind === 'statusBlocked' || entry.kind === 'volatileBlocked'));
+    if (answered && nothing) return true;
+    // A burn at a Fire type, a poison at a Steel one: the condition never
+    // takes, and no ability has to say so.
+    const status = AILMENT_TO_STATUS[move.meta?.ailment ?? ''];
+    if (move.damageClass === 'status' && status && attacker.marks.lastFailed && !this.abilityOf(attacker)?.corrodes) {
+      return Boolean(IMMUNE_TYPES[status]?.some((type) => this.typesOf(defender).includes(type)));
+    }
+    return false;
   }
 
   /**

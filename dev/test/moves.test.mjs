@@ -106,6 +106,41 @@ test('a move bound to fail is passed over, and taken up again once it would work
   assert.equal(only.chooseMove(only.player, /** @type {any} */ (only.foe)), 'poltergeist');
 });
 
+test('a move the target was seen to shrug off is not used on it again', options, () => {
+  const EXPLOUD = 295;
+  const MR_MIME = 122;
+  const PIKACHU = 25;
+  const LANTURN = 171;
+  /** The player's moves, turn by turn. */
+  const usedOver = (battle, turns) => {
+    const used = [];
+    for (let turn = 0; turn < turns && battle.running; turn++) {
+      used.push(battle.takeTurn().find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move);
+    }
+    return used;
+  };
+
+  // A sound at a Soundproof: once, and then the other move.
+  const mime = fixed(MR_MIME, 70, ['defense-curl']);
+  mime.ability = 'soundproof';
+  const loud = fight(fixed(EXPLOUD, 40, ['hyper-voice', 'pound']), mime);
+  assert.deepEqual(usedOver(loud, 3), ['hyper-voice', 'pound', 'pound']);
+
+  // An Electric move into a Volt Absorb, which only heals it.
+  const lanturn = fixed(LANTURN, 70, ['defense-curl']);
+  lanturn.ability = 'volt-absorb';
+  const zap = fight(fixed(PIKACHU, 40, ['thunderbolt', 'quick-attack']), lanturn);
+  assert.deepEqual(usedOver(zap, 3), ['thunderbolt', 'quick-attack', 'quick-attack']);
+
+  // A miss says nothing about the next turn, and nothing is remembered.
+  assert.equal(zap.player.marks.wasted?.moves.has('quick-attack') ?? false, false);
+
+  // With nothing else to use, it is still used rather than nothing at all.
+  const stubborn = fixed(MR_MIME, 70, ['defense-curl']);
+  stubborn.ability = 'soundproof';
+  assert.deepEqual(usedOver(fight(fixed(EXPLOUD, 40, ['hyper-voice']), stubborn), 2), ['hyper-voice', 'hyper-voice']);
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();
