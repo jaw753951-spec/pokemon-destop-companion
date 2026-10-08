@@ -18,6 +18,7 @@ import { HOLD_BOOST_GLIDE_MS, HOLD_BOOST_WALK } from '../../app/shared/constants
 import {
   BALL_SIZE,
   ballSupply,
+  BERRY_HARVEST,
   foundCount,
   CENTER_STEPS,
   centerBeat,
@@ -344,6 +345,10 @@ test('a rest stop hands over one or two balls, and the better ones early', () =>
   assert.equal(ballSupply(rng, 15).item, 'great-ball');
   assert.equal(ballSupply(rng, 30).item, 'ultra-ball');
   assert.equal(ballSupply(rng, 100).item, 'ultra-ball');
+});
+
+test('a berry tree gives a handful', () => {
+  assert.ok(BERRY_HARVEST.min >= 2 && BERRY_HARVEST.max > BERRY_HARVEST.min);
 });
 
 test('a ball found on the road is a handful, a dear one a couple, a Master Ball one', async (t) => {

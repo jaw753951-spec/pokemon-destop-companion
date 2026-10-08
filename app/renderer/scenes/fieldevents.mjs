@@ -344,6 +344,13 @@ export function createEventRunner({ session, onBattle }) {
 }
 
 /**
+ * How many berries one tree gives: a handful, as a tree in the games bears
+ * several. One at a time, the restock order and the after-battle berries ate
+ * through a find before the next tree turned up.
+ */
+export const BERRY_HARVEST = { min: 2, max: 4 };
+
+/**
  * A berry tree grows at the roadside; the companion picks from it for ten
  * seconds, and the tree is left bare.
  */
@@ -352,6 +359,7 @@ function startBerry(session, spawnAt) {
     .filter(([, item]) => item.pocket === 'berries' && item.sprite)
     .map(([slug]) => slug);
   const berry = session.rng.pick(berries.length ? berries : ['oran-berry']);
+  const count = session.rng.int(BERRY_HARVEST.min, BERRY_HARVEST.max);
 
   const trees = gameData().actors?.props?.berryTrees ?? {};
   const tree = treeFor(berry, trees);
@@ -367,14 +375,14 @@ function startBerry(session, spawnAt) {
     carried: null,
     onArrive: () => 'gather',
     onGathered: (app) => {
-      session.addItem(berry);
+      session.addItem(berry, count);
       state.prop.frame = 'bare';
       state.carried = { icon: `items/${berry}.png`, sprite: null, scale: CARRIED_BERRY_SCALE };
       loadImage(`items/${berry}.png`).then((image) => {
         state.carried.sprite = stillSprite(image);
       });
       app.audio.playJingle(gameData().bgm.cues.obtainBerry ?? null);
-      app.toast(t('event.berryFound', { name: localized(itemOf(berry)?.name, berry) }));
+      app.toast(t('event.itemsFound', { name: localized(itemOf(berry)?.name, berry), count }));
     },
   };
 

@@ -203,7 +203,6 @@
   "dex.championBadge": "챔피언",
   "dex.height": "키",
   "dex.weight": "무게",
-  "event.berryFound": "{name}을(를) 손에 넣었다!",
   "event.itemFound": "{name}을(를) 손에 넣었다!",
   "event.itemsFound": "{name}을(를) {count}개 손에 넣었다!",
   "event.healed": "체력과 기술을 모두 회복했다!",
