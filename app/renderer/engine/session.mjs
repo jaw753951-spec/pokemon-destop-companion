@@ -228,8 +228,8 @@ export class Session {
   }
 
   /**
-   * The odds a wild Pokémon is shiny: the usual one in 4096, or three rolls
-   * of it while a Shiny Charm is in the bag.
+   * The odds a wild Pokémon is shiny: the usual one in 4096, or as many rolls
+   * of it as a Shiny Charm in the bag gives (see the charm in `dex.mjs`).
    */
   get shinyOdds() {
     const rolls = Object.keys(this.bag ?? {})

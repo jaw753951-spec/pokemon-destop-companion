@@ -389,7 +389,7 @@ test('every move says what it does in Korean, not in English', withData, () => {
   assert.deepEqual(borrowed, [], 'moves whose Korean description is the English one');
 });
 
-test('a Shiny Charm triples the odds on the road, is sold dearly, and is the first title\'s prize', withData, async () => {
+test('a Shiny Charm raises the odds on the road, is not sold, and is the first title\'s prize', withData, async () => {
   const { Session } = await import('../../app/renderer/engine/session.mjs');
   const { SHINY_ODDS, shinyOddsFor } = await import('../../app/renderer/engine/pokemon.mjs');
   const { buy, isConsumable, priceOf } = await import('../../app/renderer/engine/shop.mjs');
@@ -400,24 +400,21 @@ test('a Shiny Charm triples the odds on the road, is sold dearly, and is the fir
   assert.equal(session.shinyOdds, SHINY_ODDS);
   assert.equal(championPrize(session), 'shiny-charm');
 
-  // Kept for good, sold once, at five Master Balls.
-  assert.equal(priceOf('shiny-charm'), 500000);
+  // Not for sale; kept for good once won.
+  assert.equal(priceOf('shiny-charm'), null);
+  session.money = 9_000_000;
+  assert.equal(buy(session, 'shiny-charm'), 'unsold');
   assert.equal(isConsumable('shiny-charm'), false);
-  session.money = 1_000_000;
-  assert.equal(buy(session, 'shiny-charm'), 'bought');
-  assert.equal(buy(session, 'shiny-charm'), 'owned');
 
-  // Three rolls of the usual one in 4096, as the games roll it.
-  assert.ok(Math.abs(session.shinyOdds - 3 / 4096) < 1e-5);
-  assert.equal(session.shinyOdds, shinyOddsFor(3));
+  // Won: eight rolls of the usual one in 4096 — about one in 512.
+  session.addItem(championPrize(session));
+  assert.equal(session.shinyOdds, shinyOddsFor(8));
+  assert.ok(Math.abs(1 / session.shinyOdds - 512) < 3, `1 in ${Math.round(1 / session.shinyOdds)}`);
   // And the wild roll uses what it is handed.
   const area = session.area ?? { tags: ['grass'], encounters: [] };
   assert.equal(rollWildPokemon(new Rng(2), area, session.active, null, new Set(), 1).shiny, true);
 
-  // Bought before the first title: that title pays a Master Ball instead,
-  // and so does every title after the first.
+  // Every title after the first pays a Master Ball.
+  session.champion = true;
   assert.equal(championPrize(session), 'master-ball');
-  const again = new Session({ slot: 1, save: { seed: 2, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
-  again.champion = true;
-  assert.equal(championPrize(again), 'master-ball');
 });

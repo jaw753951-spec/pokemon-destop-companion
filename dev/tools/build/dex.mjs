@@ -212,18 +212,21 @@ const KEPT_ITEMS = {
 
 /**
  * The charms the games hand to a trainer who has done enough, and what each
- * does here: kept in the bag, never used up, never found on the road (their
- * category is their own, which the road's find pool leaves out). PokeAPI
- * files them as key items for a world with towns in it, which would retire
- * them.
+ * does here: kept in the bag, never used up, never found on the road or sold
+ * (their category is their own, which the road's find pool and the shop both
+ * leave out). PokeAPI files them as key items for a world with towns in it,
+ * which would retire them.
  *
  * `charm.shinyRolls` is how many times a wild Pokémon is rolled for being
- * shiny while the charm is in the bag: three, as the games roll it.
+ * shiny while the charm is in the bag. The games roll three; here it is the
+ * League's one prize, with no Masuda method or chain to stack on it, so it
+ * rolls eight — about one in 512, where Sword and Shield's charm ends up
+ * after five hundred of a species knocked out.
  *
  * @type {Record<string, {category: string, charm: {shinyRolls?: number}}>}
  */
 const CHARM_ITEMS = {
-  'shiny-charm': { category: 'charms', charm: { shinyRolls: 3 } },
+  'shiny-charm': { category: 'charms', charm: { shinyRolls: 8 } },
 };
 
 /**

@@ -69,8 +69,8 @@ import {
 export const SHINY_ODDS = 1 / 4096;
 
 /**
- * The odds of a shiny over so many rolls — the Shiny Charm's three, which
- * the games roll as three tries rather than one tripled chance.
+ * The odds of a shiny over so many rolls — a Shiny Charm's, which the games
+ * roll as so many tries rather than one multiplied chance.
  *
  * @param {number} rolls
  */

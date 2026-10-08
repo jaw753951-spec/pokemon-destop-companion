@@ -212,8 +212,8 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
 /**
  * What a title in the League is worth: a Shiny Charm the first time, and a
- * Master Ball every time after — as a first title is too when the charm was
- * already bought, since one is all anybody keeps.
+ * Master Ball every time after — one charm is all anybody keeps, and the
+ * League is the only place it comes from.
  *
  * @param {import('../engine/session.mjs').Session} session before it is crowned
  */

@@ -53,9 +53,6 @@ const PRICES = {
   'net-ball': 1000, 'dive-ball': 1000, 'nest-ball': 1000, 'repeat-ball': 1000, 'timer-ball': 1000,
   'luxury-ball': 3000, 'dusk-ball': 1000, 'heal-ball': 300, 'quick-ball': 1000,
   'beast-ball': 3000, 'master-ball': 100000,
-  // Earned by a first title in the League, or bought for the price of five
-  // Master Balls.
-  'shiny-charm': 500000,
   'lure-ball': 3000, 'level-ball': 3000, 'moon-ball': 3000, 'heavy-ball': 3000, 'fast-ball': 3000,
   'friend-ball': 3000, 'love-ball': 3000,
   'choice-band': 20000, 'choice-specs': 20000, 'choice-scarf': 20000, 'life-orb': 20000,
@@ -79,6 +76,8 @@ const CATEGORY_PRICES = {
  * key item, a thing kept for show.
  */
 const NOT_SOLD_CATEGORIES = new Set([
+  // A charm is a title's prize, and only that.
+  'charms',
   'plot-advancement', 'gameplay', 'unused', 'event-items', 'dex-completion', 'species-candies',
   'tm-materials', 'picnic', 'loot', 'collectibles', 'memories', 'plates',
 ]);
