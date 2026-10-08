@@ -656,6 +656,25 @@ test('the shop sells all but the unique, prices a trainer\'s prize, and a kept i
   session.removeItem('leftovers');
   session.active.heldItem = 'leftovers';
   assert.equal(alreadyOwned(session, 'leftovers'), true);
+  // One a Pokémon in the box holds stays there with it.
+  session.active.heldItem = null;
+  session.storeInBox(fixed(1, 5));
+  /** @type {any} */ (session.box.find(Boolean)).heldItem = 'leftovers';
+  assert.equal(alreadyOwned(session, 'leftovers'), false);
+  assert.equal(buy(session, 'leftovers'), 'bought');
+
+  // A stone is spent on the evolution it makes; a Metal Coat is still held
+  // after it, so it is kept like a Leftovers.
+  assert.equal(isConsumable('fire-stone'), true);
+  assert.equal(isConsumable('metal-coat'), false);
+  assert.equal(isConsumable('razor-claw'), false);
+  assert.equal(isConsumable('oval-stone'), false);
+  session.money = 100000;
+  assert.equal(buy(session, 'metal-coat', 3), 'bought');
+  assert.equal(session.countOf('metal-coat'), 1);
+  assert.equal(buy(session, 'metal-coat'), 'owned');
+  assert.equal(buy(session, 'fire-stone', 3), 'bought');
+  assert.equal(session.countOf('fire-stone'), 3);
   session.money = 100;
   assert.equal(buy(session, 'super-potion'), 'poor');
 

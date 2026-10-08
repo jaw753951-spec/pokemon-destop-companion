@@ -196,10 +196,22 @@ export function evolvesSomething(slug) {
 }
 
 /**
- * Built once from the data: which Pokémon each item belongs to, and which
- * families each item evolves.
+ * Whether some Pokémon evolves by holding this item and none by using it: a
+ * Metal Coat, a Razor Claw, an Oval Stone. Evolving leaves such an item in
+ * the Pokémon's hand, so it is never spent.
  *
- * @type {{owners: Map<string, number>, evolves: Map<string, Set<number>>}|null}
+ * @param {string} slug
+ */
+export function evolvesWhenHeld(slug) {
+  const { held, used } = index();
+  return held.has(slug) && !used.has(slug);
+}
+
+/**
+ * Built once from the data: which Pokémon each item belongs to, which
+ * families each item evolves, and which items do it held and which used.
+ *
+ * @type {{owners: Map<string, number>, evolves: Map<string, Set<number>>, held: Set<string>, used: Set<string>}|null}
  */
 let cached = null;
 let cachedFor = /** @type {any} */ (null);
@@ -241,8 +253,14 @@ function index() {
 
   /** @type {Map<string, Set<number>>} */
   const evolves = new Map();
+  /** @type {Set<string>} */
+  const held = new Set();
+  /** @type {Set<string>} */
+  const used = new Set();
   for (const entry of species) {
     for (const evolution of entry.evolutions ?? []) {
+      if (evolution.item) used.add(evolution.item);
+      for (const item of [evolution.heldItem, ...(evolution.heldItems ?? [])]) if (item) held.add(item);
       for (const item of [evolution.item, evolution.heldItem, ...(evolution.heldItems ?? [])]) {
         if (!item) continue;
         if (!evolves.has(item)) evolves.set(item, new Set());
@@ -251,7 +269,7 @@ function index() {
     }
   }
 
-  cached = { owners, evolves };
+  cached = { owners, evolves, held, used };
   cachedFor = data;
   return cached;
 }
