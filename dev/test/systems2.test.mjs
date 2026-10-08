@@ -196,14 +196,23 @@ test('confusion runs out, and hurts on the way', options, () => {
   // Already confused is not confused twice.
   assert.equal(battle.confuse(battle.player, []), false);
 
-  const before = player.hp;
-  let hitItself = false;
-  for (let turn = 0; turn < 12 && battle.running; turn++) {
-    if (battle.takeTurn().some((entry) => entry.kind === 'confusionDamage')) hitItself = true;
-  }
-  assert.ok(hitItself, 'twelve turns confused and it never once hit itself');
-  assert.ok(player.hp < before);
+  for (let turn = 0; turn < 12 && battle.running; turn++) battle.takeTurn();
   assert.equal(hasVolatile(battle.player, VOLATILE.CONFUSION), false, 'it should have worn off');
+
+  // A third of the turns spent confused go on hurting itself, so across a
+  // few fights it does, whichever way any one of them rolls.
+  let hitItself = false;
+  for (let seed = 1; seed <= 6 && !hitItself; seed++) {
+    const again = fixed(PIKACHU, 50, ['tackle']);
+    const confused = fight(again, punchbag(), { rng: new Rng(seed) });
+    confused.confuse(confused.player, []);
+    const before = again.hp;
+    for (let turn = 0; turn < 12 && confused.running; turn++) {
+      if (confused.takeTurn().some((entry) => entry.kind === 'confusionDamage')) hitItself = true;
+    }
+    if (hitItself) assert.ok(again.hp < before);
+  }
+  assert.ok(hitItself, 'six fights confused and it never once hit itself');
 });
 
 test('a Persim Berry is eaten the moment the confusion lands', options, () => {
@@ -656,6 +665,25 @@ test('the shop sells all but the unique, prices a trainer\'s prize, and a kept i
   session.removeItem('leftovers');
   session.active.heldItem = 'leftovers';
   assert.equal(alreadyOwned(session, 'leftovers'), true);
+  // One a Pokémon in the box holds stays there with it.
+  session.active.heldItem = null;
+  session.storeInBox(fixed(1, 5));
+  /** @type {any} */ (session.box.find(Boolean)).heldItem = 'leftovers';
+  assert.equal(alreadyOwned(session, 'leftovers'), false);
+  assert.equal(buy(session, 'leftovers'), 'bought');
+
+  // A stone is spent on the evolution it makes; a Metal Coat is still held
+  // after it, so it is kept like a Leftovers.
+  assert.equal(isConsumable('fire-stone'), true);
+  assert.equal(isConsumable('metal-coat'), false);
+  assert.equal(isConsumable('razor-claw'), false);
+  assert.equal(isConsumable('oval-stone'), false);
+  session.money = 100000;
+  assert.equal(buy(session, 'metal-coat', 3), 'bought');
+  assert.equal(session.countOf('metal-coat'), 1);
+  assert.equal(buy(session, 'metal-coat'), 'owned');
+  assert.equal(buy(session, 'fire-stone', 3), 'bought');
+  assert.equal(session.countOf('fire-stone'), 3);
   session.money = 100;
   assert.equal(buy(session, 'super-potion'), 'poor');
 

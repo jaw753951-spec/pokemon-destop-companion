@@ -253,31 +253,30 @@ test('moves are sorted into auto-battle categories', options, () => {
   assert.equal(categoryOf({ damageClass: 'status', meta: { ailment: 'none', healing: 0 }, statChanges: [] }), 'field');
 });
 
-test('an explicit move order is followed in sequence and then repeated', options, () => {
-  const player = makeFixed(CHARIZARD, 50, ['ember', 'slash', 'growl', 'smokescreen']);
+test('repeatAll goes round the moves as they sit in their slots', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['slash', 'ember']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatAll', order: ['slash', 'ember'], conditions: {} },
+    policy: { mode: 'repeatAll', conditions: {} },
   });
 
-  const usable = player.moves;
   const picks = [];
   for (let turn = 0; turn < 4; turn++) {
-    picks.push(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), usable));
+    picks.push(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves));
     battle.player.turnsTaken++;
   }
   assert.deepEqual(picks, ['slash', 'ember', 'slash', 'ember']);
 });
 
-test('repeatLast holds on the final move of the order', options, () => {
-  const player = makeFixed(CHARIZARD, 50, ['ember', 'slash']);
+test('repeatLast goes through the slots once and holds on the last', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['slash', 'ember']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 90, ['tackle'])],
-    policy: { mode: 'repeatLast', order: ['slash', 'ember'], conditions: {} },
+    policy: { mode: 'repeatLast', conditions: {} },
   });
 
   const picks = [];
@@ -288,63 +287,40 @@ test('repeatLast holds on the final move of the order', options, () => {
   assert.deepEqual(picks, ['slash', 'ember', 'ember', 'ember']);
 });
 
-test('damageFirst ignores the conditions and picks the strongest attack', options, () => {
+test('the conditions outrank damage first: attacks switched off are not used', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    // Attacks are switched off and stat moves left on, and damageFirst must
-    // still pick the strongest attack.
-    policy: { mode: 'damageFirst', order: [], conditions: { damage: 'never', stat: 'always' } },
+    policy: { mode: 'damageFirst', conditions: { damage: 'never', stat: 'always' } },
   });
 
-  const pick = choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
-  assert.equal(pick, 'flamethrower');
+  assert.equal(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves), 'growl');
 });
 
-test('damageFirst outranks the order: an order with Scratch in it does not Scratch a Ghost', options, () => {
-  // The order a player reported: Ember, then Scratch, with damage first on.
-  const player = makeFixed(4, 12, ['scratch', 'ember', 'growl']);
-  const battle = new Battle({
-    rng: new Rng(2),
-    player,
-    foes: [makeFixed(92, 12, ['lick'])], // Gastly
-    policy: { mode: 'damageFirst', order: ['ember', 'scratch'], conditions: {} },
-  });
-  const picks = [];
-  for (let turn = 0; turn < 4; turn++) {
-    picks.push(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves));
-    battle.player.turnsTaken++;
-  }
-  assert.deepEqual(picks, ['ember', 'ember', 'ember', 'ember']);
-});
-
-test('damageFirst takes the hardest hit in the order, then anything held when the order has none', options, () => {
-  const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl', 'scratch']);
-  const pick = (order, foe = VENUSAUR) => {
+test('damageFirst takes the hardest hit the other side can take', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['scratch', 'ember', 'flamethrower', 'growl']);
+  const pick = (foe) => {
     const battle = new Battle({
       rng: new Rng(2),
       player,
       foes: [makeFixed(foe, 50, ['tackle'])],
-      policy: { mode: 'damageFirst', order, conditions: {} },
+      policy: { mode: 'damageFirst', conditions: {} },
     });
     return choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
   };
-  // Flamethrower is held but not in the order: the order is the pool.
-  assert.equal(pick(['scratch', 'ember']), 'ember');
-  // Nothing in the order hurts, so damage still comes first.
-  assert.equal(pick(['growl']), 'flamethrower');
-  assert.equal(pick(['scratch'], 92), 'flamethrower');
+  assert.equal(pick(VENUSAUR), 'flamethrower');
+  assert.equal(pick(92), 'flamethrower', 'a Gastly, which a Scratch cannot touch');
 });
 
-test('an order passes over a move the foe cannot take, to the next one', options, () => {
+test('a move the foe cannot take hands its turn to the next slot', options, () => {
   const player = makeFixed(4, 12, ['scratch', 'ember']);
   const battle = new Battle({
     rng: new Rng(2),
     player,
     foes: [makeFixed(92, 12, ['lick'])],
-    policy: { mode: 'repeatAll', order: ['scratch', 'ember'], conditions: {} },
+    policy: { mode: 'repeatAll', conditions: {} },
   });
   const picks = [];
   for (let turn = 0; turn < 3; turn++) {
@@ -360,21 +336,21 @@ test('a kind set to never takes a category out of the running', options, () => {
     rng: new Rng(4),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    policy: { mode: 'repeatAll', order: [], conditions: { damage: 'always', stat: 'never' } },
+    policy: { mode: 'repeatAll', conditions: { damage: 'always', stat: 'never' } },
   });
 
   for (let attempt = 0; attempt < 20; attempt++) {
     assert.equal(choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves), 'ember');
+    battle.player.turnsTaken++;
   }
 });
 
-test('with no order, several attacks come down to the hardest-hitting one', options, () => {
+test('by default, several attacks come down to the hardest-hitting one', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['tackle', 'ember', 'flamethrower']);
   const battle = new Battle({
     rng: new Rng(7),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    // The shipped defaults, which name no order at all.
     policy: defaultAutoBattle(),
   });
 
@@ -390,7 +366,7 @@ test('a healing move waits for the health its condition names', options, () => {
     rng: new Rng(3),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    policy: { mode: 'repeatAll', order: [], conditions: { damage: 'never', heal: 'hpThird' } },
+    policy: { mode: 'damageFirst', conditions: { damage: 'never', heal: 'hpThird' } },
   });
 
   const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
@@ -404,11 +380,30 @@ test('a healing move waits for the health its condition names', options, () => {
   assert.equal(pick(), 'recover');
 });
 
+test('a condition that names a moment is answered before any attack, whatever the mode', options, () => {
+  for (const mode of ['damageFirst', 'repeatAll', 'repeatLast']) {
+    const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'swords-dance', 'recover']);
+    const battle = new Battle({
+      rng: new Rng(3),
+      player,
+      foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+      policy: { ...defaultAutoBattle(), mode },
+    });
+    const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+
+    // The first turn sets up; after that, it attacks until half health.
+    assert.equal(pick(), 'swords-dance', mode);
+    battle.player.turnsTaken = 3;
+    assert.equal(pick(), 'flamethrower', mode);
+    player.hp = Math.floor(maxHp(player) / 2);
+    assert.equal(pick(), 'recover', mode);
+  }
+});
+
 test('a stored policy from either older shape becomes conditions', options, () => {
   // Weights, where zero meant "never".
   const weighted = normalizeAutoBattle({
     mode: 'repeatAll',
-    order: [],
     weights: { damage: 10, stat: 0 },
     conditions: { damage: 'always', stat: 'firstTurn' },
   });
@@ -417,12 +412,21 @@ test('a stored policy from either older shape becomes conditions', options, () =
   assert.equal(weighted.weights, undefined);
 
   // Tick boxes, where an unticked kind meant the same.
-  const ticked = normalizeAutoBattle({ mode: 'repeatAll', order: [], use: { heal: false } });
+  const ticked = normalizeAutoBattle({ mode: 'repeatAll', use: { heal: false } });
   assert.equal(ticked.conditions.heal, 'never');
   assert.equal(ticked.use, undefined);
 
   // And half health, which used to have a name of its own.
   assert.equal(normalizeAutoBattle(null).conditions.heal, 'hpHalf');
+
+  // A move order is dropped. Left empty, it was only ever the hardest attack,
+  // which damage first is now; laid out, its mode is kept, over the slots.
+  const unordered = normalizeAutoBattle({ mode: 'repeatAll', order: [null, null, null, null], conditions: {} });
+  assert.equal(unordered.mode, 'damageFirst');
+  assert.equal(unordered.order, undefined);
+  assert.equal(normalizeAutoBattle({ mode: 'repeatLast', order: ['ember', null, null, null] }).mode, 'repeatLast');
+  // And a policy saved since keeps whatever mode was chosen.
+  assert.equal(normalizeAutoBattle({ mode: 'repeatAll', conditions: {} }).mode, 'repeatAll');
 });
 
 test('an item takes the companion\'s turn instead of a move', options, () => {
@@ -694,9 +698,11 @@ test('after the first turn out, a Fake Out is not reached for when there is anyt
     rng: new Rng(5),
     player,
     foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
-    policy: { ...defaultAutoBattle(), order: ['fake-out', 'fake-out'], mode: 'repeatAll' },
+    // Going round the slots comes back to the Fake Out on the third turn.
+    policy: { ...defaultAutoBattle(), mode: 'repeatAll' },
   });
 
+  battle.takeTurn();
   battle.takeTurn();
   const moves = battle.takeTurn().filter((entry) => entry.kind === 'move' && entry.side === 'player');
   assert.deepEqual(moves.map((entry) => entry.data.move), ['tackle']);
@@ -760,7 +766,7 @@ test('using Trick Room and Tailwind puts them up', options, () => {
     rng: new Rng(4),
     player,
     foes: [makeFixed(CHARIZARD, 50, ['tailwind'])],
-    policy: { ...defaultAutoBattle(), order: ['trick-room'], mode: 'repeatAll' },
+    policy: defaultAutoBattle(),
   });
   const log = battle.takeTurn();
   assert.ok(log.some((entry) => entry.kind === 'trickRoom' && entry.data.state === 'started'));
@@ -792,7 +798,7 @@ test('Thunder Wave does nothing to a Ground type', options, () => {
     rng: new Rng(3),
     player: makeFixed(CHARIZARD, 50, ['thunder-wave']),
     foes: [makeFixed(DIGLETT, 50, ['scratch'])],
-    policy: { ...defaultAutoBattle(), order: ['thunder-wave'], mode: 'repeatAll' },
+    policy: defaultAutoBattle(),
   });
   const log = battle.takeTurn();
   assert.ok(log.some((entry) => entry.kind === 'noEffect' && entry.side === 'foe'));

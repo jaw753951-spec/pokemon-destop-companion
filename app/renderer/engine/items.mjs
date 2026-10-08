@@ -137,6 +137,9 @@ export function useItem(session, slug, choice = {}) {
       session.removeItem(slug);
       return { used: true, ok: true, message: t('items.used', { name: label }) };
     }
+    // An Ability Patch or Capsule on a Pokémon with nothing to change to says
+    // so — a bare "cannot be used" read as the item being broken.
+    if (item.use.ability && pokemon.hp > 0) return { used: false, ok: false, message: t('items.noAbilityChange') };
     // A berry is both: something that can be eaten now and something that is
     // usually meant to be carried until it is needed. Using one on a Pokémon
     // at full health used to stop dead at "that cannot be used right now",
@@ -302,6 +305,8 @@ export function itemActions(session, slug) {
   if (item.pocket === 'pokeballs') return { use: false, equip: false };
   if (item.pocket === 'machines') return { use: true, equip: false };
   if (item.pocket === 'medicine') return { use: Boolean(item.use), equip: false };
+  // A charm works by being in the bag, and only there.
+  if (item.pocket === 'key') return { use: false, equip: false };
 
   // A key item for a legendary's shape is used, not held — and only offered
   // to the species it is for.

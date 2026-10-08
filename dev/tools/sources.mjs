@@ -15,7 +15,6 @@ export const CRIES = 'https://raw.githubusercontent.com/PokeAPI/cries/main/cries
 export const EMERALD = 'https://raw.githubusercontent.com/pret/pokeemerald/master';
 export const FIRERED = 'https://raw.githubusercontent.com/pret/pokefirered/master';
 export const PLATINUM = 'https://raw.githubusercontent.com/pret/pokeplatinum/main';
-export const CRYSTAL = 'https://raw.githubusercontent.com/pret/pokecrystal/master';
 
 /**
  * How a move is classified — contact, sound, powder, punch and the rest.
@@ -34,14 +33,15 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  *
  * Fire Red is the same generation and the same hand, so its Elite Four sit
  * beside Hoenn's without a seam. Will and Karen were never drawn on a Game Boy
- * Advance at all, so Crystal's four-colour sprites stand in — the person, in
- * the art the game that introduced them used.
+ * Advance at all; Crystal's four-colour sprites stood in for them once, a red
+ * and a pink silhouette beside everyone else's full colour, so HeartGold and
+ * SoulSilver's take their place with Johto's leaders (below).
  *
  * Sinnoh's Elite Four, champion and gym leaders come from the Platinum
  * decompilation, whose front sprites are a strip of animation frames 80 pixels
  * wide; the last frame is the pose the trainer stands in.
  *
- * Everyone past Sinnoh, and Johto's leaders, come from the Smogon / Pokémon
+ * Everyone past Sinnoh, Johto's leaders, Will and Karen come from the Smogon / Pokémon
  * Showdown sprite repository (`smogon`, kept under `data/vendor/smogon-sprites`):
  * HeartGold and SoulSilver's own sprites for Johto, Black and White's and
  * Black 2 and White 2's for Unova, and — since the 3D games drew nobody in
@@ -58,7 +58,7 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  * sprite folder) — Brumirage's, shared on condition of credit and no edits,
  * so the build only trims their empty margin.
  *
- * @type {Record<string, {source: 'firered'|'crystal'|'platinum'|'smogon'|'pokerogue'|'showdown', path: string}>}
+ * @type {Record<string, {source: 'firered'|'platinum'|'smogon'|'pokerogue'|'showdown', path: string}>}
  */
 export const NAMED_PORTRAITS = {
   bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
@@ -73,8 +73,6 @@ export const NAMED_PORTRAITS = {
   sabrina: { source: 'firered', path: 'graphics/trainers/front_pics/leader_sabrina_front_pic.png' },
   blaine: { source: 'firered', path: 'graphics/trainers/front_pics/leader_blaine_front_pic.png' },
   giovanni: { source: 'firered', path: 'graphics/trainers/front_pics/leader_giovanni_front_pic.png' },
-  will: { source: 'crystal', path: 'gfx/trainers/will.png' },
-  karen: { source: 'crystal', path: 'gfx/trainers/karen.png' },
   aaron: { source: 'platinum', path: 'res/trainers/classes/elite_four_aaron/front.png' },
   bertha: { source: 'platinum', path: 'res/trainers/classes/elite_four_bertha/front.png' },
   flint: { source: 'platinum', path: 'res/trainers/classes/elite_four_flint/front.png' },
@@ -88,7 +86,10 @@ export const NAMED_PORTRAITS = {
   byron: { source: 'platinum', path: 'res/trainers/classes/leader_byron/front.png' },
   candice: { source: 'platinum', path: 'res/trainers/classes/leader_candice/front.png' },
   volkner: { source: 'platinum', path: 'res/trainers/classes/leader_volkner/front.png' },
-  // Johto's leaders, as HeartGold and SoulSilver drew them.
+  // Johto's leaders, and the two of its Elite Four nobody else drew, as
+  // HeartGold and SoulSilver did.
+  will: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Will.png' },
+  karen: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Karen.png' },
   falkner: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Falkner.png' },
   bugsy: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Bugsy.png' },
   whitney: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Whitney.png' },
@@ -186,9 +187,16 @@ export const NAMED_PORTRAITS = {
  * walk the cartridges never gave them. A leader who only ever stood still in
  * a gym has three standing frames and no walk; the build makes one of the
  * west-facing pose and the same pose a pixel up. Tate and Liza are one
- * leader and walk side by side. Nobody past Johto was drawn at this size.
+ * leader and walk side by side.
  *
- * @type {Record<string, {source: 'emerald'|'firered'|'hns', path: string, with?: string}>}
+ * Sinnoh's leaders come from Platinum (`platinum`), whose walking sprites are
+ * the same kind HeartGold and SoulSilver drew — the ones Heart and Soul
+ * brought down to the Game Boy Advance — in sixteen 32-pixel frames stacked
+ * one above another. They are a little larger than the cartridges' people,
+ * and are kept at their own size rather than squeezed. Nobody past Sinnoh
+ * was drawn to walk in this style.
+ *
+ * @type {Record<string, {source: 'emerald'|'firered'|'hns'|'platinum', path: string, with?: string}>}
  */
 export const NAMED_WALKERS = {
   leader_roxanne: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/roxanne.png' },
@@ -218,6 +226,14 @@ export const NAMED_WALKERS = {
   leader_pryce: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/pryce_hns.png' },
   leader_clair: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/clair_hns.png' },
   leader_janine: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/janine_hns.png' },
+  leader_roark: { source: 'platinum', path: 'res/graphics/field_sprites/npc/roark.png' },
+  leader_gardenia: { source: 'platinum', path: 'res/graphics/field_sprites/npc/gardenia.png' },
+  leader_maylene: { source: 'platinum', path: 'res/graphics/field_sprites/npc/maylene.png' },
+  leader_wake: { source: 'platinum', path: 'res/graphics/field_sprites/npc/crasher_wake.png' },
+  leader_fantina: { source: 'platinum', path: 'res/graphics/field_sprites/npc/fantina.png' },
+  leader_byron: { source: 'platinum', path: 'res/graphics/field_sprites/npc/byron.png' },
+  leader_candice: { source: 'platinum', path: 'res/graphics/field_sprites/npc/candice.png' },
+  leader_volkner: { source: 'platinum', path: 'res/graphics/field_sprites/npc/volkner.png' },
 };
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */

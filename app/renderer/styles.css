@@ -1738,18 +1738,25 @@ canvas {
 
 /* ------------------------------------------------------------ badges */
 
-/* A Pokémon's badges, small, in two rows above its hit points. */
-.badge-strip {
-  display: grid;
-  grid-template-columns: repeat(5, 12px);
-  grid-auto-rows: 12px;
-  gap: 2px 3px;
-  padding: 1px 0;
+/* The key pocket: the charms, then the travelling Pokémon's badges. */
+.pocket-heading {
+  padding: 4px 5px 1px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
 }
 
-.badge-strip .badge-art {
-  width: 12px;
-  height: 12px;
+.item-row.badge-row .badge-art {
+  flex: none;
+  width: 16px;
+  height: 16px;
+}
+
+/* One badge on the panel, large enough to see the medal's shape. */
+.inspect-badge .badge-art {
+  display: block;
+  width: 32px;
+  height: 32px;
 }
 
 /*
@@ -1815,9 +1822,8 @@ canvas {
   padding: 8px 10px;
 }
 
-/* The three things that pick a move, one tier each, highest first. All
-   three start on one line, and each is drawn quieter than the one that
-   outranks it. */
+/* The mode on top and the conditions under it, each a tier of its own on
+   one left edge. */
 .auto-tier {
   flex: none;
   display: flex;
@@ -1831,11 +1837,6 @@ canvas {
 .auto-tier-1 {
   border-left-color: var(--accent);
   background: rgba(216, 68, 60, 0.08);
-}
-
-.auto-tier-2 {
-  border-left-color: var(--frame);
-  background: rgba(56, 74, 99, 0.07);
 }
 
 .auto-tier-3 {
@@ -1852,51 +1853,6 @@ canvas {
   padding: 3px 6px;
   font-size: 10px;
   font-weight: 700;
-}
-
-/* Four boxes fired left to right, with a notch between each pair saying so. */
-.auto-order {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 10px;
-}
-
-.auto-slot {
-  -webkit-app-region: no-drag;
-  position: relative;
-  min-height: 24px;
-  padding: 2px 4px;
-  border: 1px solid var(--frame-light);
-  border-radius: 4px;
-  background: rgba(255, 255, 255, 0.6);
-  font: inherit;
-  font-size: 9px;
-  cursor: pointer;
-}
-
-.auto-slot + .auto-slot::before {
-  content: '';
-  position: absolute;
-  top: 50%;
-  left: -8px;
-  border-top: 4px solid transparent;
-  border-bottom: 4px solid transparent;
-  border-left: 5px solid var(--frame-light);
-  transform: translateY(-50%);
-}
-
-.auto-slot.empty {
-  border-style: dashed;
-  color: var(--ink-soft);
-}
-
-.auto-slot:hover {
-  border-color: var(--accent);
-}
-
-/* The move held in the same place, shown but not set. */
-.auto-slot.suggested {
-  opacity: 0.55;
 }
 
 .auto-kinds {

@@ -396,18 +396,16 @@ export class Session {
 }
 
 /**
- * The default auto-battle policy: lead with a stat boost, then attack, and
- * prefer damage when nothing else applies.
+ * The default auto-battle policy: lead with a stat boost, hinder a foe still
+ * unhurt, heal at half health, and otherwise hit as hard as possible.
  */
 export function defaultAutoBattle() {
   return {
-    mode: 'repeatAll',
-    /** @type {Array<string|null>} four slots, fired left to right */
-    order: [null, null, null, null],
+    mode: 'damageFirst',
     /**
-     * When each kind of move may be used, `never` included. With no move order
-     * set this is the whole policy: attacks are always allowed, and the engine
-     * reaches for the hardest-hitting one it holds.
+     * When each kind of move may be used, `never` included. A condition that
+     * names a moment is answered before anything else; `always` leaves the
+     * kind to the mode.
      */
     conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
   };
@@ -470,11 +468,13 @@ export function normalizeItemPolicy(policy) {
 /**
  * Bring a stored policy up to the shape the engine reads.
  *
- * Two older shapes are read for what they plainly meant. A policy carrying a
+ * Three older shapes are read for what they plainly meant. A policy carrying a
  * weight per category — numbers the player could not see the effect of — used
  * zero to mean "never", and one carrying a tick per category said the same
  * thing with a box. Either way the answer is a condition, so both fold into
- * the one field the engine now reads.
+ * the one field the engine now reads. And a policy with a move order of its
+ * own has the order dropped, its mode kept or, for an order left empty, made
+ * damage first (below).
  *
  * @param {any} policy
  */
@@ -488,11 +488,14 @@ export function normalizeAutoBattle(policy) {
     if (off) conditions[category] = 'never';
   }
 
-  return {
-    mode: policy.mode ?? fresh.mode,
-    order: policy.order ?? fresh.order,
-    conditions,
-  };
+  // A policy from when there was a move order of its own. One that laid an
+  // order out keeps its mode, now over the moves as they sit in their slots;
+  // one that left it empty was only ever hitting with its hardest attack,
+  // which is what damage first does now.
+  let mode = policy.mode ?? fresh.mode;
+  if (Array.isArray(policy.order) && !policy.order.some(Boolean)) mode = 'damageFirst';
+
+  return { mode, conditions };
 }
 
 /**

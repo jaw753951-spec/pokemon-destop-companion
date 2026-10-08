@@ -5293,20 +5293,28 @@ function estimatedFixedDamage(attacker, defender, move, slug) {
 }
 
 /**
+ * The kinds of move whose condition, once it holds, is answered before
+ * anything else, in the order they are answered: mending first, then setting
+ * up, then hindering the other side, then the field.
+ */
+const TRIGGERED_KINDS = ['heal', 'stat', 'status', 'field'];
+
+/**
  * Choose a move from the player's auto-battle policy.
  *
- * The policy has three parts, and they rank in this order. The `mode` comes
- * first: it decides how the move order is used, and `damageFirst` overrides
- * it outright — the hardest-hitting attack in the order, or of every move
- * held when the order has none that lands. The move order the user laid out
- * comes next, in sequence, repeated as the mode says. The kinds of move the
- * companion may reach for, each under a condition, only decide what the two
- * above leave open. Anything none of them decides falls through to the
- * strongest attack.
+ * The policy has two parts, and the kinds of move rank first. Each kind may be
+ * used under a condition, and a kind whose condition names a moment — a third
+ * of health left, the first turn, a foe still unhurt — is used the moment it
+ * holds, before any attack. A kind left at `always` is only allowed, and
+ * `never` takes it out of the fight.
  *
- * A move in the order that the other side's typing cannot take at all is
- * passed over for the next one: a Scratch into a Ghost does nothing, turn
- * after turn, and nobody lays out an order meaning that.
+ * What is left — the attacks, and any kind allowed always — goes by the
+ * `mode`, over the moves as they sit in their slots: `damageFirst` takes the
+ * hardest-hitting attack, `repeatAll` goes round the slots a turn at a time,
+ * and `repeatLast` goes through them once and holds on the last. A move that
+ * cannot land, or a kind its condition keeps out, hands its turn to the next.
+ * Anything none of this decides falls through to the strongest attack that
+ * can land.
  *
  * @param {Battle} battle
  * @param {Combatant} attacker
@@ -5316,71 +5324,81 @@ function estimatedFixedDamage(attacker, defender, move, slug) {
  */
 export function choosePolicyMove(battle, attacker, defender, usable) {
   const policy = battle.policy;
-  const known = new Set(usable.map((slot) => slot.move));
-  const order = (policy.order ?? []).filter((move) => move && known.has(move));
+  const conditions = policy.conditions ?? {};
+  const conditionOf = (/** @type {string} */ category) => conditions[category] ?? 'always';
 
-  if (policy.mode === 'damageFirst') {
-    const ordered = usable.filter((slot) => order.includes(slot.move));
-    // The order breaks a tie, since a move earlier in it was put there first.
-    ordered.sort((a, b) => order.indexOf(a.move) - order.indexOf(b.move));
-    const damaging = bestDamageMove(battle, attacker, defender, ordered) ?? bestDamageMove(battle, attacker, defender, usable);
-    if (damaging) return damaging;
-  }
-
-  if (order.length) {
-    const lands = (move) => !cannotTouch(defender, moveOf(move));
-    const turn = attacker.turnsTaken;
-    // Where the sequence stands this turn, and every step after it the mode
-    // allows, so a move that cannot land hands its turn to the next.
-    const steps = [];
-    if (policy.mode === 'repeatLast') {
-      for (let index = Math.min(turn, order.length - 1); index < order.length; index++) steps.push(order[index]);
-    } else {
-      for (let step = 0; step < order.length; step++) steps.push(order[(turn + step) % order.length]);
-    }
-    const next = steps.find(lands);
-    if (next) return next;
-  }
-
-  /** @type {Array<{value: string, weight: number}>} */
-  const candidates = [];
-  /** The hardest-hitting attack, which is the only one of its kind offered. */
-  let bestDamage = /** @type {{value: string, damage: number}|null} */ (null);
-
+  /** What the policy allows this turn, each with its kind, in slot order. */
+  const allowed = [];
   for (const slot of usable) {
     const move = moveOf(slot.move);
     if (!move) continue;
     // What cannot do anything in a battle of one against one, or would end it
-    // unwon, is only ever used when the player put it in the order.
+    // unwon, is never reached for by the policy.
     if (neverAutomatic(slot.move)) continue;
     const category = categoryOf(move);
-    if (!conditionHolds(policy.conditions?.[category] ?? 'always', battle, attacker, defender)) continue;
-
-    // Attacks do not compete with each other: holding four of them and no
-    // instructions about which to use means using the one that hits hardest,
-    // rather than rolling between a Flamethrower and a Tackle every turn.
-    if (category === 'damage') {
-      if (cannotTouch(defender, move)) continue;
-      const damage = expectedDamage(attacker, defender, move);
-      if (!bestDamage || damage > bestDamage.damage) bestDamage = { value: slot.move, damage };
-      continue;
-    }
-
-    // A stat move that cannot move anything accomplishes nothing.
-    if (category === 'stat' && !hasRoomToChange(move, attacker, defender)) continue;
-    candidates.push({ value: slot.move, weight: 1 });
+    if (!conditionHolds(conditionOf(category), battle, attacker, defender)) continue;
+    if (!worthReachingFor(move, category, attacker, defender)) continue;
+    allowed.push({ move: slot.move, category });
   }
 
-  if (bestDamage) candidates.push({ value: bestDamage.value, weight: 1 });
+  // A condition that names a moment is answered as soon as it comes.
+  for (const kind of TRIGGERED_KINDS) {
+    if (conditionOf(kind) === 'always') continue;
+    const triggered = allowed.find((entry) => entry.category === kind);
+    if (triggered) return triggered.move;
+  }
 
-  const chosen = battle.rng.weighted(candidates);
-  if (chosen) return chosen;
+  const pool = allowed.map((entry) => entry.move);
+  if (pool.length) {
+    if (policy.mode === 'damageFirst') {
+      const attacks = usable.filter((slot) => pool.includes(slot.move) && categoryOf(moveOf(slot.move)) === 'damage');
+      return bestDamageMove(battle, attacker, defender, attacks) ?? pool[0];
+    }
+    const slots = usable.map((slot) => slot.move);
+    const turn = attacker.turnsTaken;
+    /** The slots in the order this turn tries them. */
+    const steps = [];
+    if (policy.mode === 'repeatLast') {
+      for (let index = Math.min(turn, slots.length - 1); index < slots.length; index++) steps.push(slots[index]);
+      // Past the end, the last that can still be used is the one held on.
+      steps.push(...[...pool].reverse());
+    } else {
+      for (let step = 0; step < slots.length; step++) steps.push(slots[(turn + step) % slots.length]);
+    }
+    const next = steps.find((move) => pool.includes(move));
+    if (next) return next;
+  }
 
   // Nothing the policy allows applies this turn. Rather than stand there
   // repeating an attack the other side cannot take — which never ends and
   // never even reads as a mistake — the fallback is anything that can land.
   const worth = movesWorthUsing(attacker, defender, usable);
   return bestDamageMove(battle, attacker, defender, worth) ?? battle.rng.pick(worth).move;
+}
+
+/**
+ * Whether a move the policy allows would do anything this turn: an attack the
+ * other side can take, a stat move with a stage left to move, a status for a
+ * foe not already suffering one, a heal with health to put back.
+ *
+ * @param {any} move
+ * @param {string} category
+ * @param {Combatant} attacker
+ * @param {Combatant} defender
+ */
+function worthReachingFor(move, category, attacker, defender) {
+  switch (category) {
+    case 'damage':
+      return !cannotTouch(defender, move);
+    case 'stat':
+      return hasRoomToChange(move, attacker, defender);
+    case 'status':
+      return !defender.pokemon.status;
+    case 'heal':
+      return attacker.pokemon.hp < maxHp(attacker.pokemon);
+    default:
+      return true;
+  }
 }
 
 /**
@@ -5399,9 +5417,9 @@ export function categoryOf(move) {
 /**
  * Whether a kind of move may be used this turn.
  *
- * One condition per kind is the whole of the auto-battle policy beyond the
- * move order: `never` takes a kind out of the fight altogether, and the rest
- * name the moment it is worth reaching for.
+ * One condition per kind: `never` takes a kind out of the fight altogether,
+ * `always` lets it be used whenever the mode picks it, and the rest name the
+ * moment it is used ahead of everything else.
  *
  * @param {string} condition
  * @param {Battle} battle

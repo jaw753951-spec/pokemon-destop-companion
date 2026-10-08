@@ -17,7 +17,7 @@
  * something saved up for rather than stocked by the dozen.
  */
 import { gameData, itemOf, moveOf } from '../core/data.mjs';
-import { evolvesSomething } from './bagorder.mjs';
+import { evolvesSomething, evolvesWhenHeld } from './bagorder.mjs';
 import { signatureItems } from './forms.mjs';
 import { levelOf } from './pokemon.mjs';
 
@@ -134,8 +134,9 @@ export function machinePrice(slug) {
 /**
  * Whether an item is used up — a potion drunk, a berry eaten, a stone spent
  * on an evolution, a Focus Sash torn — or kept for good once had: a
- * Leftovers, a Choice Band, a TM's move. What is kept is only ever had once:
- * a second one from a find or a shop would be a thing with nothing to do.
+ * Leftovers, a Choice Band, a TM's move, a Metal Coat still held after the
+ * Steelix it made. What is kept is only ever had once: a second one from a
+ * find or a shop would be a thing with nothing to do.
  *
  * @param {string} slug
  */
@@ -144,13 +145,15 @@ export function isConsumable(slug) {
   if (!item) return true;
   if (item.pocket === 'medicine' || item.pocket === 'berries' || item.pocket === 'pokeballs') return true;
   if (item.pocket === 'machines') return false;
+  if (evolvesWhenHeld(slug)) return false;
   if (['evolution', 'jewels', 'species-candies', 'tm-materials', 'loot', 'dex-completion', 'picnic', 'collectibles'].includes(item.category)) return true;
   return Boolean(item.held?.consumed || item.use?.consumed);
 }
 
 /**
- * Whether the player already has one of a kept item, in the bag or in a
- * Pokémon's hand — the travelling one's or one in the box.
+ * Whether the player already has one of a kept item, in the bag or in the
+ * travelling Pokémon's hand. What a Pokémon in the box holds stays with it
+ * there, so it does not stop the companion getting one of its own.
  *
  * @param {import('./session.mjs').Session} session
  * @param {string} slug
@@ -159,7 +162,7 @@ export function alreadyOwned(session, slug) {
   if (isConsumable(slug)) return false;
   if (session.countOf(slug) > 0) return true;
   if (itemOf(slug)?.pocket === 'machines' && session.machines.includes(itemOf(slug)?.move ?? '')) return true;
-  return [session.active, ...session.box].some((pokemon) => pokemon?.heldItem === slug);
+  return session.active?.heldItem === slug;
 }
 
 /**

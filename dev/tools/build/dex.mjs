@@ -126,7 +126,7 @@ function shippedItems(items, { machines, moves, species, log }) {
     const formItem = FORM_ITEMS[slug];
     if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
     const charm = CHARM_ITEMS[slug];
-    if (charm) item = { ...item, ...charm, pocket: 'misc' };
+    if (charm) item = { ...item, ...charm, pocket: 'key' };
     // Whatever some Pokémon evolves by stays, wherever PokeAPI filed it: a
     // Galarica Cuff is a story item there and a Slowpoke's way on here.
     const evolves = evolutionItems.has(slug);
@@ -212,7 +212,8 @@ const KEPT_ITEMS = {
 
 /**
  * The charms the games hand to a trainer who has done enough, and what each
- * does here: kept in the bag, never used up, never found on the road or sold
+ * does here: kept in the bag's key pocket, as the games keep them, never used
+ * up, never found on the road or sold
  * (their category is their own, which the road's find pool and the shop both
  * leave out). PokeAPI files them as key items for a world with towns in it,
  * which would retire them.

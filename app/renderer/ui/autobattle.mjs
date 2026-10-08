@@ -1,20 +1,17 @@
 /**
  * Auto-battle settings.
  *
- * Three things decide what the companion does on its turn, in this order: the
- * mode, which says how the move order is used and can override it; the move
- * order laid out by hand; and which kinds of move it may reach for, each under
- * a condition, for whatever the first two leave open. The screen stacks them
- * in that order on one left edge, each tier quieter than the one above it,
- * so the ranking reads off the layout without a word of it being written.
+ * Two things decide what the companion does on its turn. Each kind of move
+ * may be used under a condition, and one whose condition names a moment is
+ * used the moment it holds, before any attack; the mode then decides among
+ * what is left, over the moves as they sit in their slots. The screen keeps
+ * the mode on top, where it is picked at a glance, and the conditions below.
  *
  * Everything here edits the policy the battle engine reads, so the effect of a
  * change is immediate.
  */
-import { moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
-import { name as localized, t } from '../core/i18n.mjs';
-import { categoryOf } from '../engine/battle.mjs';
+import { t } from '../core/i18n.mjs';
 import { chooseFromList } from './dialog.mjs';
 
 /** Exactly one of these is active, as the brief requires. */
@@ -57,10 +54,6 @@ export function autoBattleScene({ session, onClose }) {
       const rebuild = () => {
         setChildren(body, [
           el('div.auto-tier.auto-tier-1', {}, [modeRow(app, session, rebuild)]),
-          el('div.auto-tier.auto-tier-2', {}, [
-            el('div.section-title', { text: t('auto.order') }),
-            orderRow(app, session, rebuild),
-          ]),
           el('div.auto-tier.auto-tier-3', {}, [
             el('div.section-title', { text: t('auto.kinds') }),
             el('div.auto-kinds', {}, CATEGORIES.map((category) => categoryRow(app, session, category, rebuild))),
@@ -82,61 +75,6 @@ export function autoBattleScene({ session, onClose }) {
       ]);
     },
   };
-}
-
-/**
- * Four boxes, fired left to right. Only moves the Pokémon currently holds can
- * go in them, so the order can never name something it cannot use.
- *
- * A box with nothing in it shows, faintly, the move the Pokémon holds in the
- * same place — what the four boxes would read if the order simply followed
- * the moves — and offers that one first when it is opened. It is only shown:
- * an empty box stays empty until something is put in it, so an order nobody
- * laid out still leaves the choosing to the conditions below.
- *
- * @param {import('../core/app.mjs').App} app
- * @param {import('../engine/session.mjs').Session} session
- * @param {() => void} rebuild
- */
-function orderRow(app, session, rebuild) {
-  const policy = session.autoBattle;
-  const equipped = session.active.moves.map((slot) => slot.move);
-
-  return el('div.auto-order', {}, [0, 1, 2, 3].map((index) => {
-    const move = policy.order?.[index] ?? null;
-    const known = move && equipped.includes(move) ? move : null;
-    const record = known ? moveOf(known) : null;
-    const suggested = known ? null : equipped[index] ?? null;
-
-    return el(`button.auto-slot${known ? '' : suggested ? '.empty.suggested' : '.empty'}`, {
-      type: 'button',
-      text: record
-        ? localized(record.name, known)
-        : suggested
-          ? localized(moveOf(suggested)?.name, suggested)
-          : t('auto.empty'),
-      title: suggested ? t('auto.suggested') : null,
-      onClick: async () => {
-        app.audio.blip('select');
-        // The move in the same place first, then the rest in the order they
-        // are held.
-        const ordered = suggested ? [suggested, ...equipped.filter((slug) => slug !== suggested)] : equipped;
-        const choices = [
-          { value: '', label: t('auto.empty'), detail: '' },
-          ...ordered.map((slug) => ({
-            value: slug,
-            label: localized(moveOf(slug)?.name, slug),
-            detail: t(`auto.kind.${categoryOf(moveOf(slug) ?? {})}`),
-          })),
-        ];
-        const chosen = await chooseFromList(app, t('auto.order'), choices);
-        if (chosen === null) return;
-        policy.order = [...(policy.order ?? [null, null, null, null])];
-        policy.order[index] = chosen || null;
-        rebuild();
-      },
-    });
-  }));
 }
 
 /**

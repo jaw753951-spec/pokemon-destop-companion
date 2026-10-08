@@ -405,6 +405,11 @@ test('a Shiny Charm raises the odds on the road, is not sold, and is the first t
   session.money = 9_000_000;
   assert.equal(buy(session, 'shiny-charm'), 'unsold');
   assert.equal(isConsumable('shiny-charm'), false);
+  // Kept in the key pocket, where it does its work by being there: nothing
+  // to use it on, nobody to hand it to.
+  const { itemActions } = await import('../../app/renderer/engine/items.mjs');
+  assert.equal(itemOf('shiny-charm')?.pocket, 'key');
+  assert.deepEqual(itemActions(session, 'shiny-charm'), { use: false, equip: false });
 
   // Won: eight rolls of the usual one in 4096 — about one in 512.
   session.addItem(championPrize(session));
@@ -417,4 +422,23 @@ test('a Shiny Charm raises the odds on the road, is not sold, and is the first t
   // Every title after the first pays a Master Ball.
   session.champion = true;
   assert.equal(championPrize(session), 'master-ball');
+});
+
+test('the key pocket shows the travelling Pokémon\'s own badges, the crown last', withData, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { badgeEntries } = await import('../../app/renderer/ui/itemstab.mjs');
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
+  assert.deepEqual(badgeEntries(session), [], 'nothing won yet');
+
+  // A Pokémon in the box keeps its badges to itself.
+  const boxed = createPokemon(new Rng(3), 7, 30);
+  boxed.badges = ['water', 'rock'];
+  boxed.champion = true;
+  session.storeInBox(boxed);
+  assert.deepEqual(badgeEntries(session), []);
+
+  session.badges = ['fire', 'grass'];
+  session.active.champion = true;
+  assert.deepEqual(badgeEntries(session).map((entry) => entry.type), ['fire', 'grass', null]);
+  assert.equal(new Set(badgeEntries(session).map((entry) => entry.id)).size, 3, 'each row has its own id');
 });
