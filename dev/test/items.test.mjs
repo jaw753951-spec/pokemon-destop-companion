@@ -405,6 +405,11 @@ test('a Shiny Charm raises the odds on the road, is not sold, and is the first t
   session.money = 9_000_000;
   assert.equal(buy(session, 'shiny-charm'), 'unsold');
   assert.equal(isConsumable('shiny-charm'), false);
+  // Kept in the key pocket, where it does its work by being there: nothing
+  // to use it on, nobody to hand it to.
+  const { itemActions } = await import('../../app/renderer/engine/items.mjs');
+  assert.equal(itemOf('shiny-charm')?.pocket, 'key');
+  assert.deepEqual(itemActions(session, 'shiny-charm'), { use: false, equip: false });
 
   // Won: eight rolls of the usual one in 4096 — about one in 512.
   session.addItem(championPrize(session));
@@ -417,4 +422,26 @@ test('a Shiny Charm raises the odds on the road, is not sold, and is the first t
   // Every title after the first pays a Master Ball.
   session.champion = true;
   assert.equal(championPrize(session), 'master-ball');
+});
+
+test('the key pocket shows each Pokémon with a badge or the crown, the travelling one first', withData, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { badgeHolders } = await import('../../app/renderer/ui/itemstab.mjs');
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: createPokemon(new Rng(1), 6, 50), box: [] } } });
+  assert.deepEqual(badgeHolders(session), [], 'nobody has won anything yet');
+
+  const plain = createPokemon(new Rng(2), 25, 20);
+  const badged = createPokemon(new Rng(3), 7, 30);
+  badged.badges = ['water', 'rock'];
+  const crowned = createPokemon(new Rng(4), 1, 80);
+  crowned.champion = true;
+  session.storeInBox(plain);
+  session.storeInBox(badged);
+  session.storeInBox(crowned);
+  assert.deepEqual(badgeHolders(session).map((entry) => entry.pokemon), [badged, crowned]);
+
+  session.badges = ['fire'];
+  const holders = badgeHolders(session);
+  assert.equal(holders[0].pokemon, session.active, 'the travelling Pokémon leads');
+  assert.equal(new Set(holders.map((entry) => entry.id)).size, holders.length, 'each row has its own id');
 });

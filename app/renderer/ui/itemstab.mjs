@@ -2,22 +2,27 @@
  * The Items tab: one sub-tab per pocket, the bag on the left and whatever is
  * being inspected on the right, at roughly three to two.
  *
+ * The key pocket holds what is kept for good rather than carried: the charms,
+ * and every Pokémon's badges — the gym badges it has won and the champion's
+ * crown — one row per Pokémon that has any, the travelling one first.
+ *
  * A last tab holds what the bag does by itself — which berry to hand over
  * after a battle, and when to throw a potion during one.
  */
 import { url } from '../core/bridge.mjs';
-import { itemOf, moveOf, speciesOf } from '../core/data.mjs';
+import { artPath, gameData, itemOf, moveOf, speciesOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { AFTER_BATTLE_TARGETS, equipItem, formeMoveNeed, itemActions, itemNeedsChoice, recommendedBerries, useItem } from '../engine/items.mjs';
 import { pocketOrder } from '../engine/bagorder.mjs';
 import { maxPp } from '../engine/pokemon.mjs';
 import { STATS } from '../engine/stats.mjs';
+import { badgeIcon, badgeStrip, championIcon } from './badges.mjs';
 import { moveSummary } from './movecard.mjs';
 import { chooseAction, chooseFromList, chooseItem, confirm } from './dialog.mjs';
 
 /** Pockets in the order the games show them, and the settings behind them. */
-const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines'];
+const POCKETS = ['medicine', 'misc', 'berries', 'pokeballs', 'machines', 'key'];
 const OPTIONS = 'options';
 
 /** When a potion is thrown without being asked for. */
@@ -63,9 +68,11 @@ export function itemsTab(app, session, refresh, state) {
   const worthShowing = (/** @type {string} */ slug) => fits(slug) && !knownMoves.has(itemOf(slug)?.move ?? '');
 
   const entries = session.pocket(pocket).filter((entry) => !onlyLearnable || worthShowing(entry.slug));
+  const holders = pocket === 'key' ? badgeHolders(session) : [];
   // What was being read survives a refresh — using one of three Potions
   // leaves the other two on the panel — but not the last of it going.
-  if (state.selected && !entries.some((entry) => entry.slug === state.selected)) state.selected = null;
+  const shown = [...entries.map((entry) => entry.slug), ...holders.map((holder) => holder.id)];
+  if (state.selected && !shown.includes(state.selected)) state.selected = null;
 
   const inspector = el('div.item-inspector');
   const select = (slug) => {
@@ -78,7 +85,7 @@ export function itemsTab(app, session, refresh, state) {
 
   const list = scrollable(el('div.item-list'));
 
-  if (entries.length === 0) {
+  if (entries.length === 0 && holders.length === 0) {
     list.append(el('div.empty', { text: onlyLearnable ? t('items.noLearnable') : t('items.empty') }));
   } else {
     list.append(
@@ -102,6 +109,24 @@ export function itemsTab(app, session, refresh, state) {
             el('span.item-count', { text: t('items.count', { count }) }),
           ]),
         ),
+    );
+    if (holders.length) list.append(el('div.pocket-heading', { text: t('items.badges') }));
+    list.append(
+      ...holders.map(({ id, pokemon }) =>
+        el('button.item-row.badge-row', {
+          type: 'button',
+          dataset: { slug: id },
+          'aria-pressed': String(id === state.selected),
+          onClick: () => {
+            app.audio.blip('select');
+            select(id);
+          },
+        }, [
+          el('img', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
+          el('span.item-name', { text: pokemonName(pokemon) }),
+          badgeStrip(pokemon),
+        ]),
+      ),
     );
   }
   showInspector(app, session, inspector, state.selected ?? null, refresh);
@@ -367,6 +392,11 @@ function showInspector(app, session, inspector, slug, refresh) {
     inspector.replaceChildren(el('span.meta.inspect-hint', { text: t('items.inspectHint') }));
     return;
   }
+  const holder = badgeHolders(session).find((entry) => entry.id === slug);
+  if (holder) {
+    showBadgeCase(inspector, holder.pokemon);
+    return;
+  }
   const item = itemOf(slug);
   if (!item) return;
 
@@ -471,12 +501,61 @@ function itemButtons(app, session, slug, refresh) {
     actions.use ? button(t('items.use'), () => act('use'), { className: 'small' }) : null,
     actions.equip ? button(t('items.equip'), () => act('equip'), { className: 'small' }) : null,
     el('span.spacer'),
-    button(t('items.toss'), async () => {
+    // A key item is not something the games let a trainer throw away.
+    item?.pocket === 'key' ? null : button(t('items.toss'), async () => {
       app.audio.blip('select');
       if (!(await confirm(app, t('items.tossConfirm'), { danger: true }))) return;
       session.removeItem(slug);
       app.toast(t('items.tossed', { name: localized(item?.name, slug) }));
       refresh();
     }, { className: 'small ghost' }),
+  ]);
+}
+
+/** What a badge row is selected by: the travelling Pokémon's, or a box space's. */
+const BADGES = 'badges:';
+
+/**
+ * Every Pokémon with a badge or the champion's crown to show, the travelling
+ * one first and then the box in its own order.
+ *
+ * @param {import('../engine/session.mjs').Session} session
+ * @returns {Array<{id: string, pokemon: import('../engine/pokemon.mjs').Pokemon}>}
+ */
+export function badgeHolders(session) {
+  const decorated = (/** @type {any} */ pokemon) => Boolean(pokemon && ((pokemon.badges?.length ?? 0) > 0 || pokemon.champion));
+  return [
+    ...(decorated(session.active) ? [{ id: `${BADGES}active`, pokemon: session.active }] : []),
+    ...session.box.flatMap((pokemon, index) => (decorated(pokemon) ? [{ id: `${BADGES}box:${index}`, pokemon: /** @type {any} */ (pokemon) }] : [])),
+  ];
+}
+
+/** @param {import('../engine/pokemon.mjs').Pokemon} pokemon */
+function pokemonName(pokemon) {
+  return pokemon.nickname || localized(speciesOf(pokemon.speciesId)?.name, '');
+}
+
+/**
+ * One Pokémon's badges on the panel: each one large and named for its type,
+ * and the crown if it has beaten the League.
+ *
+ * @param {HTMLElement} inspector
+ * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
+ */
+function showBadgeCase(inspector, pokemon) {
+  const badges = pokemon.badges ?? [];
+  setChildren(inspector, [
+    el('img.inspect-icon.inspect-pokemon', { src: url('assets', artPath(pokemon) ?? ''), alt: '' }),
+    el('span.inspect-name', { text: pokemonName(pokemon) }),
+    el('span.meta', { text: t('slot.badges', { count: badges.length }) }),
+    el('div.badge-case', {}, [
+      ...badges.map((type) => el('div.badge-case-entry', {}, [
+        badgeIcon(type),
+        el('span', { text: `${localized(gameData().types[type]?.name, type)} ${t('badge.word')}` }),
+      ])),
+      pokemon.champion
+        ? el('div.badge-case-entry', {}, [championIcon(), el('span', { text: t('slot.champion') })])
+        : null,
+    ]),
   ]);
 }

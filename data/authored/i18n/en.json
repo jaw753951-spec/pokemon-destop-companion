@@ -142,6 +142,8 @@
   "items.pocket.berries": "Berries",
   "items.pocket.pokeballs": "Poké Balls",
   "items.pocket.machines": "TMs",
+  "items.pocket.key": "Key Items",
+  "items.badges": "Badges",
   "items.options": "Use",
   "items.berryRestock": "Berry restock",
   "items.berryRestockNote": "After a battle, the first of these the bag holds goes into an empty hand.",

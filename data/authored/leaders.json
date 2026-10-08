@@ -1,15 +1,15 @@
 {
-  "_comment": "체육관 관장. 이 게임의 뱃지는 지방이 아니라 타입 단위이므로 관장도 타입별로 모아둔다. 한 타입의 뱃지를 얻으면 그 타입 관장은 더 이상 등장하지 않는다. name.ko 는 한국어 정식 명칭, portrait 은 관장전이 시작될 때 보이는 도트다 — 호연=에메랄드, 관동=파이어레드, 신오=플래티넘, 성도=하트골드·소울실버, 하나=블랙·화이트/블랙2·화이트2 의 원작 도트, 칼로스는 스모곤 커뮤니티의 팬 도트, 자크로와 가라르·팔데아는 팬 게임 PokéRogue 의 도트(세이버리·도정은 쇼다운). 출처는 dev/tools/sources.mjs 의 NAMED_PORTRAITS. field 는 길 위를 걷는 도트가 따로 있는 관장의 것이다 — 호연=에메랄드, 관동=파이어레드/하트앤소울, 성도=하트앤소울(NAMED_WALKERS). 신오 이후는 그 크기로 그려진 도트가 없어 같은 타입·같은 성별(gender, m/f)의 트레이너 모습으로 걷고, 그런 직업이 없으면 같은 성별의 아무 직업 모습으로 걷는다. 물속에서만 보이는 수영복 도트는 빌리지 않는다.",
+  "_comment": "체육관 관장. 이 게임의 뱃지는 지방이 아니라 타입 단위이므로 관장도 타입별로 모아둔다. 한 타입의 뱃지를 얻으면 그 타입 관장은 더 이상 등장하지 않는다. name.ko 는 한국어 정식 명칭, portrait 은 관장전이 시작될 때 보이는 도트다 — 호연=에메랄드, 관동=파이어레드, 신오=플래티넘, 성도=하트골드·소울실버, 하나=블랙·화이트/블랙2·화이트2 의 원작 도트, 칼로스는 스모곤 커뮤니티의 팬 도트, 자크로와 가라르·팔데아는 팬 게임 PokéRogue 의 도트(세이버리·도정은 쇼다운). 출처는 dev/tools/sources.mjs 의 NAMED_PORTRAITS. field 는 길 위를 걷는 도트가 따로 있는 관장의 것이다 — 호연=에메랄드, 관동=파이어레드/하트앤소울, 성도=하트앤소울, 신오=플래티나(NAMED_WALKERS). 하나 이후는 그 크기로 그려진 도트가 없어 같은 타입·같은 성별(gender, m/f)의 트레이너 모습으로 걷고, 그런 직업이 없으면 같은 성별의 아무 직업 모습으로 걷는다. 물속에서만 보이는 수영복 도트는 빌리지 않는다.",
   "leaders": [
     { "id": "rock-brock", "type": "rock", "gender": "m", "name": { "ko": "웅", "en": "Brock" }, "portrait": "brock", "field": "leader_brock" },
     { "id": "rock-roxanne", "type": "rock", "gender": "f", "name": { "ko": "원규", "en": "Roxanne" }, "portrait": "leader_roxanne", "field": "leader_roxanne" },
-    { "id": "rock-roark", "type": "rock", "gender": "m", "name": { "ko": "강석", "en": "Roark" }, "portrait": "roark" },
+    { "id": "rock-roark", "type": "rock", "gender": "m", "name": { "ko": "강석", "en": "Roark" }, "portrait": "roark", "field": "leader_roark" },
     { "id": "rock-grant", "type": "rock", "gender": "m", "name": { "ko": "자크로", "en": "Grant" }, "portrait": "grant" },
     { "id": "rock-gordie", "type": "rock", "gender": "m", "name": { "ko": "마쿠와", "en": "Gordie" }, "portrait": "gordie" },
 
     { "id": "water-misty", "type": "water", "gender": "f", "name": { "ko": "이슬", "en": "Misty" }, "portrait": "misty", "field": "leader_misty" },
     { "id": "water-wallace", "type": "water", "gender": "m", "name": { "ko": "윤진", "en": "Wallace" }, "portrait": "champion_wallace", "field": "wallace" },
-    { "id": "water-wake", "type": "water", "gender": "m", "name": { "ko": "맥실러", "en": "Crasher Wake" }, "portrait": "wake" },
+    { "id": "water-wake", "type": "water", "gender": "m", "name": { "ko": "맥실러", "en": "Crasher Wake" }, "portrait": "wake", "field": "leader_wake" },
     { "id": "water-cress", "type": "water", "gender": "m", "name": { "ko": "콘", "en": "Cress" }, "portrait": "cress" },
     { "id": "water-marlon", "type": "water", "gender": "m", "name": { "ko": "시즈", "en": "Marlon" }, "portrait": "marlon" },
     { "id": "water-nessa", "type": "water", "gender": "f", "name": { "ko": "야청", "en": "Nessa" }, "portrait": "nessa" },
@@ -17,21 +17,21 @@
     { "id": "water-kofu", "type": "water", "gender": "m", "name": { "ko": "곤포", "en": "Kofu" }, "portrait": "kofu" },
 
     { "id": "electric-surge", "type": "electric", "gender": "m", "name": { "ko": "마티스", "en": "Lt. Surge" }, "portrait": "lt_surge", "field": "leader_lt_surge" },
-    { "id": "electric-volkner", "type": "electric", "gender": "m", "name": { "ko": "전진", "en": "Volkner" }, "portrait": "volkner" },
+    { "id": "electric-volkner", "type": "electric", "gender": "m", "name": { "ko": "전진", "en": "Volkner" }, "portrait": "volkner", "field": "leader_volkner" },
     { "id": "electric-wattson", "type": "electric", "gender": "m", "name": { "ko": "암페어", "en": "Wattson" }, "portrait": "leader_wattson", "field": "leader_wattson" },
     { "id": "electric-elesa", "type": "electric", "gender": "f", "name": { "ko": "카밀레", "en": "Elesa" }, "portrait": "elesa" },
     { "id": "electric-clemont", "type": "electric", "gender": "m", "name": { "ko": "시트론", "en": "Clemont" }, "portrait": "clemont" },
     { "id": "electric-iono", "type": "electric", "gender": "f", "name": { "ko": "모야모", "en": "Iono" }, "portrait": "iono" },
 
     { "id": "grass-erika", "type": "grass", "gender": "f", "name": { "ko": "민화", "en": "Erika" }, "portrait": "erika", "field": "leader_erika" },
-    { "id": "grass-gardenia", "type": "grass", "gender": "f", "name": { "ko": "유채", "en": "Gardenia" }, "portrait": "gardenia" },
+    { "id": "grass-gardenia", "type": "grass", "gender": "f", "name": { "ko": "유채", "en": "Gardenia" }, "portrait": "gardenia", "field": "leader_gardenia" },
     { "id": "grass-cilan", "type": "grass", "gender": "m", "name": { "ko": "덴트", "en": "Cilan" }, "portrait": "cilan" },
     { "id": "grass-ramos", "type": "grass", "gender": "m", "name": { "ko": "후쿠지", "en": "Ramos" }, "portrait": "ramos" },
     { "id": "grass-milo", "type": "grass", "gender": "m", "name": { "ko": "아킬", "en": "Milo" }, "portrait": "milo" },
     { "id": "grass-brassius", "type": "grass", "gender": "m", "name": { "ko": "콜사", "en": "Brassius" }, "portrait": "brassius" },
 
     { "id": "ice-pryce", "type": "ice", "gender": "m", "name": { "ko": "류웅", "en": "Pryce" }, "portrait": "pryce", "field": "leader_pryce" },
-    { "id": "ice-candice", "type": "ice", "gender": "f", "name": { "ko": "무청", "en": "Candice" }, "portrait": "candice" },
+    { "id": "ice-candice", "type": "ice", "gender": "f", "name": { "ko": "무청", "en": "Candice" }, "portrait": "candice", "field": "leader_candice" },
     { "id": "ice-brycen", "type": "ice", "gender": "m", "name": { "ko": "담죽", "en": "Brycen" }, "portrait": "brycen" },
     { "id": "ice-wulfric", "type": "ice", "gender": "m", "name": { "ko": "우르프", "en": "Wulfric" }, "portrait": "wulfric" },
     { "id": "ice-melony", "type": "ice", "gender": "f", "name": { "ko": "멜론", "en": "Melony" }, "portrait": "melony" },
@@ -39,7 +39,7 @@
 
     { "id": "fighting-chuck", "type": "fighting", "gender": "m", "name": { "ko": "사도", "en": "Chuck" }, "portrait": "chuck", "field": "leader_chuck" },
     { "id": "fighting-brawly", "type": "fighting", "gender": "m", "name": { "ko": "철구", "en": "Brawly" }, "portrait": "leader_brawly", "field": "leader_brawly" },
-    { "id": "fighting-maylene", "type": "fighting", "gender": "f", "name": { "ko": "자두", "en": "Maylene" }, "portrait": "maylene" },
+    { "id": "fighting-maylene", "type": "fighting", "gender": "f", "name": { "ko": "자두", "en": "Maylene" }, "portrait": "maylene", "field": "leader_maylene" },
     { "id": "fighting-korrina", "type": "fighting", "gender": "f", "name": { "ko": "코르니", "en": "Korrina" }, "portrait": "korrina" },
     { "id": "fighting-bea", "type": "fighting", "gender": "f", "name": { "ko": "채두", "en": "Bea" }, "portrait": "bea" },
 
@@ -71,7 +71,7 @@
     { "id": "poison-klara", "type": "poison", "gender": "f", "name": { "ko": "도정", "en": "Klara" }, "portrait": "klara" },
 
     { "id": "ghost-morty", "type": "ghost", "gender": "m", "name": { "ko": "유빈", "en": "Morty" }, "portrait": "morty", "field": "leader_morty" },
-    { "id": "ghost-fantina", "type": "ghost", "gender": "f", "name": { "ko": "멜리사", "en": "Fantina" }, "portrait": "fantina" },
+    { "id": "ghost-fantina", "type": "ghost", "gender": "f", "name": { "ko": "멜리사", "en": "Fantina" }, "portrait": "fantina", "field": "leader_fantina" },
     { "id": "ghost-allister", "type": "ghost", "gender": "m", "name": { "ko": "어니언", "en": "Allister" }, "portrait": "allister" },
     { "id": "ghost-ryme", "type": "ghost", "gender": "f", "name": { "ko": "라임", "en": "Ryme" }, "portrait": "ryme" },
 
@@ -92,7 +92,7 @@
     { "id": "ground-clay", "type": "ground", "gender": "m", "name": { "ko": "야콘", "en": "Clay" }, "portrait": "clay" },
 
     { "id": "steel-jasmine", "type": "steel", "gender": "f", "name": { "ko": "규리", "en": "Jasmine" }, "portrait": "jasmine", "field": "leader_jasmine" },
-    { "id": "steel-byron", "type": "steel", "gender": "m", "name": { "ko": "동관", "en": "Byron" }, "portrait": "byron" },
+    { "id": "steel-byron", "type": "steel", "gender": "m", "name": { "ko": "동관", "en": "Byron" }, "portrait": "byron", "field": "leader_byron" },
 
     { "id": "dark-piers", "type": "dark", "gender": "m", "name": { "ko": "두송", "en": "Piers" }, "portrait": "piers" },
     { "id": "dark-marnie", "type": "dark", "gender": "f", "name": { "ko": "마리", "en": "Marnie" }, "portrait": "marnie" }

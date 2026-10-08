@@ -187,9 +187,16 @@ export const NAMED_PORTRAITS = {
  * walk the cartridges never gave them. A leader who only ever stood still in
  * a gym has three standing frames and no walk; the build makes one of the
  * west-facing pose and the same pose a pixel up. Tate and Liza are one
- * leader and walk side by side. Nobody past Johto was drawn at this size.
+ * leader and walk side by side.
  *
- * @type {Record<string, {source: 'emerald'|'firered'|'hns', path: string, with?: string}>}
+ * Sinnoh's leaders come from Platinum (`platinum`), whose walking sprites are
+ * the same kind HeartGold and SoulSilver drew — the ones Heart and Soul
+ * brought down to the Game Boy Advance — in sixteen 32-pixel frames stacked
+ * one above another. They are a little larger than the cartridges' people,
+ * and are kept at their own size rather than squeezed. Nobody past Sinnoh
+ * was drawn to walk in this style.
+ *
+ * @type {Record<string, {source: 'emerald'|'firered'|'hns'|'platinum', path: string, with?: string}>}
  */
 export const NAMED_WALKERS = {
   leader_roxanne: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/roxanne.png' },
@@ -219,6 +226,14 @@ export const NAMED_WALKERS = {
   leader_pryce: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/pryce_hns.png' },
   leader_clair: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/clair_hns.png' },
   leader_janine: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/janine_hns.png' },
+  leader_roark: { source: 'platinum', path: 'res/graphics/field_sprites/npc/roark.png' },
+  leader_gardenia: { source: 'platinum', path: 'res/graphics/field_sprites/npc/gardenia.png' },
+  leader_maylene: { source: 'platinum', path: 'res/graphics/field_sprites/npc/maylene.png' },
+  leader_wake: { source: 'platinum', path: 'res/graphics/field_sprites/npc/crasher_wake.png' },
+  leader_fantina: { source: 'platinum', path: 'res/graphics/field_sprites/npc/fantina.png' },
+  leader_byron: { source: 'platinum', path: 'res/graphics/field_sprites/npc/byron.png' },
+  leader_candice: { source: 'platinum', path: 'res/graphics/field_sprites/npc/candice.png' },
+  leader_volkner: { source: 'platinum', path: 'res/graphics/field_sprites/npc/volkner.png' },
 };
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */

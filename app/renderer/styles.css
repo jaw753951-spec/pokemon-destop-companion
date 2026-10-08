@@ -1738,7 +1738,7 @@ canvas {
 
 /* ------------------------------------------------------------ badges */
 
-/* A Pokémon's badges, small, in two rows above its hit points. */
+/* A Pokémon's badges, small, in two rows at the end of its key-pocket row. */
 .badge-strip {
   display: grid;
   grid-template-columns: repeat(5, 12px);
@@ -1750,6 +1750,50 @@ canvas {
 .badge-strip .badge-art {
   width: 12px;
   height: 12px;
+}
+
+/* The key pocket: the charms, then a heading, then one row per Pokémon. */
+.pocket-heading {
+  padding: 4px 5px 1px;
+  color: var(--ink-soft);
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.item-row.badge-row img {
+  width: 24px;
+  height: 24px;
+}
+
+.item-row.badge-row .badge-strip {
+  margin-left: auto;
+}
+
+/* One Pokémon's badges on the panel, large enough to read, each named. */
+.inspect-icon.inspect-pokemon {
+  width: 40px;
+  height: 40px;
+}
+
+.badge-case {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 3px 6px;
+  width: 100%;
+}
+
+.badge-case-entry {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  font-size: 10px;
+}
+
+.badge-case-entry .badge-art {
+  flex: none;
+  width: 16px;
+  height: 16px;
 }
 
 /*

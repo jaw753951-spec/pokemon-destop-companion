@@ -154,8 +154,8 @@ async function namedPicture(source, path, roots) {
  * three-frame westward strip as the trainer classes'.
  */
 async function buildLeaderWalkers(assetDir, pool, log) {
-  const roots = { emerald: EMERALD, firered: FIRERED };
-  /** @param {'emerald'|'firered'|'hns'} source @param {string} path */
+  const roots = { emerald: EMERALD, firered: FIRERED, platinum: PLATINUM };
+  /** @param {'emerald'|'firered'|'hns'|'platinum'} source @param {string} path */
   const sheetOf = async (source, path) => {
     const file = source === 'hns'
       ? await vendored('pokehns', path)
@@ -171,7 +171,9 @@ async function buildLeaderWalkers(assetDir, pool, log) {
         const sheets = (await Promise.all([entry.path, entry.with].filter(Boolean).map((path) => sheetOf(entry.source, /** @type {string} */ (path))))).filter(Boolean);
         if (sheets.length === 0) return;
         // Each person's three frames, side by side when there are two of them.
-        const each = sheets.map((sheet) => walkFrames(/** @type {any} */ (sheet)));
+        const each = sheets.map((sheet) =>
+          entry.source === 'platinum' ? platinumWalkFrames(/** @type {any} */ (sheet)) : walkFrames(/** @type {any} */ (sheet)),
+        );
         if (each.some((frames) => !frames)) return;
         const frames = [0, 1, 2].map((index) => concatX(each.map((frames) => /** @type {any} */ (frames)[index])));
         const strip = concatX(frames);
@@ -199,6 +201,31 @@ function walkFrames(sheet) {
   if (layout.count < 3) return null;
   const stand = cropFrame(sheet, layout, PERSON_FRAMES.west);
   return [stand, raised(stand), stand];
+}
+
+/**
+ * Platinum's walking frames, for each of the four ways a person faces: the
+ * standing frame and a step, the standing frame again and the other step.
+ */
+const PLATINUM_WALK = { size: 32, west: 8, walkWest: [9, 11] };
+
+/**
+ * A Platinum person's westward walk, cut from the column of 32-pixel frames
+ * and trimmed at the sides to the person, the same width in all three so they
+ * do not shuffle sideways as they step. The height stays the frame's, feet on
+ * its bottom rows as the cartridges' people stand on theirs.
+ *
+ * @param {import('../lib/image.mjs').Raster} sheet
+ */
+function platinumWalkFrames(sheet) {
+  const layout = frameLayout(sheet, PLATINUM_WALK.size, PLATINUM_WALK.size);
+  if (layout.count <= Math.max(PLATINUM_WALK.west, ...PLATINUM_WALK.walkWest)) return null;
+  const frames = [PLATINUM_WALK.west, ...PLATINUM_WALK.walkWest].map((index) => cropFrame(sheet, layout, index));
+  const bounds = frames.map((frame) => opaqueBounds(frame));
+  if (bounds.some((entry) => !entry)) return null;
+  const left = Math.min(...bounds.map((entry) => /** @type {any} */ (entry).x));
+  const right = Math.max(...bounds.map((entry) => /** @type {any} */ (entry).x + /** @type {any} */ (entry).width));
+  return frames.map((frame) => crop(frame, left, 0, right - left, frame.height));
 }
 
 /** @param {import('../lib/image.mjs').Raster} frame the same picture a pixel higher */

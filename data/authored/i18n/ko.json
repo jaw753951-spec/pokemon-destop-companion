@@ -142,6 +142,8 @@
   "items.pocket.berries": "나무열매",
   "items.pocket.pokeballs": "볼",
   "items.pocket.machines": "기술머신",
+  "items.pocket.key": "소중한 것",
+  "items.badges": "뱃지",
   "items.options": "사용 설정",
   "items.berryRestock": "나무열매 자동 보충",
   "items.berryRestockNote": "전투가 끝났을 때 아무것도 지니고 있지 않으면 순서대로 찾아 지니게 합니다.",

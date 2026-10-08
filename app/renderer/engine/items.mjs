@@ -302,6 +302,8 @@ export function itemActions(session, slug) {
   if (item.pocket === 'pokeballs') return { use: false, equip: false };
   if (item.pocket === 'machines') return { use: true, equip: false };
   if (item.pocket === 'medicine') return { use: Boolean(item.use), equip: false };
+  // A charm works by being in the bag, and only there.
+  if (item.pocket === 'key') return { use: false, equip: false };
 
   // A key item for a legendary's shape is used, not held — and only offered
   // to the species it is for.

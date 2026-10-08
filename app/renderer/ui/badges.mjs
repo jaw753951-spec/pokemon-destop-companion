@@ -38,8 +38,8 @@ export function championIcon() {
 }
 
 /**
- * Every badge a Pokémon holds, small, in the two rows the Pokémon tab has
- * room for — the champion's crown last.
+ * Every badge a Pokémon holds, small, in the two rows a row of the bag's key
+ * pocket has room for — the champion's crown last.
  *
  * @param {import('../engine/pokemon.mjs').Pokemon} pokemon
  * @returns {HTMLElement|null} null when it holds none
