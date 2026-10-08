@@ -14,7 +14,7 @@ import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs'
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, restoreHeldItem, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
+import { healingItemFor, healingItems, ppItems, restoreHeldItem, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
@@ -23,6 +23,7 @@ import {
   noteLearnedMoves,
   levelOf,
   maxHp,
+  maxPp,
   pendingEvolution,
   setMove,
 } from '../engine/pokemon.mjs';
@@ -156,7 +157,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // The bag, reduced to the three things a battle asks of it.
     items: {
       choose: (pokemon) => autoHeal(session, pokemon),
-      throw: (slug, pokemon) => throwItem(session, slug, pokemon),
+      throw: (slug, pokemon, choice) => throwItem(session, slug, pokemon, choice),
     },
     trainerBattle: Boolean(trainer),
     // The sky the place is under, unless the caller names one of its own.
@@ -456,6 +457,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         el('div.battle-actions', {}, [
           foeBalls,
           button(t('battle.bag'), () => openBag(app), { className: 'small' }),
+          button(t('battle.run'), () => run(app), { className: 'small' }),
         ]),
         conditions,
         message,
@@ -599,6 +601,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     const status = session.active.status;
     const healing = new Set(usable.map((entry) => entry.slug));
     const cures = statusCures(session, session.active).filter((entry) => !healing.has(entry.slug));
+    // And the PP medicine, for a move run low.
+    const pp = ppItems(session, session.active);
     const chosen = await chooseFromList(
       app,
       t('battle.bag'),
@@ -613,13 +617,55 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           label: localized(item.name, slug),
           detail: `${t('items.count', { count })}  ·  ${t('battle.cures', { status: t(`status.${status}.short`) })}`,
         })),
+        ...pp.map(({ slug, count, item, scope }) => ({
+          value: slug,
+          label: localized(item.name, slug),
+          detail: `${t('items.count', { count })}  ·  ${t(scope === 'one' ? 'battle.ppOne' : 'battle.ppAll')}`,
+        })),
       ],
       { empty: t('battle.noItems') },
     );
 
     if (!chosen || finished) return;
-    battle.queueItem(chosen);
+    // An Ether is for one move, and the player says which: one that is down
+    // on its PP, as the games list them.
+    /** @type {{move?: number}} */
+    let choice = {};
+    if (pp.some((entry) => entry.slug === chosen && entry.scope === 'one')) {
+      const moves = session.active.moves;
+      const picked = await chooseFromList(
+        app,
+        t('items.chooseMove'),
+        moves.map((entry, index) => ({
+          value: index,
+          label: localized(moveOf(entry.move)?.name, entry.move),
+          detail: `PP ${entry.pp}/${maxPp(entry)}`,
+          disabled: entry.pp >= maxPp(entry),
+        })),
+      );
+      if (picked === null || finished) return;
+      choice = { move: picked };
+    }
+    battle.queueItem(chosen, choice);
     say(t('battle.itemReady', { item: localized(gameData().items[chosen]?.name, chosen) }));
+  }
+
+  /**
+   * Run, on the next turn — which the games try before anybody moves. A
+   * trainer will not let the companion go, and says so without the turn
+   * being spent.
+   *
+   * @param {import('../core/app.mjs').App} app
+   */
+  function run(app) {
+    if (finished || entering < ENTRY_MS) return;
+    if (!battle.queueEscape()) {
+      app.audio.blip('error');
+      say(t('battle.noRunning'));
+      return;
+    }
+    app.audio.blip('select');
+    say(t('battle.runReady'));
   }
 
   /**
@@ -1171,8 +1217,10 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           playerBattler?.setPose('win');
         } else if (battle.outcome === 'fled' || battle.outcome === 'escaped') {
           // Nobody was beaten: the line that sent it away has already been
-          // said, and the battle simply ends.
-          foeBattler?.setPose('lose');
+          // said, and the battle simply ends — the wild one gone from its
+          // spot, or the companion away from it, which leaves the wild one
+          // standing.
+          if (battle.outcome === 'fled') foeBattler?.setPose('lose');
         } else {
           say(t('battle.lost'));
         }

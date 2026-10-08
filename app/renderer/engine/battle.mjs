@@ -292,7 +292,7 @@ export class Battle {
    *   policy: any,
    *   items?: {
    *     choose: (pokemon: import('./pokemon.mjs').Pokemon) => string|null,
-   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon) => boolean,
+   *     throw: (slug: string, pokemon: import('./pokemon.mjs').Pokemon, choice?: {move?: number}) => boolean,
    *   }|null,
    *   trainerBattle?: boolean,
    *   weather?: string|null,
@@ -310,6 +310,14 @@ export class Battle {
     /** An item the player has chosen to throw, used instead of next turn's move. */
     /** @type {string|null} */
     this.pendingItem = null;
+    /** Which move an Ether is for, when it is one. @type {{move?: number}} */
+    this.pendingChoice = {};
+    /** Whether the player asked to run, which is tried before next turn's moves. */
+    this.pendingEscape = false;
+    /** How many times the player has tried, each one likelier than the last. */
+    this.escapeAttempts = 0;
+    /** Whether the companion's turn went on a run that failed. */
+    this.playerSpent = false;
     this.trainerBattle = trainerBattle;
 
     this.player = makeCombatant(player, 'player');
@@ -414,8 +422,52 @@ export class Battle {
    *
    * @param {string} slug
    */
-  queueItem(slug) {
+  queueItem(slug, choice = {}) {
     this.pendingItem = slug;
+    this.pendingChoice = choice;
+    this.pendingEscape = false;
+  }
+
+  /**
+   * Try to run on the next turn, which the games do before anybody moves: a
+   * Pokémon as fast as its opponent always gets away, a slower one less often,
+   * and each failed try makes the next one likelier. Nobody runs from a
+   * trainer.
+   */
+  queueEscape() {
+    if (this.trainerBattle) return false;
+    this.pendingEscape = true;
+    this.pendingItem = null;
+    return true;
+  }
+
+  /**
+   * The run itself, at the top of a turn. Whether it worked; a failed one
+   * spends the companion's turn.
+   *
+   * @param {LogEntry[]} log
+   */
+  tryToRun(log) {
+    this.pendingEscape = false;
+    const player = this.player;
+    if (!this.foe || this.trainerBattle) return false;
+    if (!this.canEscape(player)) {
+      this.say(player, 'battle.cantEscape');
+      return false;
+    }
+    this.escapeAttempts++;
+    // Generation III onward: always away when at least as fast; otherwise
+    // the speed ratio out of 128, and thirty more for every try so far.
+    const mine = this.speedOf(player);
+    const theirs = Math.max(1, this.speedOf(this.foe));
+    const odds = Math.floor((mine * 128) / theirs) + 30 * this.escapeAttempts;
+    if (mine >= theirs || odds > 255 || this.rng.int(0, 255) < odds) {
+      this.say(player, 'battle.gotAway');
+      this.finish('escaped', log);
+      return true;
+    }
+    this.say(player, 'battle.cantEscape');
+    return false;
   }
 
   /**
@@ -1610,6 +1662,14 @@ export class Battle {
       this.opening = [];
     }
 
+    // A run is tried before anybody moves, and a failed one is the
+    // companion's turn gone.
+    this.playerSpent = false;
+    if (this.pendingEscape) {
+      if (this.tryToRun(log)) return log;
+      this.playerSpent = true;
+    }
+
     const first = this.orderOfPlay();
     // A Focus Punch is tightened before anybody moves, so a hit in between
     // can break it.
@@ -1621,6 +1681,7 @@ export class Battle {
       if (!this.running || !this.foe) break;
       // One that was dragged out or went back this turn has no turn left.
       if (attacker !== this.player && attacker !== this.foe) continue;
+      if (attacker === this.player && this.playerSpent) continue;
       const defender = attacker === this.player ? this.foe : this.player;
       if (attacker.pokemon.hp <= 0 || defender.pokemon.hp <= 0) continue;
       this.resolveMove(attacker, defender, log);
@@ -2012,7 +2073,10 @@ export class Battle {
 
     // Nothing was thrown by hand, so the policy gets its say before the turn
     // is planned.
-    if (!this.pendingItem) this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+    if (!this.pendingItem && !this.playerSpent) {
+      this.pendingItem = this.items?.choose(this.player.pokemon) ?? null;
+      this.pendingChoice = {};
+    }
 
     // An item takes the companion's own action: it is used when the companion
     // would have moved, in its place in the order, instead of a move. It used
@@ -2314,8 +2378,10 @@ export class Battle {
     // state — asleep, flinching, paralysed — can stop it.
     if (attacker.side === 'player' && this.pendingItem) {
       const slug = this.pendingItem;
+      const choice = this.pendingChoice;
       this.pendingItem = null;
-      const used = this.items?.throw(slug, attacker.pokemon) ?? false;
+      this.pendingChoice = {};
+      const used = this.items?.throw(slug, attacker.pokemon, choice) ?? false;
       // A medicine that clears conditions clears the two that never reach the
       // save as well, which is what a player throwing a Full Heal expects.
       if (used && itemOf(slug)?.use?.status === 'any') this.cureVolatile(attacker, log);

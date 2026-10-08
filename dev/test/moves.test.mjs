@@ -141,6 +141,53 @@ test('a move the target was seen to shrug off is not used on it again', options,
   assert.deepEqual(usedOver(fight(fixed(EXPLOUD, 40, ['hyper-voice']), stubborn), 2), ['hyper-voice', 'hyper-voice']);
 });
 
+test('a run is tried before anybody moves, and nobody runs from a trainer', options, async () => {
+  const { Battle } = await import('../../app/renderer/engine/battle.mjs');
+  // As fast or faster: away at once, and the foe never moves.
+  const quick = fight(fixed(MACHAMP, 90, ['tackle']), fixed(SNORLAX, 5, ['tackle']));
+  assert.equal(quick.queueEscape(), true);
+  const away = quick.takeTurn();
+  assert.equal(quick.outcome, 'escaped');
+  assert.ok(away.some((entry) => entry.data?.key === 'battle.gotAway'));
+  assert.ok(!away.some((entry) => entry.kind === 'move'));
+
+  // Much slower: the first try can fail, which spends the companion's turn;
+  // each try is likelier than the last, so it gets away in the end.
+  const slow = fight(fixed(SNORLAX, 5, ['tackle']), fixed(MACHAMP, 90, ['bulk-up']));
+  let tries = 0;
+  while (slow.running && tries < 20) {
+    slow.queueEscape();
+    const log = slow.takeTurn();
+    tries++;
+    if (slow.running) {
+      assert.ok(log.some((entry) => entry.data?.key === 'battle.cantEscape'));
+      assert.ok(!log.some((entry) => entry.kind === 'move' && entry.side === 'player'), 'a failed run is the turn');
+    }
+  }
+  assert.equal(slow.outcome, 'escaped');
+
+  const trainer = new Battle({ rng: new Rng(7), player: fixed(MACHAMP, 90, ['tackle']), foes: [punchbag()], policy: defaultAutoBattle(), trainerBattle: true });
+  assert.equal(trainer.queueEscape(), false);
+  assert.equal(trainer.pendingEscape, false);
+});
+
+test('an Ether thrown in battle goes to the move the player names', options, async () => {
+  const { Session } = await import('../../app/renderer/engine/session.mjs');
+  const { ppItems, throwItem } = await import('../../app/renderer/engine/items.mjs');
+  const { maxPp } = await import('../../app/renderer/engine/pokemon.mjs');
+  const pokemon = fixed(MACHAMP, 60, ['tackle', 'karate-chop']);
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: pokemon, box: [] } } });
+  session.addItem('ether', 1);
+  session.addItem('elixir', 1);
+  assert.deepEqual(ppItems(session, pokemon), [], 'nothing to put back yet');
+  pokemon.moves[0].pp = 0;
+  pokemon.moves[1].pp = 0;
+  assert.deepEqual(ppItems(session, pokemon).map((entry) => [entry.slug, entry.scope]), [['ether', 'one'], ['elixir', 'all']]);
+  assert.equal(throwItem(session, 'ether', pokemon, { move: 1 }), true);
+  assert.equal(pokemon.moves[0].pp, 0);
+  assert.equal(pokemon.moves[1].pp, Math.min(10, maxPp(pokemon.moves[1])));
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();

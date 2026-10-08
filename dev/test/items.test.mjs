@@ -6,7 +6,7 @@ import { Rng } from '../../app/renderer/core/rng.mjs';
 import { gameData, itemOf } from '../../app/renderer/core/data.mjs';
 import { berryToHold, healAfterBattle, healingItemFor, healingItems } from '../../app/renderer/engine/items.mjs';
 import { defaultItemPolicy, normalizeItemPolicy } from '../../app/renderer/engine/session.mjs';
-import { createPokemon, maxHp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
+import { createPokemon, maxHp, maxPp, TRADE_ITEM } from '../../app/renderer/engine/pokemon.mjs';
 
 const ready = await useRealGameData();
 const withData = { skip: ready ? false : NEEDS_ASSETS };
@@ -278,11 +278,36 @@ test('a top-up to full cures the condition too, with the narrowest cure', withDa
   pokemon.status = 'brn';
   assert.deepEqual(healAfterBattle(session, pokemon, 'full'), [{ slug: 'full-heal', count: 1 }]);
 
-  // And only a full top-up does it.
+  // Left to itself, only a full top-up does it; the switch decides
+  // otherwise, whatever the health target.
   pokemon.status = 'par';
   pokemon.hp = maxHp(pokemon) - 1;
   healAfterBattle(session, pokemon, 'hpHalf');
   assert.equal(pokemon.status, 'par');
+  pokemon.hp = maxHp(pokemon);
+  healAfterBattle(session, pokemon, 'full', { status: false });
+  assert.equal(pokemon.status, 'par');
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { status: true }), [{ slug: 'full-restore', count: 1 }]);
+  assert.equal(pokemon.status, null);
+});
+
+test('a top-up puts PP back into a move run low, one Ether at a time, when asked', withData, () => {
+  const pokemon = createPokemon(new Rng(1), 6, 50, { ivFloor: 31 });
+  const session = fakeSession({ ether: 2, elixir: 1 });
+  const full = maxPp(pokemon.moves[0]);
+
+  // A little spent is left alone, and nothing happens with the switch off.
+  pokemon.moves[0].pp = full - 1;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { pp: true }), []);
+  pokemon.moves[0].pp = 0;
+  assert.deepEqual(healAfterBattle(session, pokemon, 'never', { pp: false }), []);
+  assert.equal(pokemon.moves[0].pp, 0);
+
+  // Run dry: an Ether, on that move alone.
+  const used = healAfterBattle(session, pokemon, 'never', { pp: true });
+  assert.equal(used[0].slug, 'ether');
+  assert.ok(pokemon.moves[0].pp > full / 4);
+  assert.equal(session.countOf('elixir'), 1, 'the Elixir is kept while there are Ethers');
 });
 
 test('a top-up stops at the target the player set, and never is never', withData, () => {

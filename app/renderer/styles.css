@@ -674,11 +674,16 @@ canvas {
   position: absolute;
   right: 8px;
   top: 22px;
-  /* The screen itself takes no pointer events, so the bag button — the one
-     control on it — has to opt back in. Riding above the click catch, a click
-     that misses it hurries the beat on the catcher beneath. */
+  /* The screen itself takes no pointer events, so the bag and run buttons —
+     the controls on it — have to opt back in. Riding above the click catch, a
+     click that misses them hurries the beat on the catcher beneath. */
   z-index: 6;
   pointer-events: auto;
+  /* The foe's balls, the bag, and the way out under it. */
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
 }
 
 .battle-name {
@@ -1454,6 +1459,24 @@ canvas {
 .item-option .label {
   width: auto;
   color: var(--ink);
+}
+
+/* After a battle: the health it tops up to, and under it the condition and
+   the PP, each a switch. */
+.after-battle-option {
+  align-items: flex-start;
+}
+
+.after-battle-choices {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+}
+
+.after-battle-extras {
+  display: flex;
+  gap: 3px;
 }
 
 .shop-money {
