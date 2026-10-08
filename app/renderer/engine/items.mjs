@@ -137,11 +137,9 @@ export function useItem(session, slug, choice = {}) {
       session.removeItem(slug);
       return { used: true, ok: true, message: t('items.used', { name: label }) };
     }
-    // An Ability Patch on a Pokémon with no hidden ability, or a Capsule on
-    // one with nothing to swap to, says which — a bare "cannot be used" read
-    // as the item being broken.
-    const refusal = item.use.ability ? abilityRefusal(pokemon, item.use.ability) : null;
-    if (refusal) return { used: false, ok: false, message: refusal };
+    // An Ability Patch or Capsule on a Pokémon with nothing to change to says
+    // so — a bare "cannot be used" read as the item being broken.
+    if (item.use.ability && pokemon.hp > 0) return { used: false, ok: false, message: t('items.noAbilityChange') };
     // A berry is both: something that can be eaten now and something that is
     // usually meant to be carried until it is needed. Using one on a Pokémon
     // at full health used to stop dead at "that cannot be used right now",
@@ -549,24 +547,6 @@ function maximizeGenes(pokemon, scope, stat) {
     changed = true;
   }
   return changed;
-}
-
-/**
- * Why an ability item did nothing, in words, or null when it is not the
- * ability that stood in the way.
- *
- * @param {import('./pokemon.mjs').Pokemon} pokemon
- * @param {'swap'|'hidden'} how
- * @returns {string|null}
- */
-function abilityRefusal(pokemon, how) {
-  if (pokemon.hp <= 0) return null;
-  const abilities = speciesOf(pokemon.speciesId)?.abilities ?? [];
-  const name = nameOf(pokemon);
-  if (how === 'hidden') return abilities.some((entry) => entry.hidden) ? null : t('items.noHiddenAbility', { name });
-  const slot = abilitySlot(pokemon);
-  if (slot >= 0 && abilities[slot]?.hidden) return t('items.capsuleOnHidden', { name });
-  return abilities.filter((entry) => !entry.hidden).length < 2 ? t('items.noOtherAbility', { name }) : null;
 }
 
 /**
