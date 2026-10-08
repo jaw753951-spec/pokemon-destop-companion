@@ -12,7 +12,9 @@
  * cost well above the games' prices, a TM more the harder its move hits:
  * each is something kept for good, and cheap ones emptied the road of
  * anything worth finding. The legendaries' own items are not for sale; a find is the only way
- * to them, and the Master Ball stays a prize.
+ * to them. The Master Ball is, at 100,000 — the price of an Ability Patch, and
+ * of a hundred trainers' worth of prize money early on, so a sure catch is
+ * something saved up for rather than stocked by the dozen.
  */
 import { gameData, itemOf, moveOf } from '../core/data.mjs';
 import { evolvesSomething } from './bagorder.mjs';
@@ -50,7 +52,7 @@ const PRICES = {
   'poke-ball': 200, 'great-ball': 600, 'ultra-ball': 800, 'premier-ball': 200,
   'net-ball': 1000, 'dive-ball': 1000, 'nest-ball': 1000, 'repeat-ball': 1000, 'timer-ball': 1000,
   'luxury-ball': 3000, 'dusk-ball': 1000, 'heal-ball': 300, 'quick-ball': 1000,
-  'beast-ball': 3000,
+  'beast-ball': 3000, 'master-ball': 100000,
   'lure-ball': 3000, 'level-ball': 3000, 'moon-ball': 3000, 'heavy-ball': 3000, 'fast-ball': 3000,
   'friend-ball': 3000, 'love-ball': 3000,
   'choice-band': 20000, 'choice-specs': 20000, 'choice-scarf': 20000, 'life-orb': 20000,
@@ -78,9 +80,6 @@ const NOT_SOLD_CATEGORIES = new Set([
   'tm-materials', 'picnic', 'loot', 'collectibles', 'memories', 'plates',
 ]);
 
-/** The one ball a shop never has. */
-const NOT_SOLD = new Set(['master-ball']);
-
 /** Built once: the items a legendary's shape is keyed to. */
 let unique = /** @type {Set<string>|null} */ (null);
 
@@ -92,7 +91,7 @@ let unique = /** @type {Set<string>|null} */ (null);
  */
 export function priceOf(slug) {
   const item = itemOf(slug);
-  if (!item || item.works === false || NOT_SOLD.has(slug) || NOT_SOLD_CATEGORIES.has(item.category)) return null;
+  if (!item || item.works === false || NOT_SOLD_CATEGORIES.has(item.category)) return null;
   unique ??= new Set(signatureItems().keys());
   if (unique.has(slug)) return null;
   if (item.pocket === 'machines') return machinePrice(item.move);

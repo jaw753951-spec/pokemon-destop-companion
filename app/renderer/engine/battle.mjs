@@ -17,6 +17,7 @@ import {
   chargeOwnsStats,
   calledMove,
   failsBeforeUse,
+  boundToFail,
   fixedDamage,
   neverAutomatic,
   PARTNER_ONLY,
@@ -2241,12 +2242,15 @@ export class Battle {
    */
   stillAllowed(attacker, usable) {
     let left = usable;
+    const target = this.other(attacker);
     // A Fake Out after the first turn out is a move that fails, so it is not
-    // offered once that turn has gone — unless there is nothing else.
-    if (!this.firstTurnOut(attacker)) {
-      const others = left.filter((slot) => !FIRST_TURN_ONLY.has(slot.move));
-      if (others.length > 0) left = others;
-    }
+    // offered once that turn has gone — unless there is nothing else. Nor is
+    // anything else whose condition is plainly not met: a Poltergeist at a
+    // target holding nothing, a Dream Eater at one awake.
+    const firstTurn = this.firstTurnOut(attacker);
+    const working = left.filter((slot) =>
+      !(FIRST_TURN_ONLY.has(slot.move) && !firstTurn) && !boundToFail(this, attacker, target, slot.move));
+    if (working.length > 0) left = working;
     if (hasVolatile(attacker, VOLATILE.DISABLE)) {
       left = left.filter((slot) => slot.move !== attacker.volatile.disabledMove);
     }
@@ -2271,7 +2275,6 @@ export class Battle {
     if (narrowed.length > 0) left = narrowed;
     // A Future Sight is not chosen again while one is on its way to the same
     // target, nor straight after the one just used: the second fails.
-    const target = this.other(attacker);
     if ((target && this.field.futureSight[target.side]) || DELAYED_ATTACKS.has(attacker.lastMove)) {
       const fresh = left.filter((slot) => !DELAYED_ATTACKS.has(slot.move));
       if (fresh.length > 0) left = fresh;
@@ -2382,13 +2385,19 @@ export class Battle {
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
       attacker.charging = moveName;
       const charge = CHARGE_TURNS[moveName];
-      if (charge) this.say(attacker, charge.key);
+      // Off into the sky, under the ground or the water, or out of sight: the
+      // line that says so carries where, so the screen can take the sprite
+      // away with it.
+      const hides = SEMI_INVULNERABLE[moveName] ?? null;
+      if (charge) this.say(attacker, charge.key, hides ? { hide: hides } : {});
       else log.push({ kind: 'charging', side: attacker.side, data: { move: moveName } });
       if (charge?.stat) this.applyStage(attacker, charge.stat, 1, log, { source: 'self' });
-      if (SEMI_INVULNERABLE[moveName]) attacker.marks.hidden = SEMI_INVULNERABLE[moveName];
+      if (hides) attacker.marks.hidden = hides;
       // A Power Herb that was not needed yet is spent on the far side of it.
       if (!charge?.stat || !this.skipsChargeAfterBoost(attacker, moveName, log)) return;
     }
+    // Back from wherever the charge turn took it, as the move comes down.
+    const reappears = Boolean(attacker.marks.hidden);
     attacker.marks.hidden = null;
 
     // PP was already spent on the charge turn.
@@ -2427,7 +2436,7 @@ export class Battle {
       if (slot) slot.pp = Math.max(0, slot.pp - 1);
     }
 
-    log.push({ kind: 'move', side: attacker.side, data: { move: moveName } });
+    log.push({ kind: 'move', side: attacker.side, data: reappears ? { move: moveName, reveal: true } : { move: moveName } });
     const moveLogStart = log.length;
 
     // A move that calls another uses that one in its place: a Metronome, a

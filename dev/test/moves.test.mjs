@@ -48,6 +48,64 @@ function fight(player, foe, extra = {}) {
 /** How many times one move landed on the foe: a multi-hit move reports them in one entry. */
 const hitsOf = (log) => log.find((entry) => entry.kind === 'damage' && entry.side === 'foe')?.data?.hits ?? 0;
 
+test('a Fly says where its user went, and the move that comes down brings it back', options, () => {
+  const PIDGEOT = 18;
+  const battle = fight(fixed(PIDGEOT, 60, ['fly']), punchbag());
+  const charge = battle.takeTurn();
+  assert.equal(charge.find((entry) => entry.data?.key === 'move.charge.fly')?.data?.hide, 'sky');
+  assert.equal(battle.player.marks.hidden, 'sky');
+  const strike = battle.takeTurn();
+  const used = strike.find((entry) => entry.kind === 'move' && entry.side === 'player');
+  assert.equal(used?.data?.move, 'fly');
+  assert.equal(used?.data?.reveal, true);
+  assert.equal(battle.player.marks.hidden, null);
+  // A move that never left says nothing about coming back.
+  const again = battle.takeTurn();
+  assert.equal(again.find((entry) => entry.data?.key === 'move.charge.fly')?.data?.hide, 'sky');
+  assert.equal(fight(fixed(MACHAMP, 60, ['close-combat']), punchbag()).takeTurn()
+    .find((entry) => entry.kind === 'move')?.data?.reveal, undefined);
+});
+
+test('a move bound to fail is passed over, and taken up again once it would work', options, () => {
+  const GENGAR = 94;
+  const GOLURK = 623;
+  const target = () => punchbag(70, MACHAMP);
+  // Poltergeist hits far harder than Shadow Claw, so it is the strongest
+  // attack — and against a target holding nothing it fails, every turn.
+  const player = fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']);
+  const foe = target();
+  const battle = fight(player, foe);
+  for (let turn = 0; turn < 3; turn++) {
+    const log = battle.takeTurn();
+    const used = log.find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move;
+    assert.equal(used, 'shadow-claw', `turn ${turn + 1}: reached for ${used}`);
+    assert.ok(!log.some((entry) => entry.kind === 'failed' && entry.side === 'player'));
+  }
+  // Something to throw, and it is the move of choice again.
+  foe.heldItem = 'leftovers';
+  const log = battle.takeTurn();
+  assert.equal(log.find((entry) => entry.kind === 'move' && entry.side === 'player')?.data?.move, 'poltergeist');
+
+  // Laid out in the move order, too: the order steps past it.
+  const ordered = fight(fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']), target(), {
+    policy: { ...defaultAutoBattle(), mode: 'repeatLast', order: ['poltergeist', null, null, null] },
+  });
+  assert.equal(ordered.chooseMove(ordered.player, /** @type {any} */ (ordered.foe)), 'shadow-claw');
+
+  // And the other side's trainers do not throw it either.
+  const foeSide = fight(target(), fixed(GOLURK, 60, ['poltergeist', 'shadow-claw']));
+  assert.equal(foeSide.chooseMove(/** @type {any} */ (foeSide.foe), foeSide.player), 'shadow-claw');
+
+  // A Dream Eater waits for the target to be asleep; with nothing else, it is
+  // still used rather than nothing.
+  const eater = fight(fixed(GENGAR, 60, ['dream-eater', 'lick']), target());
+  assert.equal(eater.chooseMove(eater.player, /** @type {any} */ (eater.foe)), 'lick');
+  eater.foe.pokemon.status = STATUS.SLEEP;
+  assert.equal(eater.chooseMove(eater.player, /** @type {any} */ (eater.foe)), 'dream-eater');
+  const only = fight(fixed(GOLURK, 60, ['poltergeist']), target());
+  assert.equal(only.chooseMove(only.player, /** @type {any} */ (only.foe)), 'poltergeist');
+});
+
 test('Close Combat lowers its own user, not the target', options, () => {
   const battle = fight(fixed(MACHAMP, 60, ['close-combat']), punchbag());
   battle.takeTurn();

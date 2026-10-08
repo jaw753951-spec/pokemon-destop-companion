@@ -280,6 +280,9 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
     if (leader.portrait) {
       note(Boolean(actors.portraits[leader.portrait]), `leader ${leader.id}: no portrait ${leader.portrait}`);
     }
+    if (leader.field) {
+      note(Boolean(actors.overworld?.[leader.field]), `leader ${leader.id}: no field sprite ${leader.field}`);
+    }
   }
   // Names for the other languages are authored by hand, so a gap is worth
   // reporting but never worth failing a build over.

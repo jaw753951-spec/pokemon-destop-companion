@@ -41,7 +41,24 @@ export const SHOWDOWN = 'https://raw.githubusercontent.com/smogon/pokemon-showdo
  * decompilation, whose front sprites are a strip of animation frames 80 pixels
  * wide; the last frame is the pose the trainer stands in.
  *
- * @type {Record<string, {source: 'firered'|'crystal'|'platinum', path: string}>}
+ * Everyone past Sinnoh, and Johto's leaders, come from the Smogon / Pokémon
+ * Showdown sprite repository (`smogon`, kept under `data/vendor/smogon-sprites`):
+ * HeartGold and SoulSilver's own sprites for Johto, Black and White's and
+ * Black 2 and White 2's for Unova, and — since the 3D games drew nobody in
+ * pixels — the community's sprites in the Black and White style for Kalos and
+ * Alola, credited in the game.
+ *
+ * Nobody drew Diantha, Grant, Galar, Paldea or Blueberry in pixels for a
+ * game either. Their pictures are the fan game PokéRogue's (`pokerogue`, CC
+ * BY-NC-SA 4.0, kept under `data/vendor/pokerogue`), whose trainer sprites
+ * are an animation sheet and a TexturePacker atlas side by side — `path`
+ * names both without the extension, and the first frame is the picture.
+ * Avery and Klara, who are not there and were drawn nowhere else, come from
+ * Pokémon Showdown's trainer sprites (`showdown`, through a mirror of its
+ * sprite folder) — Brumirage's, shared on condition of credit and no edits,
+ * so the build only trims their empty margin.
+ *
+ * @type {Record<string, {source: 'firered'|'crystal'|'platinum'|'smogon'|'pokerogue'|'showdown', path: string}>}
  */
 export const NAMED_PORTRAITS = {
   bruno: { source: 'firered', path: 'graphics/trainers/front_pics/elite_four_bruno_front_pic.png' },
@@ -71,6 +88,136 @@ export const NAMED_PORTRAITS = {
   byron: { source: 'platinum', path: 'res/trainers/classes/leader_byron/front.png' },
   candice: { source: 'platinum', path: 'res/trainers/classes/leader_candice/front.png' },
   volkner: { source: 'platinum', path: 'res/trainers/classes/leader_volkner/front.png' },
+  // Johto's leaders, as HeartGold and SoulSilver drew them.
+  falkner: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Falkner.png' },
+  bugsy: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Bugsy.png' },
+  whitney: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Whitney.png' },
+  morty: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Morty.png' },
+  chuck: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Chuck.png' },
+  jasmine: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Jasmine.png' },
+  pryce: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Pryce.png' },
+  clair: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Clair.png' },
+  janine: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen4/heartgold-soulsilver/Janine.png' },
+  // Unova, from Black and White: the first leaders, the Elite Four, and Iris
+  // as the Opelucid leader she is there.
+  cress: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Cress.png' },
+  cilan: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Cilan.png' },
+  chili: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Chili.png' },
+  lenora: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Lenora.png' },
+  burgh: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Burgh.png' },
+  elesa: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Elesa.png' },
+  clay: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Clay.png' },
+  skyla: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Skyla.png' },
+  brycen: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Brycen.png' },
+  drayden: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Drayden.png' },
+  iris: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Iris.png' },
+  shauntal: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Shauntal.png' },
+  grimsley: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Grimsley.png' },
+  caitlin: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Caitlin.png' },
+  marshal: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black-white/Marshal.png' },
+  // Black 2 and White 2's new leaders, and Iris as the champion she becomes.
+  cheren: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Cheren.png' },
+  roxie: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Roxie.png' },
+  marlon: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Marlon.png' },
+  iris_champion: { source: 'smogon', path: 'src/_uncategorized/canonical/trainers/gen5/black2-white2/Iris.png' },
+  // Kalos and Alola were drawn in 3D; these are the community's sprites in
+  // Black and White's style.
+  viola: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Viola.png' },
+  korrina: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Korrina.png' },
+  ramos: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Ramos.png' },
+  clemont: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Clemont.png' },
+  valerie: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Valerie.png' },
+  olympia: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Olympia.png' },
+  wulfric: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Wulfric.png' },
+  drasna: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Drasna.png' },
+  wikstrom: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Wikstrom.png' },
+  malva: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Malva.png' },
+  siebold: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen6/x-y/Siebold.png' },
+  olivia: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Olivia.png' },
+  acerola: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Acerola.png' },
+  kahili: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Kahili.png' },
+  hau: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Hau.png' },
+  hala: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Hala.png' },
+  molayne: { source: 'smogon', path: 'src/_uncategorized/noncanonical/trainers/gen7/sun-moon/Molayne.png' },
+  // Kalos's champion and its rock leader, Galar's leaders, and Paldea's and
+  // Blueberry Academy's leaders, Elite Four and champions, from PokéRogue.
+  diantha: { source: 'pokerogue', path: 'images/trainer/diantha' },
+  grant: { source: 'pokerogue', path: 'images/trainer/grant' },
+  allister: { source: 'pokerogue', path: 'images/trainer/allister' },
+  bea: { source: 'pokerogue', path: 'images/trainer/bea' },
+  bede: { source: 'pokerogue', path: 'images/trainer/bede' },
+  gordie: { source: 'pokerogue', path: 'images/trainer/gordie' },
+  kabu: { source: 'pokerogue', path: 'images/trainer/kabu' },
+  marnie: { source: 'pokerogue', path: 'images/trainer/marnie' },
+  melony: { source: 'pokerogue', path: 'images/trainer/melony' },
+  milo: { source: 'pokerogue', path: 'images/trainer/milo' },
+  nessa: { source: 'pokerogue', path: 'images/trainer/nessa' },
+  opal: { source: 'pokerogue', path: 'images/trainer/opal' },
+  piers: { source: 'pokerogue', path: 'images/trainer/piers' },
+  raihan: { source: 'pokerogue', path: 'images/trainer/raihan' },
+  katy: { source: 'pokerogue', path: 'images/trainer/katy' },
+  brassius: { source: 'pokerogue', path: 'images/trainer/brassius' },
+  iono: { source: 'pokerogue', path: 'images/trainer/iono' },
+  kofu: { source: 'pokerogue', path: 'images/trainer/kofu' },
+  larry: { source: 'pokerogue', path: 'images/trainer/larry' },
+  ryme: { source: 'pokerogue', path: 'images/trainer/ryme' },
+  tulip: { source: 'pokerogue', path: 'images/trainer/tulip' },
+  grusha: { source: 'pokerogue', path: 'images/trainer/grusha' },
+  rika: { source: 'pokerogue', path: 'images/trainer/rika' },
+  poppy: { source: 'pokerogue', path: 'images/trainer/poppy' },
+  hassel: { source: 'pokerogue', path: 'images/trainer/hassel' },
+  geeta: { source: 'pokerogue', path: 'images/trainer/geeta' },
+  crispin: { source: 'pokerogue', path: 'images/trainer/crispin' },
+  amarys: { source: 'pokerogue', path: 'images/trainer/amarys' },
+  lacey: { source: 'pokerogue', path: 'images/trainer/lacey' },
+  drayton: { source: 'pokerogue', path: 'images/trainer/drayton' },
+  kieran: { source: 'pokerogue', path: 'images/trainer/kieran' },
+  avery: { source: 'showdown', path: 'sprites/trainers/avery.png' },
+  klara: { source: 'showdown', path: 'sprites/trainers/klara.png' },
+};
+
+/**
+ * The walking sprites of the gym leaders who were drawn for the road, from
+ * the Game Boy Advance games and the one fan remake in the same engine.
+ *
+ * Emerald draws its own leaders, Fire Red Kanto's, and Pokémon Heart and
+ * Soul — a remake of HeartGold and SoulSilver on Emerald's engine (`hns`,
+ * kept under `data/vendor/pokehns`) — Johto's and Kanto's again, with the
+ * walk the cartridges never gave them. A leader who only ever stood still in
+ * a gym has three standing frames and no walk; the build makes one of the
+ * west-facing pose and the same pose a pixel up. Tate and Liza are one
+ * leader and walk side by side. Nobody past Johto was drawn at this size.
+ *
+ * @type {Record<string, {source: 'emerald'|'firered'|'hns', path: string, with?: string}>}
+ */
+export const NAMED_WALKERS = {
+  leader_roxanne: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/roxanne.png' },
+  leader_brawly: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/brawly.png' },
+  leader_wattson: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/wattson.png' },
+  leader_flannery: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/flannery.png' },
+  leader_winona: { source: 'emerald', path: 'graphics/object_events/pics/people/gym_leaders/winona.png' },
+  leader_tate_and_liza: {
+    source: 'emerald',
+    path: 'graphics/object_events/pics/people/gym_leaders/tate.png',
+    with: 'graphics/object_events/pics/people/gym_leaders/liza.png',
+  },
+  leader_koga: { source: 'firered', path: 'graphics/object_events/pics/people/koga.png' },
+  leader_giovanni: { source: 'firered', path: 'graphics/object_events/pics/people/giovanni.png' },
+  leader_brock: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/brock_hns.png' },
+  leader_misty: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/misty_hns.png' },
+  leader_lt_surge: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/surge_hns.png' },
+  leader_erika: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/erika_hns.png' },
+  leader_sabrina: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/sabrina_hns.png' },
+  leader_blaine: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/blaine_hns.png' },
+  leader_falkner: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/falkner_hns.png' },
+  leader_bugsy: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/bugsy_hns.png' },
+  leader_whitney: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/whitney_hns.png' },
+  leader_morty: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/morty_hns.png' },
+  leader_chuck: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/chuck_hns.png' },
+  leader_jasmine: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/jasmine_hns.png' },
+  leader_pryce: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/pryce_hns.png' },
+  leader_clair: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/clair_hns.png' },
+  leader_janine: { source: 'hns', path: 'graphics/object_events/pics/people/gym_leaders/janine_hns.png' },
 };
 
 /** Highest National Dex number the game ships (Gen 9, Pecharunt). */

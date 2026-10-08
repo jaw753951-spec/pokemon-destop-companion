@@ -1,0 +1,10 @@
+{
+  "source": "Pokémon Showdown trainer sprites, as mirrored by worlds-collide-showdown/sprites",
+  "commit": "908f9e575ac60852868f97641789fae4910ef259",
+  "base": "https://raw.githubusercontent.com/worlds-collide-showdown/sprites",
+  "present": [
+    "sprites/trainers/avery.png",
+    "sprites/trainers/klara.png"
+  ],
+  "absent": []
+}

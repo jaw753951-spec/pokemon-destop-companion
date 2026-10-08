@@ -51,6 +51,22 @@ export const BATTLE_SCALE = 1;
 /** How long each pose runs before falling back to idle. */
 const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: 340 };
 
+/**
+ * How long a Pokémon takes to leave for a two-turn move's wait, and to come
+ * back when the move comes down.
+ *
+ * While it is away — up in the sky on a Fly or a Bounce, under the ground on
+ * a Dig, under the water on a Dive, gone on a Phantom Force or a Shadow
+ * Force — nothing of it is drawn: not the sprite, and not the effects that
+ * play over it. That is the cartridges' own rule. Emerald's battle animations
+ * set the attacker's sprite invisible on the charge turn, and its shadow
+ * follows the sprite's visibility; Platinum's hide the battler, and draw a
+ * battler's shadow only while the battler itself is drawn. Nothing is left on
+ * the ground to show where it went.
+ */
+const AWAY_MS = 420;
+const BACK_MS = 240;
+
 /** How far one push carries a battler, in field pixels: forward to attack, back when hit. */
 const PUSH_PX = 12;
 
@@ -173,6 +189,40 @@ export class Battler {
     /** The status condition whose effect is playing, and how far through. */
     this.statusEffect = /** @type {string|null} */ (null);
     this.statusElapsed = 0;
+
+    /**
+     * Where a two-turn move has taken the Pokémon for its wait — `sky`,
+     * `ground`, `water` or `vanished` — and how long since it left. Null
+     * while it is on the field.
+     */
+    this.away = /** @type {string|null} */ (null);
+    this.awayElapsed = 0;
+    /** Where it is coming back from, and how far through the return. */
+    this.back = /** @type {string|null} */ (null);
+    this.backElapsed = 0;
+  }
+
+  /**
+   * Leave the field for a two-turn move's wait.
+   * @param {string} place `sky`, `ground`, `water` or `vanished`
+   */
+  goAway(place) {
+    this.away = place;
+    this.awayElapsed = 0;
+    this.back = null;
+  }
+
+  /** Come back from a two-turn move's wait, as the move comes down. */
+  comeBack() {
+    if (!this.away) return;
+    this.back = this.away;
+    this.backElapsed = 0;
+    this.away = null;
+  }
+
+  /** Whether nothing of the Pokémon is on screen: it has left for its wait. */
+  get gone() {
+    return Boolean(this.away) && this.awayElapsed >= AWAY_MS;
   }
 
   /**
@@ -216,6 +266,12 @@ export class Battler {
       if (this.statusElapsed >= STATUS_EFFECT_MS) this.statusEffect = null;
     }
 
+    if (this.away) this.awayElapsed += deltaMs;
+    if (this.back) {
+      this.backElapsed += deltaMs;
+      if (this.backElapsed >= BACK_MS) this.back = null;
+    }
+
     if (this.pose === 'idle') return;
 
     this.poseElapsed += deltaMs;
@@ -233,14 +289,18 @@ export class Battler {
    * @param {CanvasRenderingContext2D} context
    */
   draw(context) {
-    if (!this.sprite || !this.visible) return;
+    if (!this.sprite || !this.visible || this.gone) return;
     const transform = this.transform();
+    const leaving = this.travel();
+    transform.dy += leaving.dy;
+    if (!leaving.shown) return;
 
     context.save();
     // A fainting Pokémon sinks through the line it was standing on: whatever
     // has gone below it is not drawn, so it disappears into the ground
-    // instead of sliding down over the message box.
-    if (this.pose === 'lose') {
+    // instead of sliding down over the message box. A Dig and a Dive go down
+    // through the same line, and come back up through it.
+    if (this.pose === 'lose' || leaving.clip) {
       context.beginPath();
       context.rect(0, 0, context.canvas.width, this.y);
       context.clip();
@@ -263,6 +323,34 @@ export class Battler {
     if (transform.glow > 0) this.drawTint(context, '#ffffff', transform.glow);
     if (this.statDirection !== 0) this.drawStatChange(context);
     if (this.statusEffect) this.drawStatus(context);
+  }
+
+  /**
+   * Where a Pokémon leaving for a two-turn move's wait, or coming back from
+   * it, stands off its spot: up off the top of the screen for the sky, down
+   * through the ground line for the ground and the water, and blinking out
+   * of sight — as Platinum's Shadow Force blinks its user away — for the rest.
+   *
+   * @returns {{dy: number, clip: boolean, shown: boolean}}
+   */
+  travel() {
+    const place = this.away ?? this.back;
+    if (!place) return { dy: 0, clip: false, shown: true };
+    const height = (this.sprite?.height ?? 0) * this.scale;
+    // 0 on the spot, 1 all the way out.
+    const out = this.away ? Math.min(1, this.awayElapsed / AWAY_MS) : 1 - Math.min(1, this.backElapsed / BACK_MS);
+    switch (place) {
+      case 'sky':
+        // Up and away, faster as it goes: clear of the top of the window.
+        return { dy: -Math.round(out * out * (this.y + 8)), clip: false, shown: true };
+      case 'ground':
+      case 'water':
+        return { dy: Math.round(out * (height + 4)), clip: true, shown: true };
+      default: {
+        const elapsed = this.away ? this.awayElapsed : this.backElapsed;
+        return { dy: 0, clip: false, shown: out < 1 && Math.floor(elapsed / 70) % 2 === 0 };
+      }
+    }
   }
 
   /**

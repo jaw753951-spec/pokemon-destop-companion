@@ -232,7 +232,7 @@ function languageRows(app, rebuild) {
  * @returns {HTMLElement[]}
  */
 function creditRows() {
-  const { sprites, custom } = gameData().credits ?? {};
+  const { sprites, custom, trainers } = gameData().credits ?? {};
   if (!sprites && !custom) return [el('p.meta', { text: t('credits.none') })];
   return [
     ...(sprites
@@ -250,6 +250,18 @@ function creditRows() {
           el('p.meta', { text: t('credits.customNote', { source: custom.source }) }),
           el('p.meta.credits-url', { text: custom.url }),
           el('p.credits-names', { text: custom.artists.join(', ') }),
+        ]
+      : []),
+    // The leaders and the league's people the games never drew in pixels,
+    // and the leaders a fan remake taught to walk: one entry for each place
+    // their pictures come from, saying whose and for whom.
+    ...(Array.isArray(trainers) && trainers.length
+      ? [
+          el('div.section-title', { text: t('credits.trainers') }),
+          ...trainers.flatMap((entry) => [
+            el('p.meta', { text: t(`credits.trainers.${entry.key}`, { source: entry.source, license: entry.license, artist: entry.artist ?? '' }) }),
+            el('p.meta.credits-url', { text: entry.url }),
+          ]),
         ]
       : []),
   ];

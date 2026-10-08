@@ -638,7 +638,7 @@ test('the shop sells all but the unique, prices a trainer\'s prize, and a kept i
   assert.equal(session.money, 3000, 'a journey starts with the games\' 3,000');
 
   assert.equal(priceOf('potion'), 200);
-  assert.equal(priceOf('master-ball'), null);
+  assert.equal(priceOf('master-ball'), 100000, 'a Master Ball is sold, dearly');
   assert.equal(priceOf('red-orb'), null, 'a legendary\'s own item is not sold');
   assert.ok(shopStock().length > 300);
 

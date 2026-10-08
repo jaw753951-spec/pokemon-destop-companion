@@ -365,6 +365,31 @@ export function failsBeforeUse(battle, user, target, move, slug) {
   }
 }
 
+/**
+ * The moves `failsBeforeUse` can only judge once the turn is under way: what
+ * the target chose, and whether the user was hit first. Whether they work is
+ * a read of the other side, not a fact to check beforehand.
+ */
+const DECIDED_IN_THE_TURN = new Set(['sucker-punch', 'thunderclap', 'upper-hand', 'focus-punch', 'counter', 'mirror-coat', 'metal-burst', 'comeuppance']);
+
+/**
+ * Whether a move is already certain to fail if it is chosen now: a
+ * Poltergeist at a target holding nothing, a Dream Eater at one awake, a
+ * Steel Roller with no terrain, a Belch before any Berry. Choosing one of
+ * those only spends the turn and the PP, and nothing changes by the next
+ * turn, so a Pokémon left to it used it over and over.
+ *
+ * @param {any} battle
+ * @param {any} user
+ * @param {any} target
+ * @param {string} slug
+ */
+export function boundToFail(battle, user, target, slug) {
+  if (!target || DECIDED_IN_THE_TURN.has(slug)) return false;
+  const move = moveOf(slug);
+  return Boolean(move) && failsBeforeUse(battle, user, target, move, slug);
+}
+
 /** @param {any} battle @param {any} user @param {string} slug */
 function canFling(battle, user, slug) {
   const item = itemOf(user.pokemon.heldItem ?? '');
