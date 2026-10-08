@@ -14,7 +14,7 @@ import { concatX, crop, keyOut, opaqueBounds } from '../lib/image.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
 import { saveVendored, vendored } from '../lib/vendor.mjs';
-import { CRYSTAL, EMERALD, FIRERED, NAMED_PORTRAITS, NAMED_WALKERS, PLATINUM } from '../sources.mjs';
+import { EMERALD, FIRERED, NAMED_PORTRAITS, NAMED_WALKERS, PLATINUM } from '../sources.mjs';
 
 /** Overworld people sheets are 16x32 frames; battle portraits are 64x64. */
 const PERSON_FRAME = { width: 16, height: 32 };
@@ -81,17 +81,16 @@ async function buildTrainerPortraits(assetDir, pool, log) {
  * The people the league sends out, from whichever game drew them.
  *
  * Only Hoenn's champions are in this decompilation, and the game picks its
- * Elite Four from every region there is a roster for. The two Kanto-era
- * decompilations cover several of the rest — Fire Red draws them in the same
- * hand as everything else here, and Crystal draws the two nobody else does, in
- * four colours and proud of it. Sinnoh is Platinum's; Johto's leaders and
- * everyone past Sinnoh come from the Smogon sprite repository, kept in
+ * Elite Four from every region there is a roster for. Fire Red covers several
+ * of the rest, in the same hand as everything else here. Sinnoh is
+ * Platinum's; Johto's leaders, Will and Karen, and everyone past Sinnoh come
+ * from the Smogon sprite repository, kept in
  * `data/vendor/` like the Pokémon (see `NAMED_PORTRAITS`). Everyone still
  * missing falls back to a trainer class of their speciality, which the league
  * screen does at draw time.
  */
 async function buildNamedPortraits(assetDir, pool) {
-  const roots = { emerald: EMERALD, firered: FIRERED, crystal: CRYSTAL, platinum: PLATINUM };
+  const roots = { emerald: EMERALD, firered: FIRERED, platinum: PLATINUM };
 
   /** @type {Record<string, {width: number, height: number}>} */
   const out = {};

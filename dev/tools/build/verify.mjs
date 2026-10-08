@@ -268,6 +268,7 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
   for (const entry of classes) {
     note(Boolean(actors.overworld[entry.field]), `trainer class ${entry.id}: no field sprite ${entry.field}`);
     note(Boolean(actors.portraits[entry.portrait]), `trainer class ${entry.id}: no portrait ${entry.portrait}`);
+    note(entry.gender === 'm' || entry.gender === 'f', `trainer class ${entry.id}: no gender`);
     for (const type of entry.types) note(Boolean(types[type]), `trainer class ${entry.id}: unknown type ${type}`);
   }
 
@@ -282,6 +283,9 @@ async function verifyAuthored({ readAuthored, species, types, actors, note, log 
     }
     if (leader.field) {
       note(Boolean(actors.overworld?.[leader.field]), `leader ${leader.id}: no field sprite ${leader.field}`);
+    } else {
+      // Walks as a trainer class of their own sex, so it has to be known.
+      note(leader.gender === 'm' || leader.gender === 'f', `leader ${leader.id}: no gender to borrow a walker by`);
     }
   }
   // Names for the other languages are authored by hand, so a gap is worth

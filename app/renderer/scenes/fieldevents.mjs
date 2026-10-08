@@ -884,17 +884,24 @@ function startTrainer(session, spawnAt) {
  * The walking sprite a gym leader is met in.
  *
  * Only a few of them were ever drawn for the road; the rest are shown as a
- * trainer of their own type — the same one every time, chosen by the leader's
- * id, rather than whichever class the roll happened to bring up.
+ * trainer of their own type and their own sex — the same one every time,
+ * chosen by the leader's id, rather than whichever class the roll happened to
+ * bring up. A type no class of that sex carries (no class is Steel) falls back
+ * to any class of that sex, so nobody walks up unseen. A Swimmer is only a
+ * head above the water, so it is never borrowed for the road.
  *
  * @param {any} leader
  * @param {any[]} classes
  * @returns {string|undefined}
  */
-function leaderField(leader, classes) {
+export function leaderField(leader, classes) {
   const overworld = gameData().actors?.overworld ?? {};
   if (leader.field && overworld[leader.field]) return leader.field;
-  const suited = classes.filter((entry) => entry.field && overworld[entry.field] && entry.types?.includes(leader.type));
+  const walkers = classes.filter(
+    (entry) => entry.field && overworld[entry.field] && !entry.water && (!leader.gender || entry.gender === leader.gender),
+  );
+  const typed = walkers.filter((entry) => entry.types?.includes(leader.type));
+  const suited = typed.length ? typed : walkers;
   if (suited.length === 0) return undefined;
   return suited[stableHash(leader.id ?? '') % suited.length].field;
 }
