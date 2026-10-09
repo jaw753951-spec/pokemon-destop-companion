@@ -134,7 +134,7 @@ export function createHud(handlers) {
     el('div.hud-window', { style: { padding: '2px 8px' } }, [areaLabel]),
   ]);
 
-  const root = el('div.screen', { style: { pointerEvents: 'none' } }, [status, corner, buttons, areaBadge]);
+  const root = el('div.screen.hud', { style: { pointerEvents: 'none' } }, [status, corner, buttons, areaBadge]);
   for (const node of [status, purse, tray, buttons, areaBadge]) node.style.pointerEvents = 'auto';
 
   /** What the tray was last built from, so it is only rebuilt when it changes. */
@@ -145,6 +145,17 @@ export function createHud(handlers) {
   return {
     root,
     tray,
+
+    /**
+     * Fade every window out, or bring them back. Faded, they still answer a
+     * click — but the pointer has to be over the companion to make one, and
+     * that is what brings them back.
+     *
+     * @param {boolean} idle
+     */
+    setIdle(idle) {
+      root.classList.toggle('idle', idle);
+    },
 
     /** @param {import('../engine/session.mjs').Session} session */
     update(session) {

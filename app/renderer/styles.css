@@ -131,6 +131,16 @@ canvas {
   flex-direction: column;
 }
 
+/* The field's windows, faded out while the pointer is off the companion. */
+.hud {
+  transition: opacity 400ms ease-out;
+}
+
+.hud.idle {
+  opacity: 0;
+  transition-duration: 900ms;
+}
+
 /* ------------------------------------------------------------------ controls */
 
 .btn {
