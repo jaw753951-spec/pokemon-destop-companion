@@ -280,6 +280,10 @@ export function leaderLevels(badges, count) {
  *
  * A badge can come a little early, by luck, but not a whole gym early; and a
  * companion that has reached its level meets the leader within a few fights.
+ * Except the first: its leader stands at a fixed level (see `leaderLevels`),
+ * and a starter met six levels short of it — a level 6 against a level 14
+ * ace — has one Pokémon, a couple of moves and no way to win. So the first
+ * leader waits until the badge's level is reached.
  */
 export const LEADER_ODDS = {
   due: { chance: 0.5, wins: 3 },
@@ -309,6 +313,7 @@ export const LEADER_REST_AFTER_LOSS = 3;
 export function leaderOdds(badges, level) {
   const due = BADGE_LEVELS[Math.min(badges, BADGE_LEVELS.length - 1)];
   if (level >= due) return LEADER_ODDS.due;
+  if (badges === 0) return LEADER_ODDS.early;
   if (level >= due - LEADER_ODDS.near.within) return LEADER_ODDS.near;
   return LEADER_ODDS.early;
 }

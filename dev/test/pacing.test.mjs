@@ -41,6 +41,7 @@ test('a leader is all but certain once the next badge is due', () => {
 
 test('a leader can come a little early, by luck, but never a whole gym early', () => {
   for (const [badges, due] of BADGE_LEVELS.entries()) {
+    if (badges === 0) continue;
     const near = leaderOdds(badges, due - 3);
     assert.ok(near.chance > 0 && near.chance < 0.2, `badge ${badges + 1} three levels short`);
     assert.equal(near.wins, Infinity, 'fights won while too low do not add up to a summons');
@@ -49,6 +50,15 @@ test('a leader can come a little early, by luck, but never a whole gym early', (
     assert.equal(far.chance, 0, `badge ${badges + 1} ten levels short`);
     assert.equal(far.wins, Infinity);
   }
+});
+
+test('the first leader never comes early', () => {
+  const due = BADGE_LEVELS[0];
+  for (let level = 1; level < due; level++) {
+    assert.equal(leaderOdds(0, level).chance, 0, `level ${level}`);
+    assert.equal(leaderOdds(0, level).wins, Infinity);
+  }
+  assert.ok(leaderOdds(0, due).chance >= 0.5);
 });
 
 test('a leader stands at the level of the badge they hold, climbing to the ace', () => {
