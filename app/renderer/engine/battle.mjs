@@ -86,6 +86,8 @@ import { stageMultiplier } from './stats.mjs';
  *   and had done to it this turn
  * @property {{speciesId: number, forme: string|null, stats: Record<string, number>, moves: Array<{move: string, pp: number}>}} [transform]
  *   what a Transform or an Imposter made it, for the rest of the battle
+ * @property {number|null} [downAt] when, on the battle's faint clock, it went
+ *   down — which decides a knock-out on both sides (see `checkFaint`)
  */
 
 /**
@@ -333,6 +335,11 @@ export class Battle {
      * @type {'ongoing'|'won'|'lost'|'fled'|'escaped'}
      */
     this.outcome = 'ongoing';
+    /**
+     * A count that goes up each time a Pokémon goes down, so the order two of
+     * them went down in can be read back afterwards.
+     */
+    this.faintClock = 0;
     /** The move each side committed to this turn, decided when order is set. */
     /** @type {Map<Combatant, string|null>|null} */
     this.pendingMoves = null;
@@ -1602,6 +1609,7 @@ export class Battle {
     Object.defineProperty(log, 'push', {
       configurable: true,
       value: (...entries) => {
+        this.noteFaints();
         for (const entry of entries) {
           if (entry && !entry.hp) entry.hp = this.hitPoints();
           if (entry && !entry.statuses) entry.statuses = this.statuses();
@@ -1611,6 +1619,19 @@ export class Battle {
       },
     });
     return log;
+  }
+
+  /**
+   * Stamp the moment each Pokémon on the field went down, the first line
+   * written after its hit points reached nothing. Every blow writes a line,
+   * so the stamps come in the order the Pokémon fell.
+   */
+  noteFaints() {
+    for (const combatant of [this.player, this.foe]) {
+      if (!combatant) continue;
+      if (combatant.pokemon.hp > 0) combatant.downAt = null;
+      else if (combatant.downAt == null) combatant.downAt = ++this.faintClock;
+    }
   }
 
   /**
@@ -1890,9 +1911,12 @@ export class Battle {
   collectSelfKnockout(attacker, log) {
     if (!attacker.marks.spent) return;
     attacker.marks.spent = false;
+    const at = attacker.marks.spentAt;
+    attacker.marks.spentAt = undefined;
     if (attacker.pokemon.hp <= 0) return;
     const amount = attacker.pokemon.hp;
     attacker.pokemon.hp = 0;
+    if (at != null) attacker.downAt = at;
     log.push({ kind: 'damage', side: attacker.side, data: { amount, recoil: true } });
   }
 
@@ -2612,6 +2636,10 @@ export class Battle {
       // Paid however the rest of the move goes: `takeTurn` collects it once
       // the move is over, whichever way out of here it took.
       attacker.marks.spent = true;
+      // But an Explosion's user is down before the blast lands, as the games
+      // from Black and White on have it, and a knock-out on both sides goes
+      // against it. A Memento's goes down after, having done what it does.
+      if (moveName !== 'memento') attacker.marks.spentAt = ++this.faintClock;
     }
 
     // A Future Sight is not a hit now; it is one two turns from now.
@@ -4881,6 +4909,9 @@ export class Battle {
   /** @param {LogEntry[]} log */
   checkFaint(log) {
     if (!this.running || !this.foe) return;
+    this.noteFaints();
+    /** The foe's last Pokémon, when this is what took it down. */
+    let lastFoe = /** @type {Combatant|null} */ (null);
 
     if (this.foe.pokemon.hp <= 0) {
       // The Pokémon itself rides along with the entry. A whole turn is played
@@ -4907,14 +4938,15 @@ export class Battle {
         this.enter(next, log);
         this.imposeAgain(this.player, log);
       } else {
+        lastFoe = this.foe;
         this.foe = null;
       }
     }
 
     // The companion can go down in the same moment as what it was fighting —
-    // to a Struggle's recoil, to a Life Orb, to an Aftermath — and being the
-    // last one standing on no hit points is not a win. Checked after the foe
-    // rather than instead of it, so the knock-out it earned still counts.
+    // to a Struggle's recoil, to a Life Orb, to an Aftermath. Checked after
+    // the foe rather than instead of it, so the knock-out it earned still
+    // counts.
     if (this.player.pokemon.hp <= 0) {
       // Fainting starts a Basculin's count of recoil over.
       if (this.player.pokemon.recoilTaken) this.player.pokemon.recoilTaken = 0;
@@ -4925,8 +4957,14 @@ export class Battle {
       });
       this.onFaint(this.player, log);
       if (this.foe) this.onKnockOut(this.foe, this.player, log);
-      this.outcome = 'lost';
-      log.push({ kind: 'end', data: { outcome: 'lost' } });
+      // With the foe's last Pokémon down too, whichever went down last wins,
+      // as the games have it from Black and White on: the companion that
+      // takes the last one with it on its own recoil has won, and the one
+      // whose Explosion took the last one with it has not. A foe with another
+      // Pokémon still to send out has simply won.
+      const outlasted = Boolean(lastFoe) && (this.player.downAt ?? 0) > (lastFoe?.downAt ?? Infinity);
+      this.outcome = outlasted ? 'won' : 'lost';
+      log.push({ kind: 'end', data: { outcome: this.outcome } });
       return;
     }
 

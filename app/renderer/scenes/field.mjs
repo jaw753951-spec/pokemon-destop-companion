@@ -344,6 +344,11 @@ export function fieldScene(session) {
       app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null, { intro: true });
     }
 
+    // Won on the way down — the last of the foe's taken with it on a recoil —
+    // keeps everything the win was worth, and the companion is carried to
+    // the next Pokémon Center as after a loss, on one hit point, with nothing
+    // paid for it.
+    if (session.active.hp <= 0) session.blackOut();
     patchUp(app);
     restock(app);
     refreshArt(app);
