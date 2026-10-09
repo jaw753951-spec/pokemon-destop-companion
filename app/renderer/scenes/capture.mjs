@@ -9,7 +9,7 @@ import { CAPTURE_ATTEMPTS, FIELD_HEIGHT, FIELD_WIDTH, timeOfDay, VIEW_HEIGHT, VI
 import { loadSprite } from '../core/assets.mjs';
 import { url } from '../core/bridge.mjs';
 import { gameData, itemOf, speciesOf } from '../core/data.mjs';
-import { button, el, setChildren } from '../core/dom.mjs';
+import { button, el, setChildren, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { attemptCapture, captureChance } from '../engine/capture.mjs';
 import { abilityName } from '../engine/abilities.mjs';
@@ -162,6 +162,9 @@ export function captureScene({ session, target, onFinish }) {
           });
           // The ball is thrown at the middle of the Pokémon, not at its feet.
           targetSpot = { x: battler.x, y: Math.round(y - (sprite.height * scale) / 2) };
+          // A shiny sparkles as it is first seen here, as it did in the fight;
+          // the star beside its name keeps saying so once the line has gone.
+          if (target.shiny) battler.showStatus('shiny');
         });
       }
       app.audio.playCry(target.speciesId);
@@ -172,7 +175,7 @@ export function captureScene({ session, target, onFinish }) {
 
       return el('div.screen.capture-screen', {}, [
         counter,
-        el('div.capture-name', { text: `${label()}` }),
+        el('div.capture-name', {}, [label(), shinyMark(target, t('pokemon.shiny'))]),
         tray,
         message,
         el('div.capture-close', {}, [

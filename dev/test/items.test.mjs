@@ -124,12 +124,12 @@ test('an item the engine reads states what it does', withData, () => {
   }
 
   // Everything marked as working has a rule the engine can follow — a use
-  // effect, a held one, a charm kept in the bag, an evolution, or a pocket
-  // that is its own effect.
+  // effect, a held one, a charm kept in the bag, a key item leading to a rare
+  // Pokémon, an evolution, or a pocket that is its own effect.
   for (const [slug, item] of Object.entries(items)) {
     if (!item.works) continue;
     const explained =
-      item.use || item.held || item.capture || item.charm || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
+      item.use || item.held || item.capture || item.charm || item.calls || item.pocket === 'pokeballs' || item.pocket === 'machines' || evolutionItems.has(slug);
     assert.ok(explained, `${slug} claims to work with nothing behind it`);
   }
 

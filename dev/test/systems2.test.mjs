@@ -783,7 +783,7 @@ test('an early road trainer sends out one Pokémon, no higher than the companion
   }
 });
 
-test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', options, () => {
+test('Paradoxes and Ultra Beasts are as rare as the legendaries, and none of them a stray', options, () => {
   // PokeAPI flags none of them, so they walked the road as often as a Dratini.
   for (const slug of ['great-tusk', 'iron-valiant', 'nihilego', 'poipole', 'articuno', 'mewtwo', 'mew']) {
     assert.ok(isRare(speciesOf(/** @type {number} */ (speciesIdBySlug(slug)))), `${slug} is rare`);
@@ -798,9 +798,8 @@ test('Paradoxes and Ultra Beasts are as rare on the road as the legendaries', op
     const species = speciesOf(pickStray(rng, area, 60));
     if (isRare(species)) rare++;
   }
-  // A hundred and twenty-nine rare species at a twentieth of the weight: under
-  // one stray in a hundred, where the thirty-one unflagged used to be three.
-  assert.ok(rare / rolls < 0.01, `${rare} rare strays in ${rolls}`);
+  // They come on a clock of their own (rare.mjs), never as a stray.
+  assert.equal(rare, 0, `${rare} rare strays in ${rolls}`);
 
   // And they are not what an ordinary trainer of their type sends out.
   for (const id of typePool({ tags: ['grass'] }, ['fairy', 'fighting', 'bug', 'steel'])) {

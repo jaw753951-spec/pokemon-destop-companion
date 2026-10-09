@@ -6,7 +6,7 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, leaderOdds } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, leaderLevels, leaderOdds } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -17,6 +17,7 @@ import { alreadyOwned, priceOf } from '../engine/shop.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
+import { callingFind, rollRare } from '../engine/rare.mjs';
 import {
   ACTOR_SCALE,
   actorScale,
@@ -485,8 +486,9 @@ function startBall(session, spawnAt) {
   const pool = (gameData().itemTiers[tier.ball] ?? []).filter(
     (slug) => !alreadyOwned(session, slug) && itemOf(slug)?.pocket !== 'berries',
   );
-  // Now and then, the item the travelling legendary is waiting on.
-  const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
+  // Now and then, the item the travelling legendary is waiting on, or a key
+  // item that leads to a rare Pokémon.
+  const item = signatureFind(session) ?? callingFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
   const count = foundCount(session.rng, item);
 
   const state = {
@@ -808,7 +810,15 @@ const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session), session.shinyOdds);
+  const wild = rollWildPokemon(
+    session.rng,
+    session.area,
+    session.active,
+    session.lastWildSpecies,
+    boxed(session),
+    session.shinyOdds,
+    rollRare(session),
+  );
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 
@@ -944,17 +954,14 @@ function pickLeader(session) {
 }
 
 /**
- * A leader's party: the species they are known for, levelled to the player so
- * the fight stays a challenge whenever it happens rather than being fixed to
- * the point in a journey the leader originally sat at.
+ * A leader's party: the species they are known for, at the levels of the
+ * badge they hold (see `leaderLevels`) — whoever challenges them, as the
+ * League is.
  *
  * @param {import('../engine/session.mjs').Session} session
  * @param {any} leader
  */
 export function leaderParty(session, leader) {
-  // A badge should be worth working for, not a brick wall: a leader is a
-  // level or two up rather than most of a gym's worth.
-  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 1));
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
@@ -962,7 +969,10 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, LEADER_PARTY_CAP);
 
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
+  const levels = leaderLevels(session.badges.length, species.length);
+  const party = species.map((id, index) =>
+    createPokemon(session.rng, evolveToLevel(id, levels[index]), levels[index], { ivFloor: 10 }),
+  );
   return giveTrainerItems(session.rng, party, 'leader');
 }
 

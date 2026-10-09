@@ -85,6 +85,12 @@ export class Session {
     /** The purse: what trainers pay out and the shop takes. */
     this.money = Number.isFinite(save.progress?.money) ? save.progress.money : STARTING_MONEY;
     this.playtime = save.progress?.playtime ?? 0;
+    /**
+     * The playtime the last rare Pokémon was met at, which the clock for the
+     * next one runs from (see `rare.mjs`). A save from before the clock
+     * starts it now, rather than owing the whole run's walking at once.
+     */
+    this.rareSince = Number.isFinite(save.progress?.rareSince) ? save.progress.rareSince : this.playtime;
     /** @type {string[]} move slugs unlocked by using TMs */
     this.machines = [...(save.progress?.machines ?? [])];
 
@@ -372,6 +378,7 @@ export class Session {
         leaderRest: this.leaderRest,
         money: this.money,
         playtime: Math.round(this.playtime),
+        rareSince: Math.round(this.rareSince),
         areaId: this.area?.id ?? null,
         eventsHere: this.eventsHere,
         machines: this.machines,

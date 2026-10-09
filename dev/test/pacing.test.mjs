@@ -12,8 +12,9 @@ import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
 import { createPokemon } from '../../app/renderer/engine/pokemon.mjs';
 import { Session } from '../../app/renderer/engine/session.mjs';
-import { BADGE_LEVELS, BADGES_FOR_LEAGUE, LEADER_REST_AFTER_LOSS, leaderOdds } from '../../app/shared/constants.mjs';
-import { shouldSummonLeader } from '../../app/renderer/scenes/fieldevents.mjs';
+import { BADGE_LEVELS, BADGES_FOR_LEAGUE, LEADER_REST_AFTER_LOSS, leaderLevels, leaderOdds } from '../../app/shared/constants.mjs';
+import { levelOf } from '../../app/renderer/engine/pokemon.mjs';
+import { leaderParty, shouldSummonLeader } from '../../app/renderer/scenes/fieldevents.mjs';
 import { LEAGUE_LEVELS, leagueLevel } from '../../app/renderer/scenes/league.mjs';
 
 const ready = await useRealGameData();
@@ -40,6 +41,7 @@ test('a leader is all but certain once the next badge is due', () => {
 
 test('a leader can come a little early, by luck, but never a whole gym early', () => {
   for (const [badges, due] of BADGE_LEVELS.entries()) {
+    if (badges === 0) continue;
     const near = leaderOdds(badges, due - 3);
     assert.ok(near.chance > 0 && near.chance < 0.2, `badge ${badges + 1} three levels short`);
     assert.equal(near.wins, Infinity, 'fights won while too low do not add up to a summons');
@@ -47,6 +49,36 @@ test('a leader can come a little early, by luck, but never a whole gym early', (
     const far = leaderOdds(badges, due - 10);
     assert.equal(far.chance, 0, `badge ${badges + 1} ten levels short`);
     assert.equal(far.wins, Infinity);
+  }
+});
+
+test('the first leader never comes early', () => {
+  const due = BADGE_LEVELS[0];
+  for (let level = 1; level < due; level++) {
+    assert.equal(leaderOdds(0, level).chance, 0, `level ${level}`);
+    assert.equal(leaderOdds(0, level).wins, Infinity);
+  }
+  assert.ok(leaderOdds(0, due).chance >= 0.5);
+});
+
+test('a leader stands at the level of the badge they hold, climbing to the ace', () => {
+  for (const [badges, due] of BADGE_LEVELS.entries()) {
+    const levels = leaderLevels(badges, 3);
+    assert.equal(levels[levels.length - 1], due + 2, `badge ${badges + 1}'s ace`);
+    for (let index = 1; index < levels.length; index++) assert.ok(levels[index] > levels[index - 1]);
+    assert.deepEqual(leaderLevels(badges, 1), [due + 2], 'a team of one is the ace');
+  }
+  // The eighth badge's leader sits just under the League, which opens at 70.
+  assert.ok(leaderLevels(BADGES_FOR_LEAGUE - 1, 3).every((level) => level <= 70));
+});
+
+test('a leader\'s team is the same whoever challenges it', options, () => {
+  const leader = { id: 'rock-brock', type: 'rock', party: [74, 95] };
+  for (const level of [6, 12, 40]) {
+    const session = new Session({ slot: 0, save: { seed: 3, party: { active: createPokemon(new Rng(1), 4, level), box: [] } } });
+    assert.deepEqual(leaderParty(session, leader).map(levelOf), leaderLevels(0, 2), `against a level ${level}`);
+    session.badges = ['rock', 'water', 'electric'];
+    assert.deepEqual(leaderParty(session, leader).map(levelOf), leaderLevels(3, 2), `the fourth badge, against a level ${level}`);
   }
 });
 
