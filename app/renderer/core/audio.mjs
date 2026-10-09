@@ -399,7 +399,7 @@ export class AudioEngine {
 
   /**
    * Interface blips, synthesised so the game ships no sound-effect files.
-   * @param {'select'|'confirm'|'cancel'|'error'|'hit'|'faint'|'catch'} kind
+   * @param {'select'|'confirm'|'cancel'|'error'|'hit'|'faint'|'catch'|'shiny'} kind
    */
   blip(kind) {
     this.start();
@@ -415,9 +415,9 @@ export class AudioEngine {
       oscillator.connect(gain);
       gain.connect(/** @type {GainNode} */ (this.effectGain));
 
-      const at = now + index * spec.gap;
+      const at = now + (step.at ?? index * spec.gap);
       gain.gain.setValueAtTime(0.0001, at);
-      gain.gain.linearRampToValueAtTime(0.35, at + 0.005);
+      gain.gain.linearRampToValueAtTime(0.35 * (step.gain ?? 1), at + 0.005);
       gain.gain.exponentialRampToValueAtTime(0.0001, at + step.length);
       oscillator.start(at);
       oscillator.stop(at + step.length + 0.02);
@@ -439,7 +439,11 @@ export class AudioEngine {
   }
 }
 
-/** @type {Record<string, {wave: OscillatorType, gap: number, steps: Array<{frequency: number, length: number}>}>} */
+/**
+ * A step may name its own start and loudness, for a sound that is not an even
+ * run of notes.
+ * @type {Record<string, {wave: OscillatorType, gap: number, steps: Array<{frequency: number, length: number, at?: number, gain?: number}>}>}
+ */
 const BLIPS = {
   select: { wave: 'square', gap: 0, steps: [{ frequency: 880, length: 0.05 }] },
   confirm: { wave: 'square', gap: 0.06, steps: [{ frequency: 660, length: 0.05 }, { frequency: 990, length: 0.09 }] },
@@ -448,6 +452,19 @@ const BLIPS = {
   hit: { wave: 'square', gap: 0, steps: [{ frequency: 160, length: 0.1 }] },
   faint: { wave: 'triangle', gap: 0.08, steps: [{ frequency: 440, length: 0.1 }, { frequency: 220, length: 0.18 }] },
   catch: { wave: 'square', gap: 0.09, steps: [{ frequency: 660, length: 0.07 }, { frequency: 880, length: 0.07 }, { frequency: 1320, length: 0.16 }] },
+  // Emerald's SE_SHINY (`sound/songs/midi/se_shiny.mid`) note for note: C7
+  // and G7 twice, then C#7 and G#7 three times, dying away.
+  shiny: {
+    wave: 'triangle',
+    gap: 0,
+    steps: [
+      [0, 96, 0.034, 1], [0.034, 103, 0.068, 1],
+      [0.102, 96, 0.034, 0.819], [0.148, 103, 0.068, 0.819],
+      [0.216, 97, 0.034, 0.63], [0.25, 104, 0.068, 0.63],
+      [0.318, 97, 0.034, 0.378], [0.364, 104, 0.068, 0.378],
+      [0.432, 97, 0.034, 0.252], [0.477, 104, 0.068, 0.252],
+    ].map(([at, note, length, gain]) => ({ at, frequency: 440 * 2 ** ((note - 69) / 12), length, gain })),
+  },
 };
 
 /**

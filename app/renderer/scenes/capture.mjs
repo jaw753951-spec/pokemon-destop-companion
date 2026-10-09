@@ -164,7 +164,7 @@ export function captureScene({ session, target, onFinish }) {
           targetSpot = { x: battler.x, y: Math.round(y - (sprite.height * scale) / 2) };
           // A shiny sparkles as it is first seen here, as it did in the fight;
           // the star beside its name keeps saying so once the line has gone.
-          if (target.shiny) battler.showStatus('shiny');
+          if (target.shiny) battler.showShiny(() => app.audio.blip('shiny'));
         });
       }
       app.audio.playCry(target.speciesId);
