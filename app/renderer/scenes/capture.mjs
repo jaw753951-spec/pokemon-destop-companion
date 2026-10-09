@@ -107,12 +107,8 @@ export function captureScene({ session, target, onFinish }) {
     if (thrown.phase === 'shake' && thrown.elapsed >= thrown.shakes * SHAKE_MS) {
       thrown.phase = thrown.caught ? 'caught' : 'broke';
       thrown.elapsed = 0;
-      // One that broke out is back on its feet — a shiny in its sparkle, as
-      // it is whenever it comes out of a ball.
-      if (!thrown.caught && battler) {
-        battler.visible = true;
-        if (target.shiny) battler.showStatus('shiny');
-      }
+      // One that broke out is back on its feet.
+      if (!thrown.caught && battler) battler.visible = true;
     }
   }
 
