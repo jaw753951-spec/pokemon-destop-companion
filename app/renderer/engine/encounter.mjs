@@ -96,16 +96,18 @@ export function spreadFor(level) {
  * @param {number|null} [previous] the species of the wild Pokémon met last
  * @param {Set<number>} [owned] species already in the box, met a little less often
  * @param {number} [shinyOdds] better than the usual with a Shiny Charm in the bag
+ * @param {number|null} [rare] a rare Pokémon this one is to be instead of a draw
+ *   (see `rare.mjs`), brought to its level the way a stray is
  * @returns {import('./pokemon.mjs').Pokemon}
  */
-export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set(), shinyOdds = undefined) {
+export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set(), shinyOdds = undefined, rare = null) {
   const level = rollLevel(rng, companion);
   const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
-  let speciesId = draw();
-  if (previous !== null && speciesId === previous) speciesId = draw();
+  let speciesId = rare === null ? draw() : evolveToLevel(devolveToLevel(rare, level), level);
+  if (rare === null && previous !== null && speciesId === previous) speciesId = draw();
   // One in ten of the ones already in the box is put back and drawn again:
   // a very slight thinning, not a filter.
-  if (owned.has(speciesId) && rng.chance(BOXED_REDRAW)) speciesId = draw();
+  if (rare === null && owned.has(speciesId) && rng.chance(BOXED_REDRAW)) speciesId = draw();
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
@@ -132,13 +134,7 @@ export const STRAY_CHANCE = 0.3;
 export const BOXED_REDRAW = 0.1;
 
 /** How much likelier a stray is when its type suits the terrain. */
-const STRAY_TERRAIN_WEIGHT = 3;
-
-/**
- * And how much rarer when it is a rare one ({@link isRare}): out there, but a
- * once-in-a-long-while meeting rather than a route's regular.
- */
-const STRAY_LEGEND_WEIGHT = 0.05;
+export const STRAY_TERRAIN_WEIGHT = 3;
 
 /**
  * The Paradox Pokémon and the Ultra Beasts, which PokeAPI flags as neither
@@ -161,7 +157,8 @@ const RARE_SLUGS = new Set([
 /**
  * Whether a species is one the road only rarely turns up: a legendary — the
  * lesser ones and the box art alike, which PokeAPI flags the same — a
- * mythical, a Paradox Pokémon or an Ultra Beast.
+ * mythical, a Paradox Pokémon or an Ultra Beast. These are never a stray:
+ * they come on a clock of their own (see `rare.mjs`).
  *
  * @param {{slug?: string, isLegendary?: boolean, isMythical?: boolean}|null|undefined} species
  */
@@ -170,8 +167,14 @@ export function isRare(species) {
 }
 
 /**
- * A wild Pokémon from anywhere in the Pokédex, leaning towards the types the
- * area's terrain suits, at the stage of its line the level calls for.
+ * A wild Pokémon from anywhere in the Pokédex but the rare ones, leaning
+ * towards the types the area's terrain suits, at the stage of its line the
+ * level calls for.
+ *
+ * The rare ones used to be in here at a twentieth of the weight, which made a
+ * legendary about one wild Pokémon in five hundred — a day and a half of
+ * walking on average, and any amount longer on a bad run. They have a clock
+ * of their own now, which a long enough wait always gets to.
  *
  * @param {import('../core/rng.mjs').Rng} rng
  * @param {any} area
@@ -180,12 +183,12 @@ export function isRare(species) {
  */
 export function pickStray(rng, area, level) {
   const wanted = new Set((area?.tags ?? []).flatMap((tag) => TAG_TYPES[tag] ?? []));
-  const entries = Object.values(gameData().species).map((species) => ({
-    value: species.id,
-    weight:
-      (species.types.some((type) => wanted.has(type)) ? STRAY_TERRAIN_WEIGHT : 1) *
-      (isRare(species) ? STRAY_LEGEND_WEIGHT : 1),
-  }));
+  const entries = Object.values(gameData().species)
+    .filter((species) => !isRare(species))
+    .map((species) => ({
+      value: species.id,
+      weight: species.types.some((type) => wanted.has(type)) ? STRAY_TERRAIN_WEIGHT : 1,
+    }));
   const chosen = rng.weighted(entries) ?? 1;
   return evolveToLevel(devolveToLevel(chosen, level), level);
 }

@@ -127,13 +127,15 @@ function shippedItems(items, { machines, moves, species, log }) {
     if (formItem) item = { ...item, ...formItem, pocket: 'misc' };
     const charm = CHARM_ITEMS[slug];
     if (charm) item = { ...item, ...charm, pocket: 'key' };
+    const calling = CALLING_ITEMS[slug];
+    if (calling) item = { ...item, ...calling, pocket: 'key' };
     // Whatever some Pokémon evolves by stays, wherever PokeAPI filed it: a
     // Galarica Cuff is a story item there and a Slowpoke's way on here.
     const evolves = evolutionItems.has(slug);
     if (evolves && item.pocket === 'key') item = { ...item, pocket: 'misc' };
 
     const reason =
-      KEPT_ITEMS[slug] || formItem || charm || evolves ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
+      KEPT_ITEMS[slug] || formItem || charm || calling || evolves ? null : RETIRED_ITEMS[slug] ?? RETIRED_CATEGORIES[item.category];
     if (reason) {
       dropped[reason] = (dropped[reason] ?? 0) + 1;
       continue;
@@ -148,6 +150,7 @@ function shippedItems(items, { machines, moves, species, log }) {
         item.pocket === 'pokeballs' ||
         item.pocket === 'machines' ||
         Boolean(item.charm) ||
+        Boolean(item.calls) ||
         evolutionItems.has(slug),
     };
   }
@@ -228,6 +231,43 @@ const KEPT_ITEMS = {
  */
 const CHARM_ITEMS = {
   'shiny-charm': { category: 'charms', charm: { shinyRolls: 8 } },
+};
+
+/**
+ * The key items that lead to a rare Pokémon: a ticket, a letter, a feather.
+ * In the games each one opened the way to the Pokémon it names — the Member
+ * Card to Darkrai's island, Oak's Letter to Shaymin's flowers, the Silver Wing
+ * to Lugia's whirlpools — and here each one decides which rare Pokémon the
+ * road turns up next (see `rare.mjs`). Kept in the key pocket and never used
+ * up; found on the road, never sold. PokeAPI files them as story items, which
+ * would retire them.
+ *
+ * `calls` is who the item leads to, met in that order, one at a time, until
+ * every one of them is caught — the Eon Ticket's Latias and then Latios, the
+ * Enigmatic Card's Ultra Beasts in the order Sun and Moon's task force hunts
+ * them. Those Pokémon are met no other way. `afterLeague` holds an item back
+ * until the save has a champion, as the games kept the mythical Pokémon's
+ * tickets and Looker's card for after the story. Only the items with an
+ * official Korean name are here, so the Old Sea Map and the Aurora and Mystic
+ * Tickets, from a generation never released in Korean, are not.
+ *
+ * @type {Record<string, {category: string, calls: string[], afterLeague?: boolean}>}
+ */
+const CALLING_ITEMS = {
+  'eon-ticket': { category: 'calls', calls: ['latias', 'latios'] },
+  'silver-wing': { category: 'calls', calls: ['lugia'] },
+  'rainbow-wing': { category: 'calls', calls: ['ho-oh'] },
+  'jade-orb': { category: 'calls', calls: ['rayquaza'] },
+  'magma-stone': { category: 'calls', calls: ['heatran'] },
+  'member-card': { category: 'calls', calls: ['darkrai'], afterLeague: true },
+  'oaks-letter': { category: 'calls', calls: ['shaymin'], afterLeague: true },
+  'azure-flute': { category: 'calls', calls: ['arceus'], afterLeague: true },
+  'liberty-pass': { category: 'calls', calls: ['victini'], afterLeague: true },
+  'enigmatic-card': {
+    category: 'calls',
+    calls: ['nihilego', 'buzzwole', 'pheromosa', 'xurkitree', 'kartana', 'celesteela', 'guzzlord', 'poipole', 'stakataka', 'blacephalon'],
+    afterLeague: true,
+  },
 };
 
 /**

@@ -78,6 +78,8 @@ const CATEGORY_PRICES = {
 const NOT_SOLD_CATEGORIES = new Set([
   // A charm is a title's prize, and only that.
   'charms',
+  // A key item that leads to a rare Pokémon is found on the road, and only there.
+  'calls',
   'plot-advancement', 'gameplay', 'unused', 'event-items', 'dex-completion', 'species-candies',
   'tm-materials', 'picnic', 'loot', 'collectibles', 'memories', 'plates',
 ]);

@@ -17,6 +17,7 @@ import { alreadyOwned, priceOf } from '../engine/shop.mjs';
 import { capRoster, evolveToLevel, giveTrainerItems, LEADER_PARTY_CAP, rollTrainer, rollWildPokemon } from '../engine/encounter.mjs';
 import { createPokemon, levelOf } from '../engine/pokemon.mjs';
 import { signatureFind } from '../engine/items.mjs';
+import { callingFind, rollRare } from '../engine/rare.mjs';
 import {
   ACTOR_SCALE,
   actorScale,
@@ -485,8 +486,9 @@ function startBall(session, spawnAt) {
   const pool = (gameData().itemTiers[tier.ball] ?? []).filter(
     (slug) => !alreadyOwned(session, slug) && itemOf(slug)?.pocket !== 'berries',
   );
-  // Now and then, the item the travelling legendary is waiting on.
-  const item = signatureFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
+  // Now and then, the item the travelling legendary is waiting on, or a key
+  // item that leads to a rare Pokémon.
+  const item = signatureFind(session) ?? callingFind(session) ?? (pool.length ? session.rng.pick(pool) : 'poke-ball');
   const count = foundCount(session.rng, item);
 
   const state = {
@@ -808,7 +810,15 @@ const boxed = (/** @type {import('../engine/session.mjs').Session} */ session) =
 
 /** A wild Pokémon steps out ahead. */
 function startWild(session, spawnAt) {
-  const wild = rollWildPokemon(session.rng, session.area, session.active, session.lastWildSpecies, boxed(session), session.shinyOdds);
+  const wild = rollWildPokemon(
+    session.rng,
+    session.area,
+    session.active,
+    session.lastWildSpecies,
+    boxed(session),
+    session.shinyOdds,
+    rollRare(session),
+  );
   session.lastWildSpecies = wild.speciesId;
   session.markSeen(wild.speciesId);
 
