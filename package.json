@@ -1,6 +1,6 @@
 {
   "name": "pokemon-desktop-companion",
-  "version": "0.7.4",
+  "version": "0.7.5",
   "private": true,
   "description": "Pokémon Desktop Companion — a non-commercial fan-made desktop tamagotchi",
   "type": "module",
