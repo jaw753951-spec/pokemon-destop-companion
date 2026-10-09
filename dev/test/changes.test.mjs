@@ -25,7 +25,7 @@ import {
 } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle, leagueOpen, Session } from '../../app/renderer/engine/session.mjs';
 import { rollWildPokemon } from '../../app/renderer/engine/encounter.mjs';
-import { resolveLeague } from '../../app/renderer/scenes/league.mjs';
+import { buildParty, resolveLeague } from '../../app/renderer/scenes/league.mjs';
 
 const ready = await useRealGameData();
 const options = { skip: ready ? false : NEEDS_ASSETS };
@@ -113,6 +113,15 @@ test('stepping out to prepare keeps the league and the round reached', options, 
   } finally {
     gameData().leagues = real;
   }
+});
+
+test('a league roster on file is sent out as written, not evolved to the round', options, () => {
+  // Glacia's last four: Glalie, Sealeo, Glalie, Walrein. Levelling them to the
+  // round made her Sealeo a second Walrein.
+  const glacia = { id: 'hoenn-glacia', type: 'ice', party: [id('sealeo'), id('glalie'), id('sealeo'), id('glalie'), id('walrein')] };
+  const party = buildParty(sessionOf(fixed(4, 70)), glacia, 74);
+  assert.deepEqual(party.map((pokemon) => pokemon.speciesId), [id('glalie'), id('sealeo'), id('glalie'), id('walrein')]);
+  assert.ok(party.every((pokemon) => levelOf(pokemon) === 74));
 });
 
 test('a Pokémon that is caught goes into the box at level 5, with the moves of that level', options, () => {
