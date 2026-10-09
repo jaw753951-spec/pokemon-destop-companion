@@ -36,6 +36,13 @@ export const SURFABLE_BEHAVIORS = new Set([
 ]);
 
 /**
+ * The long grass of Route 119 and Route 120 (`MB_LONG_GRASS`), which a walker
+ * in the cartridge sinks into to the waist (`FLDEFF_LONG_GRASS`). Fire Red has
+ * none.
+ */
+export const LONG_GRASS_BEHAVIORS = new Set([0x03]);
+
+/**
  * What differs between the two decompilations a map can come from.
  *
  * Fire Red numbers its behaviours a little differently (fast water where
@@ -48,7 +55,7 @@ export const SURFABLE_BEHAVIORS = new Set([
  * Red's.
  *
  * @type {Record<'emerald'|'firered', {base: string, geometry: import('./gba-gfx.mjs').Geometry,
- *   attributeBytes: number, behaviorMask: number, layerShift: number, surfable: Set<number>}>}
+ *   attributeBytes: number, behaviorMask: number, layerShift: number, surfable: Set<number>, longGrass: Set<number>}>}
  */
 export const GAMES = {
   emerald: {
@@ -58,6 +65,7 @@ export const GAMES = {
     behaviorMask: 0xff,
     layerShift: 12,
     surfable: SURFABLE_BEHAVIORS,
+    longGrass: LONG_GRASS_BEHAVIORS,
   },
   firered: {
     base: FIRERED,
@@ -66,6 +74,7 @@ export const GAMES = {
     behaviorMask: 0x1ff,
     layerShift: 29,
     surfable: new Set([0x10, 0x11, 0x12, 0x13, 0x15, 0x19, 0x1a, 0x1b, 0x22, 0x50, 0x51, 0x52, 0x53]),
+    longGrass: new Set(),
   },
 };
 
@@ -97,6 +106,7 @@ export async function openMaps(pool, game = 'emerald') {
      *   image: {width: number, height: number, data: Uint8Array},
      *   over: {width: number, height: number, data: Uint8Array},
      *   isWater: (x: number, y: number) => boolean,
+     *   isLongGrass: (x: number, y: number) => boolean,
      * }>}
      */
     async render(dir) {
@@ -129,11 +139,14 @@ export async function openMaps(pool, game = 'emerald') {
       // Layer type 1 ("covered") puts both layers under the sprites; 0 and 2
       // put the second one over them.
       const overSprites = (metatileId) => ((attributesOf(metatileId) >>> profile.layerShift) & 0x3) !== 1;
-      const isWater = (x, y) => {
+      /** @param {Set<number>} behaviors */
+      const blockIs = (behaviors) => (x, y) => {
         const offset = (y * layout.width + x) * 2;
         if (x < 0 || y < 0 || x >= layout.width || offset + 1 >= blockdata.length) return false;
-        return profile.surfable.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
+        return behaviors.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
       };
+      const isWater = blockIs(profile.surfable);
+      const isLongGrass = blockIs(profile.longGrass);
 
       return {
         map,
@@ -142,6 +155,7 @@ export async function openMaps(pool, game = 'emerald') {
         image: renderMap(blockdata, layout.width, layout.height, tileset, metatiles),
         over: renderTopLayer(blockdata, layout.width, layout.height, tileset, metatiles, overSprites),
         isWater,
+        isLongGrass,
       };
     },
   };
