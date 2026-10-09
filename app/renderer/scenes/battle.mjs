@@ -32,7 +32,7 @@ import { abilityName, afterBattle } from '../engine/abilities.mjs';
 
 /** How often a Pickup finds something after a win, as Emerald's one in ten does. */
 const PICKUP_CHANCE = 0.1;
-import { BATTLE_SCALE, Battler, battlerArt, mirrorFor } from '../render/battler.mjs';
+import { BATTLE_SCALE, Battler, battlerArt, EMERGE_MS, mirrorFor, SHINY_MS } from '../render/battler.mjs';
 import { drawBackdrop, loadBackdrop } from '../render/backdrop.mjs';
 import { alreadyOwned } from '../engine/shop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
@@ -188,6 +188,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   /** @type {Battler|null} */
   let foeBattler = null;
   let loadedFoeId = '';
+  /**
+   * A sparkle asked for before the battler it is for had loaded its art,
+   * started as soon as it has.
+   */
+  const shinyPending = { player: /** @type {(() => void)|null} */ (null), foe: /** @type {(() => void)|null} */ (null) };
   /** The sprite key the player's battler was drawn from, so a changed shape reloads it. */
   let loadedPlayerId = '';
   /**
@@ -247,6 +252,30 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   };
 
   /**
+   * Start a shiny's sparkle on one side, now or as soon as its art is in, with
+   * the chime on the first star.
+   *
+   * @param {'player'|'foe'} side
+   * @param {import('../core/app.mjs').App} app
+   */
+  const sparkle = (side, app) => {
+    const chime = () => app.audio.blip('shiny');
+    const battler = side === 'player' ? playerBattler : foeBattler;
+    if (battler) battler.showShiny(chime);
+    else shinyPending[side] = chime;
+  };
+
+  /**
+   * How much longer than its usual beat a line has to hold for a shiny coming
+   * out of a ball, the way the cartridge holds the battle until its sparkle is
+   * over. Nothing for anything else.
+   *
+   * @param {{shiny?: boolean}|null|undefined} pokemon
+   * @param {number} beat the line's usual length
+   */
+  const holdForShiny = (pokemon, beat) => (pokemon?.shiny ? Math.max(beat, TOSS_MS + EMERGE_MS + SHINY_MS) : beat);
+
+  /**
    * @param {number} deltaMs
    * @param {import('../core/app.mjs').App} app
    */
@@ -261,9 +290,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       if (battler) {
         battler.visible = true;
         battler.setPose('emerge');
-        // A shiny sparkles as it comes out of its ball, as it does in the games.
-        if (entry.pokemon?.shiny) battler.showStatus('shiny');
       }
+      // A shiny sparkles once it is out of its ball, as it does in the games.
+      if (entry.pokemon?.shiny) sparkle(entry.side, app);
       app.audio.blip('confirm');
       if (entry.pokemon && entry.side === 'player') app.audio.playCry(entry.pokemon.speciesId);
     }
@@ -384,6 +413,14 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       });
       // Hidden until its ball has landed, if it is still in the air.
       battler.visible = sentOut[side];
+      // A sparkle under way carries on on the new picture, and one asked for
+      // before there was a picture starts now.
+      battler.takeSparkleFrom(side === 'player' ? playerBattler : foeBattler);
+      const chime = shinyPending[side];
+      if (chime) {
+        shinyPending[side] = null;
+        battler.showShiny(chime);
+      }
       if (side === 'player') playerBattler = battler;
       else foeBattler = battler;
     });
@@ -433,11 +470,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       app.audio.playMusic(music ?? gameData().bgm.cues[trainer ? 'battleTrainer' : 'battleWild']);
       app.audio.playCry(battle.foe?.pokemon.speciesId ?? session.active.speciesId);
 
-      // A shiny gets a line of its own, after the one that says what turned
-      // up, with the cartridges' sparkle bursting round it and a chime.
       queue = [
         { kind: 'intro', data: {} },
-        ...(battle.foe?.pokemon.shiny ? [{ kind: 'shiny', data: {} }] : []),
         { kind: 'go', data: {} },
       ];
       updateBars();
@@ -489,7 +523,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       beat -= deltaMs;
       // The leader has been looked at long enough — or the player clicked on —
       // and steps off as the first ball goes up.
-      if (leaderFigure.pending && beat <= BEAT_MS.intro) {
+      if (leaderFigure.pending && beat <= holdForShiny(shownFoe ?? battle.foe?.pokemon, BEAT_MS.intro)) {
         leaderFigure.pending = false;
         leaderFigure.leaving = 0;
         toss('foe', shownFoe ?? battle.foe?.pokemon ?? null);
@@ -690,9 +724,19 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         // A gym leader is seen first, and throws once the line has been read.
         if (leaderArt) {
           leaderFigure.pending = true;
-          return BEAT_MS.intro + LEADER_HOLD_MS;
+          return LEADER_HOLD_MS + holdForShiny(foe, BEAT_MS.intro);
         }
-        if (trainer) toss('foe', foe);
+        if (trainer) {
+          toss('foe', foe);
+          return holdForShiny(foe, BEAT_MS.intro);
+        }
+        // A wild one is there from the start, and sparkles while it is
+        // announced; the line waits for the stars, as the cartridge's does. No
+        // line of its own says so — the games never had one.
+        if (foe?.shiny) {
+          sparkle('foe', app);
+          return Math.max(BEAT_MS.intro, SHINY_MS);
+        }
         return BEAT_MS.intro;
 
       // The companion is sent out after whatever it is being sent out against
@@ -700,7 +744,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
       case 'go':
         say(t('battle.go', { name: nameOf(player) }));
         toss('player', player);
-        return BEAT_MS.go;
+        return holdForShiny(player, BEAT_MS.go);
 
       case 'move': {
         const attacker = entry.side === 'player' ? player : foe;
@@ -972,12 +1016,6 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(t('battle.flinched', { name: nameOf(entry.side === 'player' ? player : foe) }));
         break;
 
-      case 'shiny':
-        say(t('battle.shiny'));
-        foeBattler?.showStatus('shiny');
-        app.audio.blip('confirm');
-        return BEAT_MS.status;
-
       case 'ability':
         say(t('battle.ability', {
           name: nameOf(entry.side === 'player' ? player : foe),
@@ -1172,8 +1210,9 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(trainer
           ? t('battle.foeSentOut', { trainer: localized(trainer.name, ''), name: nameOf(sent) })
           : t('event.wild', { name: nameOf(sent) }));
-        if (sent?.shiny) queue.unshift({ kind: 'shiny', data: {} });
-        return BEAT_MS.faint;
+        // A trainer's shiny sparkles out of its ball; a wild one in place.
+        if (!trainer && sent?.shiny) sparkle('foe', app);
+        return trainer ? holdForShiny(sent, BEAT_MS.faint) : sent?.shiny ? Math.max(BEAT_MS.faint, SHINY_MS) : BEAT_MS.faint;
       }
 
       case 'experience':
@@ -1214,7 +1253,8 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
           // The games say nothing more after a wild Pokémon's faint and the
           // experience — the fight is simply over — and name the trainer beaten.
           if (trainer) say(t(leader ? 'battle.wonLeader' : 'battle.wonTrainer', { trainer: localized(trainer.name, '') }));
-          playerBattler?.setPose('win');
+          // A companion that went down last has won lying down.
+          if (player.hp > 0) playerBattler?.setPose('win');
         } else if (battle.outcome === 'fled' || battle.outcome === 'escaped') {
           // Nobody was beaten: the line that sent it away has already been
           // said, and the battle simply ends — the wild one gone from its

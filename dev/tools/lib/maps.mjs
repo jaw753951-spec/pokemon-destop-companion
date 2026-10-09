@@ -36,6 +36,31 @@ export const SURFABLE_BEHAVIORS = new Set([
 ]);
 
 /**
+ * The long grass of Route 119 and Route 120 (`MB_LONG_GRASS`), which a walker
+ * in the cartridge sinks into to the waist (`FLDEFF_LONG_GRASS`). Fire Red has
+ * none.
+ */
+export const LONG_GRASS_BEHAVIORS = new Set([0x03]);
+
+/**
+ * Tall grass (`MB_TALL_GRASS`), the same number in both games, whose blades
+ * the cartridge draws over a walker's feet (`FLDEFF_TALL_GRASS`).
+ */
+export const TALL_GRASS_BEHAVIORS = new Set([0x02]);
+
+/**
+ * Every way through to somewhere else — doors, ladders, the arrow warps at a
+ * gatehouse's mouth, escalators — which both games keep together from 0x60
+ * (`MB_NON_ANIMATED_DOOR` to `MB_DEEP_SOUTH_WARP` in Emerald, `MB_CAVE_DOOR`
+ * to `MB_UP_RIGHT_STAIR_WARP` in Fire Red). They are open ground to the
+ * collision bits, but each is the edge of a building or a hole in a wall.
+ *
+ * @param {number} from
+ * @param {number} to
+ */
+const behaviorRange = (from, to) => new Set(Array.from({ length: to - from + 1 }, (_, index) => from + index));
+
+/**
  * What differs between the two decompilations a map can come from.
  *
  * Fire Red numbers its behaviours a little differently (fast water where
@@ -48,7 +73,7 @@ export const SURFABLE_BEHAVIORS = new Set([
  * Red's.
  *
  * @type {Record<'emerald'|'firered', {base: string, geometry: import('./gba-gfx.mjs').Geometry,
- *   attributeBytes: number, behaviorMask: number, layerShift: number, surfable: Set<number>}>}
+ *   attributeBytes: number, behaviorMask: number, layerShift: number, surfable: Set<number>, longGrass: Set<number>, tallGrass: Set<number>, warps: Set<number>}>}
  */
 export const GAMES = {
   emerald: {
@@ -58,6 +83,9 @@ export const GAMES = {
     behaviorMask: 0xff,
     layerShift: 12,
     surfable: SURFABLE_BEHAVIORS,
+    longGrass: LONG_GRASS_BEHAVIORS,
+    tallGrass: TALL_GRASS_BEHAVIORS,
+    warps: behaviorRange(0x60, 0x6e),
   },
   firered: {
     base: FIRERED,
@@ -66,6 +94,11 @@ export const GAMES = {
     behaviorMask: 0x1ff,
     layerShift: 29,
     surfable: new Set([0x10, 0x11, 0x12, 0x13, 0x15, 0x19, 0x1a, 0x1b, 0x22, 0x50, 0x51, 0x52, 0x53]),
+    longGrass: new Set(),
+    // And the grass on the Cycling Road's slope, which Fire Red's own
+    // `MetatileBehavior_IsTallGrass` counts as tall grass too.
+    tallGrass: new Set([...TALL_GRASS_BEHAVIORS, 0xd1]),
+    warps: behaviorRange(0x60, 0x6c),
   },
 };
 
@@ -97,6 +130,9 @@ export async function openMaps(pool, game = 'emerald') {
      *   image: {width: number, height: number, data: Uint8Array},
      *   over: {width: number, height: number, data: Uint8Array},
      *   isWater: (x: number, y: number) => boolean,
+     *   isLongGrass: (x: number, y: number) => boolean,
+     *   isTallGrass: (x: number, y: number) => boolean,
+     *   isWarp: (x: number, y: number) => boolean,
      * }>}
      */
     async render(dir) {
@@ -129,11 +165,16 @@ export async function openMaps(pool, game = 'emerald') {
       // Layer type 1 ("covered") puts both layers under the sprites; 0 and 2
       // put the second one over them.
       const overSprites = (metatileId) => ((attributesOf(metatileId) >>> profile.layerShift) & 0x3) !== 1;
-      const isWater = (x, y) => {
+      /** @param {Set<number>} behaviors */
+      const blockIs = (behaviors) => (x, y) => {
         const offset = (y * layout.width + x) * 2;
         if (x < 0 || y < 0 || x >= layout.width || offset + 1 >= blockdata.length) return false;
-        return profile.surfable.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
+        return behaviors.has(behaviorOf(blockdata.readUInt16LE(offset) & 0x3ff));
       };
+      const isWater = blockIs(profile.surfable);
+      const isLongGrass = blockIs(profile.longGrass);
+      const isTallGrass = blockIs(profile.tallGrass);
+      const isWarp = blockIs(profile.warps);
 
       return {
         map,
@@ -142,6 +183,9 @@ export async function openMaps(pool, game = 'emerald') {
         image: renderMap(blockdata, layout.width, layout.height, tileset, metatiles),
         over: renderTopLayer(blockdata, layout.width, layout.height, tileset, metatiles, overSprites),
         isWater,
+        isLongGrass,
+        isTallGrass,
+        isWarp,
       };
     },
   };

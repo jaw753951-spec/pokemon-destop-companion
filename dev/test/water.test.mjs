@@ -70,6 +70,17 @@ test('a Swimmer is only ever met where there is water', withData, async () => {
   assert.ok(swimmers > 0, 'a beach with water in front of the lane has Swimmers');
 });
 
+test('nobody drawn in the water or in a rubber ring walks the dry road', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const raw = JSON.parse(await readFile(new URL('../../data/authored/trainer-classes.json', import.meta.url), 'utf8'));
+  // A Tuber is a child bobbing in a ring, as much as a Swimmer is a head in
+  // the water; standing on a grassy road in one read as a Swimmer come ashore.
+  for (const entry of raw.classes.filter((entry) => /^(swimmer|tuber)/.test(entry.id))) {
+    assert.equal(entry.water, true, `${entry.id} is met only in the water`);
+  }
+  assert.equal(raw.classes.find((entry) => entry.id === 'tuber-m').field, 'tuber_m_swimming', "the Tuber♂ swims in Emerald's own picture of it");
+});
+
 test('a gym leader without a walker of their own borrows one of their own sex, never a Swimmer', withData, async () => {
   const { readFile } = await import('node:fs/promises');
   const { leaderField } = await import('../../app/renderer/scenes/fieldevents.mjs');

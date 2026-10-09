@@ -128,7 +128,7 @@ function tabRows(app, tab, rebuild) {
       return creditRows();
     case 'display':
     default:
-      return [scaleRow(app)];
+      return [scaleRow(app), idleHudRow(app)];
   }
 }
 
@@ -155,6 +155,24 @@ function scaleRow(app) {
 
   settingsApi.scaleSteps().then(render);
   return el('div.setting', {}, [el('span.label', { text: t('settings.scale') }), options]);
+}
+
+/**
+ * Whether the field's windows fade out while the pointer is off the
+ * companion, leaving only the road and the Pokémon walking it.
+ *
+ * @param {import('../core/app.mjs').App} app
+ */
+function idleHudRow(app) {
+  const box = el('input.checkbox', {
+    type: 'checkbox',
+    checked: app.settings.hideIdleHud !== false,
+    onChange: (event) => {
+      app.audio.blip('select');
+      app.updateSettings({ hideIdleHud: /** @type {HTMLInputElement} */ (event.target).checked });
+    },
+  });
+  return el('label.setting.checkrow', {}, [box, el('span.checkrow-label', { text: t('settings.hideIdleHud') })]);
 }
 
 /**

@@ -62,6 +62,14 @@ import { saveAndExit, saveAndQuit, settingsScene } from '../ui/settings.mjs';
 const STEP_PX = 16;
 
 /**
+ * How long the pointer has to be off the companion before the windows over
+ * the road fade out, when the setting asks for it. Half a minute: long enough
+ * that a glance away and back finds them where they were, and only a
+ * companion left to walk on its own sheds them.
+ */
+export const HUD_IDLE_MS = 30000;
+
+/**
  * Start or resume a run, replacing whatever is on screen.
  * @param {import('../core/app.mjs').App} app
  * @param {{slot: number, save: any}} options
@@ -138,6 +146,16 @@ export function fieldScene(session) {
   /** The overlay listeners this scene registered, removed on unmount. */
   let onPointerDown = null;
   let onPointerUp = null;
+  let onHoverIn = null;
+  let onHoverOut = null;
+  /**
+   * Whether the pointer is over the companion's window, and how long it has
+   * been away if not. It starts away: a companion just opened under a pointer
+   * that never moves fades like any other, and the first nudge brings the
+   * windows back.
+   */
+  let hovering = false;
+  let awayMs = 0;
 
   /** Load whatever art the current area and companion need. */
   const refreshArt = (app) => {
@@ -326,6 +344,11 @@ export function fieldScene(session) {
       app.audio.playJingle(gameData().bgm.cues.victoryWild ?? null, { intro: true });
     }
 
+    // Won on the way down — the last of the foe's taken with it on a recoil —
+    // keeps everything the win was worth, and the companion is carried to
+    // the next Pokémon Center as after a loss, on one hit point, with nothing
+    // paid for it.
+    if (session.active.hp <= 0) session.blackOut();
     patchUp(app);
     restock(app);
     refreshArt(app);
@@ -517,6 +540,19 @@ export function fieldScene(session) {
       }
       window.addEventListener('blur', onPointerUp);
 
+      // Over the window or off it. A move counts as well as an entry, since
+      // an entry made before this scene mounted is never seen again.
+      onHoverIn = () => {
+        hovering = true;
+        awayMs = 0;
+      };
+      onHoverOut = () => {
+        hovering = false;
+      };
+      document.documentElement.addEventListener('mouseenter', onHoverIn);
+      document.documentElement.addEventListener('mousemove', onHoverIn);
+      document.documentElement.addEventListener('mouseleave', onHoverOut);
+
       refreshArt(app);
       hud.update(session);
       return hud.root;
@@ -531,8 +567,15 @@ export function fieldScene(session) {
         }
         window.removeEventListener('blur', onPointerUp);
       }
+      if (onHoverIn) {
+        document.documentElement.removeEventListener('mouseenter', onHoverIn);
+        document.documentElement.removeEventListener('mousemove', onHoverIn);
+      }
+      if (onHoverOut) document.documentElement.removeEventListener('mouseleave', onHoverOut);
       onPointerDown = null;
       onPointerUp = null;
+      onHoverIn = null;
+      onHoverOut = null;
       boosting = false;
       boost = 0;
       hud = null;
@@ -541,6 +584,11 @@ export function fieldScene(session) {
     },
 
     update(deltaMs, app) {
+      // With nobody looking, the windows step aside and leave the companion
+      // on its road; a pointer over it brings them back.
+      if (!hovering) awayMs += deltaMs;
+      hud?.setIdle(app.settings.hideIdleHud !== false && !hovering && awayMs >= HUD_IDLE_MS);
+
       if (paused) return;
 
       // Holding the pointer on the travelling view runs the event clock fast,

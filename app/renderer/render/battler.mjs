@@ -48,8 +48,11 @@ export const mirrorFor = (sprite, facing) => (sprite.facing ?? 'left') !== facin
  */
 export const BATTLE_SCALE = 1;
 
+/** How long a Pokémon takes to come out of its ball, which a shiny's wait only starts counting after. */
+export const EMERGE_MS = 340;
+
 /** How long each pose runs before falling back to idle. */
-const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: 340 };
+const POSE_DURATION = { idle: 0, attack: 360, hit: 360, win: 900, lose: 700, emerge: EMERGE_MS };
 
 /**
  * How long a Pokémon takes to leave for a two-turn move's wait, and to come
@@ -106,9 +109,72 @@ const STATUS_EFFECTS = {
   slp: { tint: '#8890a8', strength: 0.25, main: '#ffffff', light: '#ffffff', shadow: '#485078' },
   frz: { tint: '#80d0f0', strength: 0.5, main: '#a8e8ff', light: '#ffffff', shadow: '#3888b8' },
   confusion: { tint: '#f0a0c8', strength: 0.2, main: '#f8d840', light: '#fff8c0', shadow: '#b07800' },
-  // Not a condition: the sparkle a shiny Pokémon comes out in.
-  shiny: { tint: '#ffffff', strength: 0.35, main: '#fff4a0', light: '#ffffff', shadow: '#d0a000' },
 };
+
+/**
+ * The sparkle a shiny Pokémon comes out in, frame for frame as Emerald plays
+ * it (`TryShinyAnimation` and `Task_ShinyStars` in `battle_anim_throw.c`).
+ *
+ * Sixty frames after the Pokémon is out, two streams of five gold stars
+ * start, one star every four frames from the middle of the Pokémon — a big
+ * one, three medium ones and a small one. One stream goes once round a circle
+ * of 24 pixels, a sixteenth and a bit of a turn a frame; the other starts
+ * four frames late, 32 pixels down and left of the middle, and cuts straight
+ * up and right through it at five pixels a frame. The chime sounds with the
+ * first star. Nothing tints the Pokémon: the stars are the whole of it.
+ *
+ * A field pixel is a Game Boy Advance pixel here, so the distances are the
+ * cartridge's own.
+ */
+const FRAME_MS = 1000 / 60;
+/** Which frame of 60 a second a time falls in, steady against rounding. */
+const frameOf = (ms) => Math.floor(ms / FRAME_MS + 1e-6);
+const SHINY_WAIT_FRAMES = 60;
+const SHINY_STARS = 5;
+const SHINY_STAR_EVERY = 4;
+const SHINY_CIRCLE_RADIUS = 24;
+/** The circle's phase step a frame, out of the 256 a turn the cartridge counts in. */
+const SHINY_CIRCLE_STEP = 12;
+const SHINY_CIRCLE_FRAMES = Math.ceil(256 / SHINY_CIRCLE_STEP);
+const SHINY_DIAGONAL_FROM = 32;
+const SHINY_DIAGONAL_STEP = 5;
+const SHINY_DIAGONAL_DELAY = 4;
+const SHINY_DIAGONAL_FRAMES = SHINY_DIAGONAL_DELAY + Math.floor((SHINY_DIAGONAL_FROM * 2) / SHINY_DIAGONAL_STEP) + 1;
+const SHINY_LAST_STAR = (SHINY_STARS - 1) * SHINY_STAR_EVERY;
+const SHINY_STAR_FRAMES = SHINY_LAST_STAR + Math.max(SHINY_CIRCLE_FRAMES, SHINY_DIAGONAL_FRAMES);
+
+/** How long a shiny's sparkle holds the battle up, from the moment it is out. */
+export const SHINY_MS = Math.ceil((SHINY_WAIT_FRAMES + SHINY_STAR_FRAMES) * FRAME_MS);
+
+/**
+ * Emerald's gold stars (`graphics/battle_anims/sprites/gold_stars.png`): the
+ * 16x16 star the first of each stream is, and the two 8x8 ones the rest are,
+ * in the sheet's three golds.
+ */
+const GOLD = { x: '#ff9418', '#': '#ffc520', o: '#ffde8b' };
+const GOLD_STAR_BIG = [
+  '................',
+  '.......xx.......',
+  '.......##.......',
+  '......xoox......',
+  '......#oo#......',
+  '......#oo#......',
+  'x####oooooo####x',
+  '.x#oooooooooo#x.',
+  '...xoooooooox...',
+  '....#oooooo#....',
+  '....xoooooox....',
+  '....xoo##oox....',
+  '...xoo#..#oox...',
+  '...xox....xox...',
+  '...#........#...',
+  '................',
+];
+const GOLD_STAR_MEDIUM = ['........', '...x#...', '...oo...', '.x#oo#x.', '..#oo#..', '..o##o..', '..o..o..', '........'];
+const GOLD_STAR_SMALL = ['........', '........', '...o....', '..ooo...', '...o....', '........', '........', '........'];
+
+/** @param {number} index the star's place in its stream */
+const goldStar = (index) => (index === 0 ? GOLD_STAR_BIG : index < SHINY_STARS - 1 ? GOLD_STAR_MEDIUM : GOLD_STAR_SMALL);
 
 /* The effects' little drawings, a character a field pixel (see `drawStatus`). */
 const BUBBLE = ['.xxx.', 'x#o#x', 'x###x', 'x###x', '.xxx.'];
@@ -144,6 +210,28 @@ function tintCanvas(width, height) {
   if (sharedTint.width < width) sharedTint.width = width;
   if (sharedTint.height < height) sharedTint.height = height;
   return sharedTint;
+}
+
+/**
+ * One of Emerald's gold stars, centred where the cartridge positions a
+ * sprite: on the middle of its box.
+ *
+ * @param {CanvasRenderingContext2D} context
+ * @param {string[]} rows
+ * @param {number} x
+ * @param {number} y
+ */
+function stampGold(context, rows, x, y) {
+  const ox = Math.round(x - rows[0].length / 2);
+  const oy = Math.round(y - rows.length / 2);
+  rows.forEach((row, ry) => {
+    for (let rx = 0; rx < row.length; rx++) {
+      const colour = GOLD[/** @type {keyof typeof GOLD} */ (row[rx])];
+      if (!colour) continue;
+      context.fillStyle = colour;
+      context.fillRect(ox + rx, oy + ry, 1, 1);
+    }
+  });
 }
 
 export class Battler {
@@ -191,6 +279,14 @@ export class Battler {
     this.statusElapsed = 0;
 
     /**
+     * A shiny's sparkle: how long it has been running, counted from the end
+     * of the Pokémon coming out of its ball, or -1 while none is. The chime
+     * is handed the first star's moment, once.
+     */
+    this.shinyElapsed = -1;
+    this.onShinyStars = /** @type {(() => void)|null} */ (null);
+
+    /**
      * Where a two-turn move has taken the Pokémon for its wait — `sky`,
      * `ground`, `water` or `vanished` — and how long since it left. Null
      * while it is on the field.
@@ -236,6 +332,26 @@ export class Battler {
   }
 
   /**
+   * Sparkle as a shiny does on coming out.
+   * @param {() => void} [onStars] called as the first star appears, for the chime
+   */
+  showShiny(onStars) {
+    this.shinyElapsed = 0;
+    this.onShinyStars = onStars ?? null;
+  }
+
+  /**
+   * Carry on a sparkle another picture of the same Pokémon was part way
+   * through, when the art behind it is swapped out mid-way.
+   * @param {Battler|null} other
+   */
+  takeSparkleFrom(other) {
+    if (!other || other.shinyElapsed < 0) return;
+    this.shinyElapsed = other.shinyElapsed;
+    this.onShinyStars = other.onShinyStars;
+  }
+
+  /**
    * Play the arrows for a stat that just moved.
    * @param {1|-1} direction up for a raise, down for a drop
    */
@@ -264,6 +380,21 @@ export class Battler {
     if (this.statusEffect) {
       this.statusElapsed += deltaMs;
       if (this.statusElapsed >= STATUS_EFFECT_MS) this.statusEffect = null;
+    }
+
+    // The wait starts once the Pokémon is out of its ball, as the
+    // cartridge's waits for the ball's animation to have finished.
+    if (this.shinyElapsed >= 0 && this.pose !== 'emerge') {
+      this.shinyElapsed += deltaMs;
+      if (frameOf(this.shinyElapsed) >= SHINY_WAIT_FRAMES && this.onShinyStars) {
+        const chime = this.onShinyStars;
+        this.onShinyStars = null;
+        chime();
+      }
+      if (this.shinyElapsed >= SHINY_MS) {
+        this.shinyElapsed = -1;
+        this.onShinyStars = null;
+      }
     }
 
     if (this.away) this.awayElapsed += deltaMs;
@@ -323,6 +454,42 @@ export class Battler {
     if (transform.glow > 0) this.drawTint(context, '#ffffff', transform.glow);
     if (this.statDirection !== 0) this.drawStatChange(context);
     if (this.statusEffect) this.drawStatus(context);
+    if (this.shinyElapsed >= 0) this.drawShiny(context);
+  }
+
+  /**
+   * The two streams of gold stars, where Emerald has each of them on this
+   * frame of the sparkle.
+   *
+   * @param {CanvasRenderingContext2D} context
+   */
+  drawShiny(context) {
+    if (!this.sprite) return;
+    const frame = frameOf(this.shinyElapsed) - SHINY_WAIT_FRAMES;
+    if (frame < 0) return;
+    const height = this.sprite.height * this.scale;
+    const centreX = this.x;
+    const centreY = this.y + this.transform().dy - height / 2;
+
+    for (let index = 0; index < SHINY_STARS; index++) {
+      const age = frame - index * SHINY_STAR_EVERY;
+      if (age < 0) continue;
+      const rows = goldStar(index);
+
+      // Round the circle: Sin and Cos of the phase, starting straight below.
+      if (age < SHINY_CIRCLE_FRAMES) {
+        const angle = ((age * SHINY_CIRCLE_STEP) / 256) * Math.PI * 2;
+        stampGold(context, rows, centreX + Math.sin(angle) * SHINY_CIRCLE_RADIUS, centreY + Math.cos(angle) * SHINY_CIRCLE_RADIUS);
+      }
+
+      // Across it: unseen for its first frames, then up and to the right
+      // until it is as far past the middle as it started short of it.
+      const moved = age - SHINY_DIAGONAL_DELAY;
+      if (moved >= 0) {
+        const offset = -SHINY_DIAGONAL_FROM + (moved + 1) * SHINY_DIAGONAL_STEP;
+        if (offset <= SHINY_DIAGONAL_FROM) stampGold(context, rows, centreX + offset, centreY - offset);
+      }
+    }
   }
 
   /**
@@ -468,22 +635,6 @@ export class Battler {
           const x = left + width * (0.15 + ((index * 43) % 70) / 100);
           const y = top + height * (0.15 + ((index * 29) % 70) / 100);
           stamp(step < 0.3 || step > 0.7 ? GLINT_SMALL : GLINT, x, y);
-        }
-        break;
-      }
-      case 'shiny': {
-        // Stars bursting outward from the Pokémon in a ring, twice, as the
-        // games' sparkle does, shrinking as they fly.
-        for (let wave = 0; wave < 2; wave++) {
-          const step = (progress - wave * 0.3) / 0.6;
-          if (step <= 0 || step >= 1) continue;
-          for (let index = 0; index < 8; index++) {
-            const angle = (index / 8) * Math.PI * 2 + wave * 0.4;
-            const reach = 6 + step * Math.max(18, width * 0.55);
-            const x = this.x + Math.cos(angle) * reach;
-            const y = top + height / 2 + Math.sin(angle) * reach * 0.8;
-            stamp(step < 0.6 ? STAR : GLINT_SMALL, x, y);
-          }
         }
         break;
       }

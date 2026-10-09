@@ -4,8 +4,8 @@
  */
 import { join } from 'node:path';
 
-import { fetchJson, writeOut } from '../lib/http.mjs';
-import { encodePng } from '../lib/png.mjs';
+import { fetchBuffer, fetchJson, writeOut } from '../lib/http.mjs';
+import { decodePng, encodePng } from '../lib/png.mjs';
 import { METATILE_SIZE } from '../lib/gba-gfx.mjs';
 import { openMaps } from '../lib/maps.mjs';
 import { crop, gradeTime, makeSeamless, pickWalkPath, repeatToWidth, TIME_KEYS } from '../lib/image.mjs';
@@ -31,6 +31,13 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     return /** @type {Promise<Map<string, any[]>>} */ (encountersByGame.get(game));
   };
   const locationNames = await loadLocationNames(pool);
+  /** The grass a walker goes into, per game, opened the first time an area asks. */
+  /** @type {Map<string, Promise<{long: boolean[]|null, tall: boolean[]}>>} */
+  const grassByGame = new Map();
+  const grassFor = (game) => {
+    if (!grassByGame.has(game)) grassByGame.set(game, loadGrassMasks(game));
+    return /** @type {Promise<{long: boolean[]|null, tall: boolean[]}>} */ (grassByGame.get(game));
+  };
 
   const wantedBlocks = Math.ceil(BACKGROUND_HEIGHT / METATILE_SIZE);
   /** @type {any[]} */
@@ -40,7 +47,8 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     const game = area.game ?? 'emerald';
     const maps = await mapsFor(game);
     const encounters = await encountersFor(game);
-    const { map, layout, blockdata, image: rendered, over, isWater } = await maps.render(area.dir);
+    const { map, layout, blockdata, image: rendered, over, isWater, isLongGrass, isTallGrass, isWarp } = await maps.render(area.dir);
+    const grass = await grassFor(game);
     // Two of the thirty maps are shorter than the window; they give what they
     // have and the field fills the remainder from their own top row.
     const bandBlocks = Math.min(wantedBlocks, layout.height);
@@ -48,7 +56,10 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
     // strip is cut to a stretch of map the companion can cross end to end, so
     // the loop it walks has no hillside or tree in it at any point. See
     // `pickWalkPath` for why a whole-width strip could not manage that.
-    const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks, isWater);
+    // Nor through a doorway: the band is looped by mirroring it, and a
+    // gatehouse's mouth at the end of the lane came back as half a door frame
+    // stood on its own in the road, which the companion walked through.
+    const path = pickWalkPath(blockdata, layout.width, layout.height, bandBlocks, (x, y) => isWater(x, y) || isWarp(x, y));
     // Slid down the map where the area asks, to show what stands below the
     // lane; the lane itself stays where it was, higher in the strip.
     if (area.bandDrop) {
@@ -78,6 +89,17 @@ export async function buildAreas({ assetDir, dataDir, log, pool }) {
       path.columns * METATILE_SIZE,
       bandBlocks * METATILE_SIZE,
     );
+    // Grass on the lane is walked through, not over: the companion goes into
+    // it as a player in the cartridge does, the blades drawn over its feet —
+    // to the waist in long grass, the ankles in tall. Laid on the
+    // over-the-sprites layer, it is kept to the lane's own block as a tree's
+    // crown is — see `keepOverLane`.
+    sinkIntoGrass(overBand, band, (path.laneRow - path.bandRow + 1) * METATILE_SIZE, (index) => {
+      const x = path.column + index;
+      if (isLongGrass(x, path.laneRow)) return grass.long;
+      if (isTallGrass(x, path.laneRow)) return grass.tall;
+      return null;
+    });
     // A lane up on a bridge's deck is walked across the top of it, not under:
     // the cartridge draws a sprite that high over the whole top layer.
     const laneElevations = Array.from({ length: path.columns }, (_, index) =>
@@ -307,6 +329,78 @@ function keepOverLane(over, groundY, onTop = []) {
     else clear(over, index);
   });
   return { overlay: over, blocking, roofing };
+}
+
+/**
+ * How much of a long-grass block, from the ground up, is drawn over the
+ * companion. The cartridge draws the whole block over a walker's feet, which
+ * hides a person — 32 pixels tall — to the waist; a Charmander on the road is
+ * twenty, and the whole block buried it to the eyes. Half a block hides it to
+ * the waist the same way, and the tips of the blades stand behind it.
+ */
+const LONG_GRASS_DEPTH = METATILE_SIZE / 2;
+
+/**
+ * Which pixels of a grass block are blades a walker goes behind, from each
+ * game's own picture of a walker in it (`graphics/field_effects/pics/`, the
+ * first frame — a walker standing still — which is the same art as the
+ * block's own). Colour 0 is clear on the Game Boy Advance; in the long grass,
+ * colour 13 is the ground between the blades, which shows the walker through
+ * rather than drawing over it. Tall grass is only blades at the bottom of
+ * its block, and is taken whole.
+ *
+ * Fire Red has its own tall grass, drawn a little differently from
+ * Emerald's, and no long grass.
+ *
+ * @param {string} game
+ * @returns {Promise<{long: boolean[]|null, tall: boolean[]}>} one per pixel of
+ *   a block, row by row; the long grass only the bottom
+ *   {@link LONG_GRASS_DEPTH} rows of it
+ */
+async function loadGrassMasks(game) {
+  const base = game === 'firered' ? FIRERED : EMERALD;
+  /** @param {string} name @param {(index: number, y: number) => boolean} blade */
+  const maskOf = async (name, blade) => {
+    const picture = decodePng(await fetchBuffer(`${base}/graphics/field_effects/pics/${name}.png`));
+    const mask = [];
+    for (let y = 0; y < METATILE_SIZE; y++) {
+      for (let x = 0; x < METATILE_SIZE; x++) mask.push(blade(picture.indices?.[y * picture.width + x] ?? 0, y));
+    }
+    return mask;
+  };
+  return {
+    long: game === 'firered' ? null : await maskOf('long_grass', (index, y) => y >= METATILE_SIZE - LONG_GRASS_DEPTH && index !== 0 && index !== 13),
+    tall: await maskOf('tall_grass', (index) => index !== 0),
+  };
+}
+
+/**
+ * Draw the blades of each grass block of the lane onto the band's
+ * over-the-sprites layer, in the map's own pixels, wherever that layer has
+ * nothing of its own.
+ *
+ * @param {import('../lib/image.mjs').Raster} over the band's top layer, written to
+ * @param {import('../lib/image.mjs').Raster} band the band as drawn
+ * @param {number} groundY the bottom edge of the lane's row, in the band
+ * @param {(index: number) => boolean[]|null} maskFor per block column of the
+ *   band, the blades of the grass on it (see {@link loadGrassMasks}), or null
+ */
+export function sinkIntoGrass(over, band, groundY, maskFor) {
+  const columns = Math.floor(band.width / METATILE_SIZE);
+  for (let index = 0; index < columns; index++) {
+    const mask = maskFor(index);
+    if (!mask) continue;
+    for (let y = 0; y < METATILE_SIZE; y++) {
+      const row = groundY - METATILE_SIZE + y;
+      if (row < 0 || row >= band.height) continue;
+      for (let x = 0; x < METATILE_SIZE; x++) {
+        if (!mask[y * METATILE_SIZE + x]) continue;
+        const offset = (row * band.width + index * METATILE_SIZE + x) * 4;
+        if (over.data[offset + 3] > 0) continue;
+        for (let channel = 0; channel < 4; channel++) over.data[offset + channel] = band.data[offset + channel];
+      }
+    }
+  }
 }
 
 /** Which rows beside the lane are looked at for water, nearest first: in front, behind, then two out. */

@@ -324,6 +324,11 @@ function generatedLeague(session) {
  * A league trainer's team: their named roster where one is on file, and
  * otherwise the strongest members of their speciality.
  *
+ * A named roster is sent out as written, never evolved to the round's level:
+ * it is that person's real team, and evolving it rewrote it — Glacia's Sealeo
+ * came out as a second Walrein beside her ace. Only the stand-in teams are
+ * evolved, since nobody chose their stages.
+ *
  * @param {import('../engine/session.mjs').Session} session
  * @param {any} trainer
  * @param {number} level the round's, from `leagueLevel`
@@ -333,8 +338,8 @@ export function buildParty(session, trainer, level) {
 
   const species = roster.length
     ? capRoster(roster, LEAGUE_PARTY_CAP)
-    : strongestOfType(session, trainer.type, LEAGUE_PARTY_CAP);
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 14 }));
+    : strongestOfType(session, trainer.type, LEAGUE_PARTY_CAP).map((id) => evolveToLevel(id, level));
+  const party = species.map((id) => createPokemon(session.rng, id, level, { ivFloor: 14 }));
   // The Elite Four and the champion save the berry for the Pokémon they lead
   // with last, as every one of them does in Emerald.
   return giveTrainerItems(session.rng, party, 'champion');

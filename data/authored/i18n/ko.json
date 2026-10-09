@@ -19,6 +19,7 @@
   "settings.tab.language": "언어",
   "settings.tab.credits": "크레딧",
   "settings.scale": "화면 크기",
+  "settings.hideIdleHud": "유휴 상태에서 화면 정보 숨기기",
   "settings.music": "음악",
   "settings.effects": "효과음",
   "settings.cries": "울음소리",
