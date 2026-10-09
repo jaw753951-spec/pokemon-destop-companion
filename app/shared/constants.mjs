@@ -240,6 +240,35 @@ export const BADGES_FOR_LEAGUE = 8;
 export const BADGE_LEVELS = [12, 20, 28, 36, 44, 52, 60, 68];
 
 /**
+ * How far above a badge's level the leader's ace stands, and how far below
+ * each Pokémon the one sent out before it.
+ */
+export const LEADER_ACE_ABOVE = 2;
+export const LEADER_LEVEL_STEP = 2;
+
+/**
+ * The levels a leader's team stands at, in the order it is sent out.
+ *
+ * Fixed by the badge, as the League is by its round, rather than pitched
+ * against the challenger: a leader one level above whoever walked in was the
+ * same fight at level 15 as at 40, so there was nothing to train for and
+ * nothing gained by it. Now the leader for the first badge stands around 12,
+ * the eighth's around 68, the ace two above the badge's level and each before
+ * it two below the next — the way a gym's team climbs to its ace. A companion
+ * that comes early, by luck, finds a leader above it; one that has trained
+ * past the badge finds one below.
+ *
+ * @param {number} badges the badges already held: the leader is for the next
+ * @param {number} count how many Pokémon the team has
+ * @returns {number[]}
+ */
+export function leaderLevels(badges, count) {
+  const due = BADGE_LEVELS[Math.min(badges, BADGE_LEVELS.length - 1)];
+  const ace = due + LEADER_ACE_ABOVE;
+  return Array.from({ length: count }, (_, index) => Math.max(1, ace - (count - 1 - index) * LEADER_LEVEL_STEP));
+}
+
+/**
  * How often a trainer encounter is a gym leader instead, and how many trainer
  * wins since the last badge summon one without the roll.
  *

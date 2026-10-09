@@ -6,7 +6,7 @@
  * met along the way rather than something that appeared on top of the player.
  * The runner owns the props and their timing; the field scene owns the walk.
  */
-import { FIELD_HEIGHT, FIELD_WIDTH, leaderOdds } from '../../shared/constants.mjs';
+import { FIELD_HEIGHT, FIELD_WIDTH, leaderLevels, leaderOdds } from '../../shared/constants.mjs';
 import { loadImage, loadSprite, Sprite } from '../core/assets.mjs';
 import { artOf, gameData, itemOf, speciesOf } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
@@ -954,17 +954,14 @@ function pickLeader(session) {
 }
 
 /**
- * A leader's party: the species they are known for, levelled to the player so
- * the fight stays a challenge whenever it happens rather than being fixed to
- * the point in a journey the leader originally sat at.
+ * A leader's party: the species they are known for, at the levels of the
+ * badge they hold (see `leaderLevels`) — whoever challenges them, as the
+ * League is.
  *
  * @param {import('../engine/session.mjs').Session} session
  * @param {any} leader
  */
 export function leaderParty(session, leader) {
-  // A badge should be worth working for, not a brick wall: a leader is a
-  // level or two up rather than most of a gym's worth.
-  const level = Math.min(100, levelOf(session.active) + (leader.levelBonus ?? 1));
   const roster = (leader.party ?? []).filter((id) => speciesOf(id));
 
   const species = roster.length
@@ -972,7 +969,10 @@ export function leaderParty(session, leader) {
     : // No roster on file: fall back to strong members of the leader's type.
       pickTypeRoster(session, leader.type, LEADER_PARTY_CAP);
 
-  const party = species.map((id) => createPokemon(session.rng, evolveToLevel(id, level), level, { ivFloor: 10 }));
+  const levels = leaderLevels(session.badges.length, species.length);
+  const party = species.map((id, index) =>
+    createPokemon(session.rng, evolveToLevel(id, levels[index]), levels[index], { ivFloor: 10 }),
+  );
   return giveTrainerItems(session.rng, party, 'leader');
 }
 
