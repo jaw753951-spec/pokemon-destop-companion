@@ -63,10 +63,11 @@ const STEP_PX = 16;
 
 /**
  * How long the pointer has to be off the companion before the windows over
- * the road fade out, when the setting asks for it. Long enough that sweeping
- * past the edge on the way to a button does not blink them.
+ * the road fade out, when the setting asks for it. Half a minute: long enough
+ * that a glance away and back finds them where they were, and only a
+ * companion left to walk on its own sheds them.
  */
-export const HUD_IDLE_MS = 2000;
+export const HUD_IDLE_MS = 30000;
 
 /**
  * Start or resume a run, replacing whatever is on screen.
