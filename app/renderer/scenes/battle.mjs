@@ -1190,7 +1190,12 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         say(t('battle.fainted', { name: nameOf(fainter) }));
         battlerFor(entry.side)?.setPose('lose');
         app.audio.blip('faint');
-        if (entry.side === 'foe' && fainter) defeated.push(fainter);
+        if (entry.side === 'foe' && fainter) {
+          // The clock a Timer Ball runs on starts with the battle, as it does
+          // in the games, rather than with the first ball.
+          fainter.battleTurns = battle.turn;
+          defeated.push(fainter);
+        }
         return BEAT_MS.faint;
       }
 

@@ -554,7 +554,7 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
 });
 
-test('a wild Pokémon met surfing or fishing knows it, and one met on foot does not', options, () => {
+test('a wild Pokémon met surfing or fishing knows it, and which, and one met on foot does not', options, () => {
   const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
   const water = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.water ?? 0]));
   assert.equal(water.tentacool, 1, 'Tentacool is only on the water');
@@ -572,9 +572,14 @@ test('a wild Pokémon met surfing or fishing knows it, and one met on foot does 
     // A stray Tentacool from the wider Pokédex was not met on this water.
     if (slug === 'tentacool' || slug === 'tentacruel') tentacool[wild.fromWater ? 'water' : 'land']++;
     if (slug === 'wingull') seen[wild.fromWater ? 'water' : 'land']++;
+    if (slug === 'wingull' || slug === 'pelipper' || slug === 'poochyena') assert.ok(!wild.fished, `${slug} is never fished`);
+    if (wild.fished) assert.ok(wild.fromWater, 'what is fished is from the water');
   }
   assert.ok(tentacool.water > 10 * tentacool.land, `tentacool ${JSON.stringify(tentacool)}`);
   assert.ok(seen.land > 0 && seen.water > 0, 'a Wingull is met either way');
+  assert.equal(water.magikarp, 1);
+  assert.equal(route.encounters.find((encounter) => encounter.species === 'magikarp')?.fishing, 1, 'Magikarp is only fished');
+  assert.ok(!route.encounters.find((encounter) => encounter.species === 'pelipper')?.fishing, 'Pelipper is only surfed');
 });
 
 test('a route meets its Pokémon about as often as the cartridge does, softened', options, () => {

@@ -481,9 +481,10 @@ function musicFor(constant, game) {
 /**
  * Encounter tables from the decompilation, flattened to
  * `{species, minLevel, maxLevel, weight, water?}` per map, `weight` being the
- * species' share of the map's encounters in per cent and `water` how much of
+ * species' share of the map's encounters in per cent, `water` how much of
  * that share is met surfing or fishing, as a fraction — which a Dive Ball
- * counts. A species only ever met on foot has no `water`.
+ * counts — and `fishing` how much of it on a rod, which a Lure Ball does. A
+ * species only ever met on foot has neither.
  *
  * The share is the cartridge's own: a table is twelve land slots at 20, 20,
  * 10, 10, 10, 10, 5, 5, 4, 4, 1 and 1 per cent, and a species is the sum of
@@ -503,7 +504,7 @@ function musicFor(constant, game) {
  * half.
  *
  * @param {string} base the decompilation's URL
- * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number}>>>}
+ * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number, fishing?: number}>>>}
  */
 async function loadEncounterTables(base) {
   const data = await fetchJson(`${base}/src/data/wild_encounters.json`);
@@ -511,7 +512,7 @@ async function loadEncounterTables(base) {
   /** @type {Record<string, number[]>} each method's slot rates, in per cent */
   const rates = Object.fromEntries(group.fields.map((field) => [field.type, field.encounter_rates]));
 
-  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number, water: number}>>} */
+  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number, water: number, fishing: number}>>} */
   const byMap = new Map();
   /** @type {Map<string, number>} how many tables each map has, so versions share it */
   const tables = new Map();
@@ -533,29 +534,38 @@ async function loadEncounterTables(base) {
         const species = mon.species.replace('SPECIES_', '').toLowerCase().replace(/_/g, '-');
         const share = ((slotRates[slot] ?? 0) / total) * methodShare(field, methods);
         const water = WATER_METHODS.has(field) ? share : 0;
+        const fishing = field === 'fishing_mons' ? share : 0;
         const existing = merged.get(species);
         if (existing) {
           existing.minLevel = Math.min(existing.minLevel, mon.min_level);
           existing.maxLevel = Math.max(existing.maxLevel, mon.max_level);
           existing.weight += share;
           existing.water += water;
+          existing.fishing += fishing;
         } else {
-          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share, water });
+          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share, water, fishing });
         }
       });
     }
   }
 
-  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number}>>} */
+  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number, fishing?: number}>>} */
   const out = new Map();
   for (const [map, merged] of byMap) {
     const versions = tables.get(map) ?? 1;
     out.set(
       map,
       [...merged.values()]
-        .map(({ water, ...mon }) => {
-          const fraction = mon.weight > 0 ? Math.round((water / mon.weight) * 100) / 100 : 0;
-          return { ...mon, weight: Math.round((mon.weight / versions) * 100) / 100, ...(fraction > 0 ? { water: fraction } : {}) };
+        .map(({ water, fishing, ...mon }) => {
+          const fraction = (part) => (mon.weight > 0 ? Math.round((part / mon.weight) * 100) / 100 : 0);
+          const wet = fraction(water);
+          const rod = fraction(fishing);
+          return {
+            ...mon,
+            weight: Math.round((mon.weight / versions) * 100) / 100,
+            ...(wet > 0 ? { water: wet } : {}),
+            ...(rod > 0 ? { fishing: rod } : {}),
+          };
         })
         .sort((a, b) => b.weight - a.weight),
     );

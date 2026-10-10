@@ -92,9 +92,16 @@ export function ballBonus(ball, target = null, context = {}) {
     // The first ball thrown.
     case 'quick-ball':
       return special((context.throws ?? 0) === 0, 5);
-    // Better the longer it goes on: this game's clock is the balls thrown.
-    case 'timer-ball':
-      return Math.min(6, SPECIAL_MISS + ((context.throws ?? 0) * 1229 * SPECIAL_BOOST) / 4096);
+    // Better the longer it goes on, on the games' own clock: the turns the
+    // battle ran, then each ball thrown after it. It counted the balls alone,
+    // which with three of them never got past a Great Ball.
+    case 'timer-ball': {
+      const turns = (target?.battleTurns ?? 0) + (context.throws ?? 0);
+      return Math.min(4, 1 + (turns * 1229) / 4096) * SPECIAL_BOOST;
+    }
+    // Anything fished up, at Sun and Moon's five.
+    case 'lure-ball':
+      return special(Boolean(target?.fished), 5);
     // At night, or in a cave.
     case 'dusk-ball':
       return special(context.time === 'night' || tags.includes('cave'), 3);
@@ -131,8 +138,8 @@ export function ballBonus(ball, target = null, context = {}) {
       if (!target || !active || active.speciesId !== target.speciesId) return SPECIAL_MISS;
       return special(Boolean(active.gender && target.gender && active.gender !== target.gender), 8);
     }
-    // A Lure Ball wants a fishing rod, which this game does not have; a Heavy
-    // Ball moves the catch rate rather than multiplying it (see `catchValue`).
+    // A Heavy Ball moves the catch rate rather than multiplying it (see
+    // `catchValue`).
     default:
       return 1;
   }
