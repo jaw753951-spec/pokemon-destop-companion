@@ -2103,7 +2103,7 @@ export class Battle {
     this.syncSuppression();
   }
 
-  /** Priority first, then Speed, with a coin flip to break an exact tie. */
+  /** An item first, then priority, then Speed, with a coin flip to break an exact tie. */
   orderOfPlay() {
     if (!this.foe) return [this.player];
 
@@ -2114,19 +2114,20 @@ export class Battle {
       this.pendingChoice = {};
     }
 
-    // An item takes the companion's own action: it is used when the companion
-    // would have moved, in its place in the order, instead of a move. It used
-    // to jump the whole turn, which read as the bag acting the moment it was
-    // closed rather than on the companion's next turn.
-    //
-    // Otherwise both sides commit before either acts, so priority can be
-    // compared and the choice cannot change once the turn is under way.
+    // Both sides commit before either acts, so priority can be compared and
+    // the choice cannot change once the turn is under way.
     const playerChoice = this.pendingItem ? null : this.chooseMove(this.player, this.foe);
     const foeChoice = this.chooseMove(this.foe, this.player);
     this.pendingMoves = new Map([
       [this.player, playerChoice],
       [this.foe, foeChoice],
     ]);
+
+    // An item from the bag takes the companion's action, and goes before
+    // anybody moves, as it does in the games: a Potion is drunk before the
+    // foe's attack lands however fast the foe is, and before any priority
+    // move. Still on the next turn rather than the moment the bag closes.
+    if (this.pendingItem) return [this.player, this.foe];
 
     const playerPriority = this.priorityOf(this.player, this.foe, playerChoice);
     const foePriority = this.priorityOf(this.foe, this.player, foeChoice);

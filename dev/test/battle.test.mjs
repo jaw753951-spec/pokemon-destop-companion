@@ -463,14 +463,14 @@ test('an item takes the companion\'s turn instead of a move', options, () => {
   assert.equal(battle.pendingItem, null);
 });
 
-test('an item is used in the companion\'s place in the order, not ahead of everything', options, () => {
-  // A slow companion against a fast foe: the foe moves first, and the item
-  // is used when the companion's turn comes round.
+test('an item from the bag is used before anybody moves, however fast the foe', options, () => {
+  // A slow companion against a fast foe with a priority move: the item still
+  // comes first, as it does in the games.
   const player = makeFixed(VENUSAUR, 50, ['tackle']);
   const battle = new Battle({
     rng: new Rng(3),
     player,
-    foes: [makeFixed(CHARIZARD, 60, ['tackle'])],
+    foes: [makeFixed(CHARIZARD, 60, ['quick-attack'])],
     policy: defaultAutoBattle(),
     items: { choose: () => null, throw: () => true },
   });
@@ -480,7 +480,7 @@ test('an item is used in the companion\'s place in the order, not ahead of every
   const item = log.findIndex((entry) => entry.kind === 'item');
   const foeMove = log.findIndex((entry) => entry.kind === 'move' && entry.side === 'foe');
   assert.ok(item >= 0 && foeMove >= 0);
-  assert.ok(foeMove < item, 'the faster foe acts before the item is used');
+  assert.ok(item < foeMove, 'the item is used before the faster foe acts');
 });
 
 test('a Sitrus Berry is eaten at half health, for a quarter of the bar', options, () => {
