@@ -34,6 +34,8 @@ import {
  * @property {boolean} shiny
  * @property {number} caughtAt epoch milliseconds
  * @property {string|null} ball the ball it was caught in
+ * @property {boolean} [fromWater] met surfing or fishing rather than on foot,
+ *   which a Dive Ball counts; only ever set on a wild Pokémon
  * @property {number} [friendship] how fond of its trainer it is, 0 to 255;
  *   a save from before it was kept reads as the species' base
  * @property {number} [steps] steps walked alongside, for a Pawmo's thousand

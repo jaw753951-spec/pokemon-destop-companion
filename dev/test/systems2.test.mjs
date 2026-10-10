@@ -554,6 +554,29 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
 });
 
+test('a wild Pokémon met surfing or fishing knows it, and one met on foot does not', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
+  const water = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.water ?? 0]));
+  assert.equal(water.tentacool, 1, 'Tentacool is only on the water');
+  assert.equal(water.poochyena, 0, 'Poochyena is only in the grass');
+  assert.ok(water.wingull > 0 && water.wingull < 1, 'Wingull is met both ways');
+
+  const companion = createPokemon(new Rng(1), PIKACHU, 20);
+  const rng = new Rng(4);
+  const seen = { land: 0, water: 0 };
+  const tentacool = { land: 0, water: 0 };
+  for (let roll = 0; roll < 3000; roll++) {
+    const wild = rollWildPokemon(rng, route, companion);
+    const slug = speciesOf(wild.speciesId)?.slug;
+    if (slug === 'poochyena' || slug === 'mightyena') assert.ok(!wild.fromWater, 'nothing on foot is from the water');
+    // A stray Tentacool from the wider Pokédex was not met on this water.
+    if (slug === 'tentacool' || slug === 'tentacruel') tentacool[wild.fromWater ? 'water' : 'land']++;
+    if (slug === 'wingull') seen[wild.fromWater ? 'water' : 'land']++;
+  }
+  assert.ok(tentacool.water > 10 * tentacool.land, `tentacool ${JSON.stringify(tentacool)}`);
+  assert.ok(seen.land > 0 && seen.water > 0, 'a Wingull is met either way');
+});
+
 test('a route meets its Pokémon about as often as the cartridge does, softened', options, () => {
   const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
   const share = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.weight]));

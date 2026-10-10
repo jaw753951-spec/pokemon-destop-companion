@@ -95,9 +95,13 @@ export function ballBonus(ball, target = null, context = {}) {
       return special(context.time === 'night' || tags.includes('cave'), 3);
     case 'net-ball':
       return special(Boolean(species?.types.some((type) => type === 'water' || type === 'bug')), 3.5);
-    // Anything found in or by the water.
+    // Only what was met surfing or fishing, as in the games — not everything
+    // on a route that has water on it — and at the games' own 3.5 with none
+    // of the special balls' boost on top: a Pokémon in the tray is already as
+    // low as it goes, and with the boost a Dive Ball caught nearly everything
+    // on the water outright.
     case 'dive-ball':
-      return special(tags.includes('water') || tags.includes('beach'), 3.5);
+      return target?.fromWater ? 3.5 : SPECIAL_MISS;
     // The lower the level, the better, down from 30.
     case 'nest-ball':
       return target ? Math.max(SPECIAL_MISS, ((41 - levelOf(target)) / 10) * SPECIAL_BOOST) : SPECIAL_MISS;

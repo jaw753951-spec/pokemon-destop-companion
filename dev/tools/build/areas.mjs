@@ -480,8 +480,10 @@ function musicFor(constant, game) {
 
 /**
  * Encounter tables from the decompilation, flattened to
- * `{species, minLevel, maxLevel, weight}` per map, `weight` being the
- * species' share of the map's encounters in per cent.
+ * `{species, minLevel, maxLevel, weight, water?}` per map, `weight` being the
+ * species' share of the map's encounters in per cent and `water` how much of
+ * that share is met surfing or fishing, as a fraction — which a Dive Ball
+ * counts. A species only ever met on foot has no `water`.
  *
  * The share is the cartridge's own: a table is twelve land slots at 20, 20,
  * 10, 10, 10, 10, 5, 5, 4, 4, 1 and 1 per cent, and a species is the sum of
@@ -501,7 +503,7 @@ function musicFor(constant, game) {
  * half.
  *
  * @param {string} base the decompilation's URL
- * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>>}
+ * @returns {Promise<Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number}>>>}
  */
 async function loadEncounterTables(base) {
   const data = await fetchJson(`${base}/src/data/wild_encounters.json`);
@@ -509,7 +511,7 @@ async function loadEncounterTables(base) {
   /** @type {Record<string, number[]>} each method's slot rates, in per cent */
   const rates = Object.fromEntries(group.fields.map((field) => [field.type, field.encounter_rates]));
 
-  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number}>>} */
+  /** @type {Map<string, Map<string, {species: string, minLevel: number, maxLevel: number, weight: number, water: number}>>} */
   const byMap = new Map();
   /** @type {Map<string, number>} how many tables each map has, so versions share it */
   const tables = new Map();
@@ -530,31 +532,39 @@ async function loadEncounterTables(base) {
         // `SPECIES_NIDORAN_F` -> `nidoran-f`, matching PokeAPI's slugs.
         const species = mon.species.replace('SPECIES_', '').toLowerCase().replace(/_/g, '-');
         const share = ((slotRates[slot] ?? 0) / total) * methodShare(field, methods);
+        const water = WATER_METHODS.has(field) ? share : 0;
         const existing = merged.get(species);
         if (existing) {
           existing.minLevel = Math.min(existing.minLevel, mon.min_level);
           existing.maxLevel = Math.max(existing.maxLevel, mon.max_level);
           existing.weight += share;
+          existing.water += water;
         } else {
-          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share });
+          merged.set(species, { species, minLevel: mon.min_level, maxLevel: mon.max_level, weight: share, water });
         }
       });
     }
   }
 
-  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number}>>} */
+  /** @type {Map<string, Array<{species: string, minLevel: number, maxLevel: number, weight: number, water?: number}>>} */
   const out = new Map();
   for (const [map, merged] of byMap) {
     const versions = tables.get(map) ?? 1;
     out.set(
       map,
       [...merged.values()]
-        .map((mon) => ({ ...mon, weight: Math.round((mon.weight / versions) * 100) / 100 }))
+        .map(({ water, ...mon }) => {
+          const fraction = mon.weight > 0 ? Math.round((water / mon.weight) * 100) / 100 : 0;
+          return { ...mon, weight: Math.round((mon.weight / versions) * 100) / 100, ...(fraction > 0 ? { water: fraction } : {}) };
+        })
         .sort((a, b) => b.weight - a.weight),
     );
   }
   return out;
 }
+
+/** The tables met on the water rather than on foot or under a rock. */
+const WATER_METHODS = new Set(['water_mons', 'fishing_mons']);
 
 /**
  * How much of a map, in per cent, one of its ways of meeting Pokémon is.
