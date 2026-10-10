@@ -5,8 +5,8 @@
  * you face is rolled each time you walk in — the four and their champion are
  * one line-up and travel together, so a challenge is always somebody's real
  * league rather than a pick-and-mix. Between rounds the companion is fully
- * restored and you choose whether to go straight on or step back out to the
- * field and prepare.
+ * restored and you choose whether to go straight on or to prepare: the bag,
+ * opened over the challenge, which closing brings you back from.
  */
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
@@ -21,6 +21,7 @@ import { inFieldSpace } from '../render/field.mjs';
 import { alreadyOwned, earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
 import { restoreHeldItem } from '../engine/items.mjs';
 import { battleScene } from './battle.mjs';
+import { inventoryScene } from '../ui/inventory.mjs';
 
 /**
  * The level each round's team stands at: the Elite Four in order, then the
@@ -57,8 +58,8 @@ export function leagueScene({ session, onLeave, onCrowned }) {
   const league = resolveLeague(session);
   const rounds = [...league.eliteFour, league.champion];
 
-  // Stepping out to prepare leaves the challenge where it stood: the same
-  // league, at the round reached.
+  // A challenge left part-way — the game closed in the middle of it — picks
+  // up where it stood: the same league, at the round reached.
   let index = Math.min(Math.max(0, session.leagueRun?.round ?? 0), rounds.length - 1);
   let busy = false;
   /** The room this round is challenged in, drawn behind the challenge screen. */
@@ -116,9 +117,18 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
     setChildren(actions, [
       button(t('league.next'), () => startRound(app), { className: 'primary', disabled: busy }),
+      // Preparing is the bag, opened over the challenge: the run stays where
+      // it is, and closing the bag comes back to this screen rather than
+      // out onto the road.
       button(t('league.prepare'), () => {
-        app.audio.blip('cancel');
-        onLeave();
+        app.audio.blip('select');
+        app.push(inventoryScene({
+          session,
+          onClose: () => {
+            app.pop();
+            render(app);
+          },
+        }));
       }, { disabled: busy }),
     ]);
   }
