@@ -106,6 +106,21 @@ test('TMs are ranked by the move they teach', () => {
   assert.ok(tierOf('tm-swords-dance') >= 0, 'status TMs are still droppable');
 });
 
+test('a TR is found on the road only when it teaches what no TM does', () => {
+  const moves = {
+    tackle: { damageClass: 'physical', power: 40, accuracy: 100 },
+    megahorn: { damageClass: 'physical', power: 120, accuracy: 85 },
+  };
+  const tiers = assignRarityTiers({
+    tm01: item({ pocket: 'machines', category: 'all-machines', cost: 0, move: 'tackle' }),
+    tr01: item({ pocket: 'machines', category: 'all-machines', cost: 0, move: 'tackle' }),
+    tr02: item({ pocket: 'machines', category: 'all-machines', cost: 0, move: 'megahorn' }),
+  }, moves);
+  const all = Object.values(tiers).flat();
+  assert.ok(all.includes('tr02'), 'a Megahorn record has no TM to stand in for it');
+  assert.ok(!all.includes('tr01'), 'a Tackle record does');
+});
+
 // --------------------------------------------------------- stated effects
 
 test('an item the engine reads states what it does', withData, () => {
