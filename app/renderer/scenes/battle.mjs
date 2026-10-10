@@ -246,6 +246,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     };
     loadImage(`items/${ball}.png`).then((image) => { entry.image = image; }).catch(() => {});
     sentOut[side] = false;
+    // The ball leaves the belt as it is thrown, not when the engine says so.
+    if (side === 'foe') {
+      foeOut = pokemon;
+      updateFoeBalls();
+    }
     const battler = side === 'player' ? playerBattler : foeBattler;
     if (battler) battler.visible = false;
     tosses.push(entry);
@@ -365,6 +370,12 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const foeBar = healthBar();
   /** The trainer's remaining party, drawn as the balls still on their belt. */
   const foeBalls = el('div.battle-balls');
+  /** The trainer's whole party, in the order they were handed to the battle. */
+  const foeParty = [...foes];
+  /** Which of it is out on the field, as played — not as the engine has it. */
+  let foeOut = /** @type {import('../engine/pokemon.mjs').Pokemon|null} */ (null);
+  /** And which of it has fainted, as played. */
+  const foeFallen = new Set();
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
@@ -429,14 +440,18 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const loadFoeSprite = () => loadBattler('foe', battle.foe?.pokemon ?? null);
 
   /**
-   * The opponent's remaining party, one ball per Pokémon still standing.
+   * The balls still on the opponent's belt: one for every Pokémon neither out
+   * on the field nor fainted, so a ball goes the moment it is thrown, and one
+   * called back by a Roar goes back on.
    *
-   * Trainers carry their team on their belt and the games count it down there
-   * as it faints; a wild Pokémon has no trainer, and the row stays empty.
+   * Counted from what has been played rather than from the engine, which has
+   * the whole turn worked out before any of it is shown: read from there, the
+   * count moved a turn out of step with the Pokémon coming out. A wild Pokémon
+   * has no trainer, and the row stays empty.
    */
   function updateFoeBalls() {
     // A wild Pokémon has no belt: the row said "one" over every wild battle.
-    const standing = trainer ? (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0) : 0;
+    const standing = trainer ? foeParty.filter((pokemon) => pokemon !== foeOut && !foeFallen.has(pokemon)).length : 0;
     setChildren(
       foeBalls,
       Array.from({ length: standing }, () =>
@@ -1187,6 +1202,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         // fall leaves `battle.foe` empty — which is why the line read
         // "은(는) 쓰러졌다!" with no name, and why nothing reached the tray.
         const fainter = entry.data?.pokemon ?? (entry.side === 'player' ? player : foe);
+        if (entry.side === 'foe' && fainter) foeFallen.add(fainter);
         say(t('battle.fainted', { name: nameOf(fainter) }));
         battlerFor(entry.side)?.setPose('lose');
         app.audio.blip('faint');
