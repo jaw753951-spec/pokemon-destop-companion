@@ -8,7 +8,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { Battler, SHINY_MS } from '../../app/renderer/render/battler.mjs';
+import { Battler, EMERGE_MS, SHINY_MS, SHINY_WAIT_FRAMES } from '../../app/renderer/render/battler.mjs';
 import { idleBob } from '../../app/renderer/render/field.mjs';
 
 /** A canvas context that remembers where the pen went. */
@@ -266,13 +266,13 @@ function goldPixels(battler) {
 
 const FRAME = 1000 / 60;
 
-test('a shiny sparkles as Emerald does: a second out, then the stars, with one chime', () => {
+test('a shiny sparkles as Emerald does, after a shorter wait: out, then the stars, with one chime', () => {
   const battler = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
   let chimes = 0;
   battler.showShiny(() => chimes++);
 
-  // Sixty frames of nothing at all.
-  for (let frame = 0; frame < 59; frame++) {
+  // A third of a second of nothing at all.
+  for (let frame = 0; frame < SHINY_WAIT_FRAMES - 1; frame++) {
     assert.equal(goldPixels(battler).length, 0, `frame ${frame}`);
     battler.update(FRAME);
   }
@@ -293,7 +293,7 @@ test('a shiny sparkles as Emerald does: a second out, then the stars, with one c
   assert.ok(Math.max(...xs) - Math.min(...xs) <= 15, 'one 16-pixel star');
 
   // And it is over by the time the battle is let go on, never chiming twice.
-  let elapsed = 60 * FRAME;
+  let elapsed = SHINY_WAIT_FRAMES * FRAME;
   while (elapsed < SHINY_MS + FRAME) {
     battler.update(FRAME);
     elapsed += FRAME;
@@ -307,8 +307,9 @@ test("a shiny's wait only starts once it is out of its ball", () => {
   battler.setPose('emerge');
   let chimes = 0;
   battler.showShiny(() => chimes++);
-  // The emerge pose's 340 milliseconds and then a second, not a second alone.
-  for (let elapsed = 0; elapsed < 1200; elapsed += FRAME) battler.update(FRAME);
+  // The emerge pose's 340 milliseconds and then the wait, not the wait alone.
+  const wait = SHINY_WAIT_FRAMES * FRAME;
+  for (let elapsed = 0; elapsed < EMERGE_MS + wait - 3 * FRAME; elapsed += FRAME) battler.update(FRAME);
   assert.equal(chimes, 0);
   for (let elapsed = 0; elapsed < 200; elapsed += FRAME) battler.update(FRAME);
   assert.equal(chimes, 1);
@@ -318,10 +319,12 @@ test('a sparkle part way through carries on when the picture is swapped', () => 
   const old = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
   let chimes = 0;
   old.showShiny(() => chimes++);
-  for (let frame = 0; frame < 30; frame++) old.update(FRAME);
+  const half = Math.floor(SHINY_WAIT_FRAMES / 2);
+  for (let frame = 0; frame < half; frame++) old.update(FRAME);
+  assert.equal(chimes, 0);
   const swapped = new Battler({ sprite: /** @type {any} */ (sprite), x: 100, y: 90, facing: 1 });
   swapped.takeSparkleFrom(old);
-  for (let frame = 0; frame < 31; frame++) swapped.update(FRAME);
+  for (let frame = 0; frame < SHINY_WAIT_FRAMES - half + 1; frame++) swapped.update(FRAME);
   assert.equal(chimes, 1);
   assert.ok(goldPixels(swapped).length > 0);
 });
