@@ -8,13 +8,14 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { gameData, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
+import { gameData, speciesIdBySlug, speciesOf } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { ballBonus, catchValue } from '../../app/renderer/engine/capture.mjs';
 import { EventScheduler } from '../../app/renderer/engine/events.mjs';
-import { canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
+import { battleMedicine, canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, gainFromDefeat, maxHp, maxPp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import { experienceForLevel } from '../../app/renderer/engine/stats.mjs';
 import { VOLATILE } from '../../app/renderer/engine/volatile.mjs';
 
 const ready = await useRealGameData();
@@ -61,8 +62,14 @@ test('each ball earns its bonus only where it should', options, () => {
   const onix = make('onix', 40);
   // A special ball is worse than a Poké Ball out of its element (0.6) and
   // half again better than the games make it in it.
-  assert.equal(ballBonus('net-ball', magikarp), 5.25);
-  assert.equal(ballBonus('net-ball', onix), 0.6);
+  // A Net Ball wants the type in its element: a Water type on or by the
+  // water, a Bug type in the grass or the trees.
+  assert.equal(ballBonus('net-ball', magikarp, { areaTags: ['beach'] }), 5.25);
+  assert.equal(ballBonus('net-ball', { ...magikarp, fromWater: true }, { areaTags: ['cave'] }), 5.25);
+  assert.equal(ballBonus('net-ball', magikarp, { areaTags: ['mountain'] }), 0.6);
+  assert.equal(ballBonus('net-ball', make('caterpie', 5), { areaTags: ['forest'] }), 5.25);
+  assert.equal(ballBonus('net-ball', make('caterpie', 5), { areaTags: ['cave'] }), 0.6);
+  assert.equal(ballBonus('net-ball', onix, { areaTags: ['water'] }), 0.6);
   assert.equal(ballBonus('quick-ball', onix, { throws: 0 }), 7.5);
   assert.equal(ballBonus('quick-ball', onix, { throws: 1 }), 0.6);
   assert.equal(ballBonus('dusk-ball', onix, { time: 'night' }), 4.5);
@@ -72,6 +79,18 @@ test('each ball earns its bonus only where it should', options, () => {
   assert.equal(ballBonus('nest-ball', onix), 0.6);
   assert.equal(ballBonus('repeat-ball', onix, { caught: new Set([onix.speciesId]) }), 5.25);
   assert.equal(ballBonus('repeat-ball', onix), 0.6);
+  // A Dive Ball is for what was met surfing or fishing, not for everything
+  // on a route with water on it.
+  assert.equal(ballBonus('dive-ball', { ...magikarp, fromWater: true }), 5.25);
+  assert.equal(ballBonus('dive-ball', magikarp, { areaTags: ['beach', 'water'] }), 0.6);
+  // A Lure Ball is for what was fished up.
+  assert.equal(ballBonus('lure-ball', { ...magikarp, fromWater: true, fished: true }), 7.5);
+  assert.equal(ballBonus('lure-ball', { ...magikarp, fromWater: true }), 0.6);
+  // A Timer Ball climbs with each ball, from a Poké Ball's worth to its best
+  // on the last of the three.
+  assert.equal(ballBonus('timer-ball', onix, { throws: 0 }), 1);
+  assert.equal(ballBonus('timer-ball', onix, { throws: 1 }), 3.5);
+  assert.equal(ballBonus('timer-ball', onix, { throws: 2 }), 6);
   assert.equal(ballBonus('level-ball', magikarp, { active: make('pikachu', 25) }), 12);
   assert.equal(ballBonus('level-ball', onix, { active: make('pikachu', 25) }), 0.6);
   assert.equal(ballBonus('moon-ball', make('clefairy', 20)), 6);
@@ -198,3 +217,72 @@ test('a Razz Berry makes the catch easier, and a catching berry is not held', op
   assert.equal(canHold('golden-razz-berry'), false);
   assert.equal(canHold('sitrus-berry'), true);
 });
+
+test('a candy that lifts the level says so, and one that does not stays quiet', options, () => {
+  const pokemon = make('pikachu', 10);
+  const session = bag({ 'rare-candy': 1, 'exp-candy-xs': 1 }, pokemon);
+
+  const candy = useItem(session, 'rare-candy');
+  assert.ok(candy.ok);
+  assert.ok(candy.message?.includes('battle.levelUp'), candy.message);
+
+  // A hundred points is not a level at eleven.
+  const small = useItem(session, 'exp-candy-xs');
+  assert.ok(small.ok);
+  assert.ok(!small.message?.includes('battle.levelUp'), small.message);
+});
+
+test('a candy level does what a battle level does: moves, friendship, evolution', options, () => {
+  /** @param {any} pokemon */
+  const candySession = (pokemon) => {
+    const session = bag({ 'rare-candy': 5 }, pokemon);
+    session.caughtNow = [];
+    session.markCaught = (id) => session.caughtNow.push(id);
+    session.box = [];
+    session.area = { tags: ['grass'] };
+    session.rng = new Rng(3);
+    return session;
+  };
+
+  // A move of the level crossed goes straight into a free slot.
+  const charmander = make('charmander', 5, ['scratch']);
+  const at = speciesOf(charmander.speciesId).learnset.level.find(([level, move]) => level > 5 && level < 16 && move !== 'scratch');
+  assert.ok(at, 'Charmander learns something before it evolves');
+  charmander.experience = experienceForLevel(speciesOf(charmander.speciesId).growthRate, at[0] - 1);
+  const fond = charmander.friendship ?? 0;
+  const learning = useItem(candySession(charmander), 'rare-candy');
+  assert.ok(charmander.moves.some((slot) => slot.move === at[1]), `${at[1]} is in a slot`);
+  assert.ok(learning.message?.includes('battle.learned'), learning.message);
+  assert.ok((charmander.friendship ?? 0) > fond, 'a level is worth friendship');
+
+  // And the level it evolves at evolves it there and then.
+  charmander.experience = experienceForLevel(speciesOf(charmander.speciesId).growthRate, 15);
+  const session = candySession(charmander);
+  const evolving = useItem(session, 'rare-candy');
+  assert.equal(speciesOf(charmander.speciesId).slug, 'charmeleon');
+  assert.deepEqual(session.caughtNow, [charmander.speciesId]);
+  assert.ok(evolving.message?.includes('battle.evolving'), evolving.message);
+});
+
+test('the battle bag lists every medicine, greying out what would do nothing', options, () => {
+  const pokemon = make('pikachu', 20, ['thunder-shock']);
+  const session = bag({ potion: 1, antidote: 2, 'full-heal': 1, ether: 1, elixir: 1, 'rare-candy': 1 }, pokemon);
+  session.pocket = (pocket) =>
+    Object.entries(session.bag)
+      .filter(([slug, count]) => count > 0 && gameData().items[slug]?.pocket === pocket)
+      .map(([slug, count]) => ({ slug, count, item: gameData().items[slug] }));
+  const usable = () => Object.fromEntries(battleMedicine(session, pokemon).map((entry) => [entry.slug, entry.usable]));
+
+  // Healthy, nothing wrong, every move full: all listed, none usable, and no
+  // Rare Candy — that is not for a fight.
+  assert.deepEqual(usable(), { potion: false, antidote: false, 'full-heal': false, ether: false, elixir: false });
+  assert.deepEqual(battleMedicine(session, pokemon).map((entry) => entry.slug), ['potion', 'antidote', 'full-heal', 'ether', 'elixir']);
+
+  pokemon.hp -= 10;
+  pokemon.status = 'par';
+  pokemon.moves[0].pp -= 1;
+  assert.deepEqual(usable(), { potion: true, antidote: false, 'full-heal': true, ether: true, elixir: true });
+  pokemon.status = 'psn';
+  assert.equal(usable().antidote, true);
+});
+

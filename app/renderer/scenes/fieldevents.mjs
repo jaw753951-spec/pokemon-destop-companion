@@ -210,8 +210,18 @@ export function createEventRunner({ session, onBattle }) {
     },
 
     /** How far the companion is off the ground — bobbing as it gathers, or
-     * stepping through a door — in field pixels. */
+     * stepping through a door — in field pixels; null while nothing here
+     * has it busy, when it bobs on the spot of its own accord.
+     *
+     * A busy companion's lift is its lift even at nought. It used to be
+     * handed over as a plain number, so the bottom of each gathering bob —
+     * a few frames of nought — read as "not busy" and dropped the companion
+     * onto its idle bob, on a clock of its own, for those frames: a
+     * pixel-high stutter on every beat of picking something up. */
     get actorLift() {
+      const gathering = Boolean(active && GATHERING.has(active.phase));
+      const stepping = Boolean(active?.phase === 'visit' && active.beat?.step);
+      if (!gathering && !stepping) return null;
       return gatherBob(active) + doorStepOf(active).lift;
     },
 
@@ -1213,12 +1223,31 @@ function drawCarried(context, carried, actorHeight) {
  */
 const CARRIED_BERRY_SCALE = 0.5;
 
+/**
+ * The size a bag icon is drawn at. The newer items' pictures (a Blunder
+ * Policy, Heavy-Duty Boots, the masks) are not icons but art a hundred and
+ * fifty pixels across, which held up over the companion came out several
+ * times its size; anything past {@link ICON_LIMIT} is shrunk to fit this.
+ */
+const ICON_PX = 24;
+/** The largest an ordinary bag icon is, which is left exactly as it is. */
+const ICON_LIMIT = 32;
+
 /** @param {HTMLImageElement} image */
 function stillSprite(image) {
-  return new Sprite(image, {
-    width: image.naturalWidth,
-    height: image.naturalHeight,
-    frames: 1,
-    delay: 1000,
-  });
+  const width = image.naturalWidth;
+  const height = image.naturalHeight;
+  if (Math.max(width, height) <= ICON_LIMIT) return new Sprite(image, { width, height, frames: 1, delay: 1000 });
+
+  // Shrunk once, smoothly: at this size nearest-neighbour drops most of the
+  // picture, and a pixel-art icon this is not.
+  const fit = ICON_PX / Math.max(width, height);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(width * fit));
+  canvas.height = Math.max(1, Math.round(height * fit));
+  const context = /** @type {CanvasRenderingContext2D} */ (canvas.getContext('2d'));
+  context.imageSmoothingEnabled = true;
+  context.imageSmoothingQuality = 'high';
+  context.drawImage(image, 0, 0, canvas.width, canvas.height);
+  return new Sprite(/** @type {any} */ (canvas), { width: canvas.width, height: canvas.height, frames: 1, delay: 1000 });
 }

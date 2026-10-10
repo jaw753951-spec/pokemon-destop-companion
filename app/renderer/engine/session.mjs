@@ -98,6 +98,15 @@ export class Session {
     this.caught = new Set(save.dex?.caught ?? []);
     this.champions = new Set(save.dex?.champions ?? []);
 
+    /**
+     * How the box was last sorted, for its tab to show and turn round.
+     * @type {{key: 'dex'|'clear'|'shiny', reverse: boolean}}
+     */
+    this.boxSort = {
+      key: ['dex', 'clear', 'shiny'].includes(save.boxSort?.key) ? save.boxSort.key : 'dex',
+      reverse: Boolean(save.boxSort?.reverse),
+    };
+
     /** @type {any} */
     this.autoBattle = normalizeAutoBattle(save.autoBattle);
     /** @type {any} */
@@ -308,6 +317,40 @@ export class Session {
   }
 
   /**
+   * Put the box in order, favourites first however it is sorted, and the
+   * empty spaces packed away at the end. The order is remembered, so the box
+   * tab can show it and turn it round.
+   *
+   * - `dex`: by Pokédex number; turned round, from the highest down.
+   * - `clear`: the ones that have beaten the League first, then the rest;
+   *   turned round, the rest first. Each group in Pokédex order either way.
+   * - `shiny`: the shiny ones first, then the rest; turned round, the rest
+   *   first. Each group in Pokédex order either way.
+   *
+   * Two of the same species keep the order they were caught in.
+   *
+   * @param {'dex'|'clear'|'shiny'} key
+   * @param {boolean} [reverse]
+   */
+  sortBox(key, reverse = false) {
+    this.boxSort = { key, reverse };
+    const dexOf = (pokemon) => {
+      const species = speciesOf(pokemon.speciesId);
+      return species?.dex ?? pokemon.speciesId;
+    };
+    const descending = key === 'dex' && reverse ? -1 : 1;
+    const first = (pokemon) => (key === 'clear' ? Boolean(pokemon.champion) : key === 'shiny' ? Boolean(pokemon.shiny) : false);
+    const group = (pokemon) => (key === 'dex' ? 0 : first(pokemon) !== reverse ? 0 : 1);
+    const compare = (a, b) =>
+      Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) ||
+      group(a) - group(b) ||
+      descending * (dexOf(a) - dexOf(b)) ||
+      descending * (a.speciesId - b.speciesId) ||
+      (a.caughtAt ?? 0) - (b.caughtAt ?? 0);
+    this.box = this.box.filter(Boolean).sort(compare);
+  }
+
+  /**
    * Mark a Pokémon in the box as a favourite, or take the mark off. A
    * favourite goes to the top of the box, after the favourites already there
    * in the order they were marked; one no longer a favourite goes back to the
@@ -393,6 +436,7 @@ export class Session {
       },
       autoBattle: this.autoBattle,
       items: this.itemPolicy,
+      boxSort: this.boxSort,
     };
   }
 
@@ -410,11 +454,19 @@ export function defaultAutoBattle() {
   return {
     mode: 'damageFirst',
     /**
-     * When each kind of move may be used, `never` included. A condition that
-     * names a moment is answered before anything else; `always` leaves the
-     * kind to the mode.
+     * The condition each kind of move starts with, until the player gives a
+     * move one of its own: an attack always, a hindrance on a foe still
+     * unhurt, a boost on the first turn, a field move on an empty field, a
+     * heal at half health.
      */
     conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
+    /**
+     * When each move may be used, by the move, `never` included. A condition
+     * that names a moment is answered before anything else; `always` leaves
+     * the move to the mode.
+     * @type {Record<string, string>}
+     */
+    moves: {},
   };
 }
 
@@ -502,7 +554,14 @@ export function normalizeAutoBattle(policy) {
   let mode = policy.mode ?? fresh.mode;
   if (Array.isArray(policy.order) && !policy.order.some(Boolean)) mode = 'damageFirst';
 
-  return { mode, conditions };
+  // Each move's own condition, as set on the auto-battle screen.
+  /** @type {Record<string, string>} */
+  const moves = {};
+  for (const [slug, condition] of Object.entries(policy.moves ?? {})) {
+    if (typeof condition === 'string') moves[slug] = condition;
+  }
+
+  return { mode, conditions, moves };
 }
 
 /**

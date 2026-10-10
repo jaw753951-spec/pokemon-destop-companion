@@ -1,31 +1,33 @@
 /**
  * Auto-battle settings.
  *
- * Two things decide what the companion does on its turn. Each kind of move
- * may be used under a condition, and one whose condition names a moment is
- * used the moment it holds, before any attack; the mode then decides among
- * what is left, over the moves as they sit in their slots. The screen keeps
- * the mode on top, where it is picked at a glance, and the conditions below.
+ * Two things decide what the companion does on its turn. Each move it has is
+ * used under a condition of its own, and one whose condition names a moment
+ * is used the moment it holds, before anything else — the first such in the
+ * order the moves sit in their slots. The mode then decides among what is
+ * left, over the same slots. So the screen keeps the mode on top, picked at a
+ * glance, and the moves below it in their order, each with its condition,
+ * where a press on a move picks it up and a press on another puts it there.
  *
- * Everything here edits the policy the battle engine reads, so the effect of a
- * change is immediate.
+ * Everything here edits the policy the battle engine reads, and the moves'
+ * own order, so the effect of a change is immediate.
  */
+import { moveOf } from '../core/data.mjs';
 import { button, el, scrollable, setChildren } from '../core/dom.mjs';
-import { t } from '../core/i18n.mjs';
+import { name as localized, t } from '../core/i18n.mjs';
+import { moveCondition } from '../engine/battle.mjs';
 import { chooseFromList } from './dialog.mjs';
+import { typeChip } from './typechip.mjs';
 
 /** Exactly one of these is active, as the brief requires. */
 const MODES = ['repeatAll', 'repeatLast', 'damageFirst'];
 
-/** The kinds of move that can be turned on and off, in the order shown. */
-const CATEGORIES = ['damage', 'status', 'stat', 'field', 'heal'];
-
 /**
- * When a kind of move may be used, in the order the picker lists them.
+ * When a move may be used, in the order the picker lists them.
  *
- * `never` is one of them rather than a separate switch: a kind that is never
- * used and a kind used only under some condition are the same decision, and
- * splitting it across a tick box and a chip made the screen say it twice.
+ * `never` is one of them rather than a separate switch: a move that is never
+ * used and a move used only under some condition are the same decision. The
+ * health ones come in pairs — the companion's own, and the foe's.
  */
 const CONDITIONS = [
   'never',
@@ -38,6 +40,10 @@ const CONDITIONS = [
   'hpHalf',
   'hpThird',
   'hpQuarter',
+  'foeHpTwoThirds',
+  'foeHpHalf',
+  'foeHpThird',
+  'foeHpQuarter',
 ];
 
 /**
@@ -45,6 +51,9 @@ const CONDITIONS = [
  * @returns {import('../core/app.mjs').Scene}
  */
 export function autoBattleScene({ session, onClose }) {
+  /** The slot picked up to be moved, if one is. */
+  const state = { moving: /** @type {number|null} */ (null) };
+
   return {
     keepBelow: true,
 
@@ -55,8 +64,8 @@ export function autoBattleScene({ session, onClose }) {
         setChildren(body, [
           el('div.auto-tier.auto-tier-1', {}, [modeRow(app, session, rebuild)]),
           el('div.auto-tier.auto-tier-3', {}, [
-            el('div.section-title', { text: t('auto.kinds') }),
-            el('div.auto-kinds', {}, CATEGORIES.map((category) => categoryRow(app, session, category, rebuild))),
+            el('div.section-title', { text: t(state.moving === null ? 'auto.moves' : 'auto.moveTarget') }),
+            el('div.auto-moves', {}, session.active.moves.map((slot, index) => moveRow(app, session, state, index, rebuild))),
           ]),
         ]);
       };
@@ -100,26 +109,56 @@ function modeRow(app, session, rebuild) {
 }
 
 /**
- * One kind of move, and the one thing there is to say about it: when the
- * companion may reach for it.
+ * One of the companion's moves, in its place in the order, with its
+ * condition beside it.
  *
- * The whole row is the condition — pressing it opens the list, `never`
- * included — because a kind that is switched off is a kind whose condition
- * never holds, and saying that twice is what a tick box beside a chip did.
+ * The move itself is the handle for the order: pressed, it is picked up, and
+ * pressed again on another move, the two change places — the box's way of
+ * moving a Pokémon. Pressing the one picked up puts it back down. The chip is
+ * its condition, `never` included.
  *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
- * @param {string} category
+ * @param {{moving: number|null}} state
+ * @param {number} index
  * @param {() => void} rebuild
  */
-function categoryRow(app, session, category, rebuild) {
+function moveRow(app, session, state, index, rebuild) {
   const policy = session.autoBattle;
-  policy.conditions = policy.conditions ?? {};
+  policy.moves = policy.moves ?? {};
+  const slug = session.active.moves[index].move;
+  const move = moveOf(slug);
+  const condition = moveCondition(policy, slug);
 
-  const condition = policy.conditions[category] ?? 'always';
+  const picked = state.moving === index;
+  const handle = el(`button.auto-move${picked ? '.moving' : ''}${state.moving !== null && !picked ? '.target' : ''}`, {
+    type: 'button',
+    title: t('auto.reorder'),
+    onClick: () => {
+      if (state.moving === null) {
+        app.audio.blip('select');
+        state.moving = index;
+      } else {
+        const from = state.moving;
+        state.moving = null;
+        if (from !== index) {
+          const moves = session.active.moves;
+          [moves[from], moves[index]] = [moves[index], moves[from]];
+          app.audio.blip('confirm');
+        } else {
+          app.audio.blip('cancel');
+        }
+      }
+      rebuild();
+    },
+  }, [
+    el('span.auto-move-order', { text: String(index + 1) }),
+    el('span.auto-move-name', { text: localized(move?.name, slug) }),
+    move?.type ? typeChip(move.type, true) : null,
+  ]);
 
-  return el('div.auto-kind', {}, [
-    el('span.label', { text: t(`auto.kind.${category}`) }),
+  return el('div.auto-move-row', {}, [
+    handle,
     el(`button.chip${condition === 'never' ? '.off' : ''}`, {
       type: 'button',
       text: t(`auto.condition.${condition}`),
@@ -128,7 +167,7 @@ function categoryRow(app, session, category, rebuild) {
         app.audio.blip('select');
         const chosen = await chooseFromList(
           app,
-          t(`auto.kind.${category}`),
+          localized(move?.name, slug),
           CONDITIONS.map((value) => ({
             value,
             label: t(`auto.condition.${value}`),
@@ -136,7 +175,7 @@ function categoryRow(app, session, category, rebuild) {
           })),
         );
         if (chosen === null) return;
-        policy.conditions[category] = chosen;
+        policy.moves[slug] = chosen;
         rebuild();
       },
     }),

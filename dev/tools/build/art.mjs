@@ -29,7 +29,7 @@ import { fileURLToPath } from 'node:url';
 
 import { writeOut } from '../lib/http.mjs';
 import { decodePng, encodePng } from '../lib/png.mjs';
-import { crop, opaqueBounds } from '../lib/image.mjs';
+import { crop, mirrorX, opaqueBounds } from '../lib/image.mjs';
 import { saveVendored, vendored } from '../lib/vendor.mjs';
 import { ALCREMIE_LOOKS } from '../../../app/shared/alcremie.mjs';
 import { MAX_SPECIES } from '../sources.mjs';
@@ -39,6 +39,15 @@ const BLACK_WHITE = 'sprites/pokemon/versions/generation-v/black-white';
 
 /** The last Pokémon Black and White drew; everything past it is the community's. */
 export const LAST_OFFICIAL = 649;
+
+/**
+ * The species whose sprite looks the other way from the rest — to its right —
+ * turned round here, so every screen has every Pokémon facing left: the box
+ * and the Pokédex, which show the picture as it is, and the road and the
+ * battles, which mirror it from left. Every sprite was looked over for these:
+ * Black and White drew Victini turned to its right, and no other.
+ */
+export const MIRRORED = new Set([494]);
 
 /**
  * The spriters PokeAPI credits for the Black and White style sprites past
@@ -77,12 +86,14 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
    * @param {string} key `''`, `-female` or `-form-<forme>`
    * @param {boolean} shiny
    * @param {Buffer} png
+   * @param {boolean} [mirror] turned round to face left
    */
-  const save = async (id, key, shiny, png) => {
+  const save = async (id, key, shiny, png, mirror = false) => {
     const entry = (manifest[id] ??= { shiny: {} });
     const into = shiny ? entry.shiny : entry;
     const tail = shiny ? '-shiny' : '';
-    const full = trimmed(decodePng(png));
+    const cut = trimmed(decodePng(png));
+    const full = mirror ? mirrorX(cut) : cut;
     await writeOut(join(out, String(id), `art${key}${tail}.png`), encodePng(full.width, full.height, full.data));
     into[`art${key}`] = { width: full.width, height: full.height };
   };
@@ -99,9 +110,10 @@ export async function buildArt({ assetDir, dataDir, sample, log, pool }) {
     for (const name of names) {
       const plain = await vendored('pokeapi', `${BLACK_WHITE}/${name}`);
       if (!plain) continue;
-      await save(id, key, false, plain);
+      const mirror = MIRRORED.has(id);
+      await save(id, key, false, plain, mirror);
       const shiny = await vendored('pokeapi', `${BLACK_WHITE}/shiny/${name}`);
-      if (shiny) await save(id, key, true, shiny);
+      if (shiny) await save(id, key, true, shiny, mirror);
       else unshiny.push(`${id}${key}`);
       return true;
     }

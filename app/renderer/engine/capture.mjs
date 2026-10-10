@@ -7,6 +7,7 @@
  * times. The capture screen shows the resulting odds before the player throws,
  * so `captureChance` exists alongside the roll itself.
  */
+import { CAPTURE_ATTEMPTS } from '../../shared/constants.mjs';
 import { itemOf, speciesOf } from '../core/data.mjs';
 import { levelOf, maxHp } from './pokemon.mjs';
 
@@ -41,6 +42,14 @@ export const STATUS_BONUS = { slp: 2.5, frz: 2.5, par: 1.5, brn: 1.5, psn: 1.5 }
 
 /** Shake checks a throw must pass. */
 export const SHAKE_CHECKS = 4;
+
+/** A Timer Ball on the last ball of the three. */
+const TIMER_BEST = 4 * SPECIAL_BOOST;
+
+/** Where a Net Ball's Water types are in their element. */
+const NET_WATER = new Set(['water', 'beach']);
+/** And its Bug types. */
+const NET_BUG = new Set(['grass', 'forest', 'jungle', 'meadow']);
 
 /** The Ultra Beasts, which a Beast Ball is made for and every other ball struggles with. */
 const ULTRA_BEASTS = new Set([
@@ -87,17 +96,33 @@ export function ballBonus(ball, target = null, context = {}) {
     // The first ball thrown.
     case 'quick-ball':
       return special((context.throws ?? 0) === 0, 5);
-    // Better the longer it goes on: this game's clock is the balls thrown.
-    case 'timer-ball':
-      return Math.min(6, SPECIAL_MISS + ((context.throws ?? 0) * 1229 * SPECIAL_BOOST) / 4096);
+    // Better with each ball thrown, from a Poké Ball's worth on the first to
+    // the games' best (4, with the special balls' boost) on the last: a Quick
+    // Ball the other way round. It climbed at the games' per-turn rate, which
+    // with three balls never got past a Great Ball.
+    case 'timer-ball': {
+      const throws = Math.min(context.throws ?? 0, CAPTURE_ATTEMPTS - 1);
+      return 1 + ((TIMER_BEST - 1) * throws) / (CAPTURE_ATTEMPTS - 1);
+    }
+    // Anything fished up, at Sun and Moon's five.
+    case 'lure-ball':
+      return special(Boolean(target?.fished), 5);
     // At night, or in a cave.
     case 'dusk-ball':
       return special(context.time === 'night' || tags.includes('cave'), 3);
-    case 'net-ball':
-      return special(Boolean(species?.types.some((type) => type === 'water' || type === 'bug')), 3.5);
-    // Anything found in or by the water.
+    // A Water type in or by the water, or a Bug type in the grass or the
+    // trees: the type alone was every third wild Pokémon, wherever it was.
+    case 'net-ball': {
+      const types = species?.types ?? [];
+      const wet = types.includes('water') && (Boolean(target?.fromWater) || tags.some((tag) => NET_WATER.has(tag)));
+      const leafy = types.includes('bug') && tags.some((tag) => NET_BUG.has(tag));
+      return special(wet || leafy, 3.5);
+    }
+    // Only what was met surfing or fishing, as in the games — not everything
+    // on a route that has water on it, which made it near enough a sure catch
+    // for a quarter of the map.
     case 'dive-ball':
-      return special(tags.includes('water') || tags.includes('beach'), 3.5);
+      return special(Boolean(target?.fromWater), 3.5);
     // The lower the level, the better, down from 30.
     case 'nest-ball':
       return target ? Math.max(SPECIAL_MISS, ((41 - levelOf(target)) / 10) * SPECIAL_BOOST) : SPECIAL_MISS;
@@ -118,8 +143,8 @@ export function ballBonus(ball, target = null, context = {}) {
       if (!target || !active || active.speciesId !== target.speciesId) return SPECIAL_MISS;
       return special(Boolean(active.gender && target.gender && active.gender !== target.gender), 8);
     }
-    // A Lure Ball wants a fishing rod, which this game does not have; a Heavy
-    // Ball moves the catch rate rather than multiplying it (see `catchValue`).
+    // A Heavy Ball moves the catch rate rather than multiplying it (see
+    // `catchValue`).
     default:
       return 1;
   }

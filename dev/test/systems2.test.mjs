@@ -554,6 +554,34 @@ test('a stray comes at the stage its level allows, and a legendary only rarely',
   assert.ok(suited / rolls > 0.4, 'the terrain still leans the draw');
 });
 
+test('a wild Pokémon met surfing or fishing knows it, and which, and one met on foot does not', options, () => {
+  const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route103'));
+  const water = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.water ?? 0]));
+  assert.equal(water.tentacool, 1, 'Tentacool is only on the water');
+  assert.equal(water.poochyena, 0, 'Poochyena is only in the grass');
+  assert.ok(water.wingull > 0 && water.wingull < 1, 'Wingull is met both ways');
+
+  const companion = createPokemon(new Rng(1), PIKACHU, 20);
+  const rng = new Rng(4);
+  const seen = { land: 0, water: 0 };
+  const tentacool = { land: 0, water: 0 };
+  for (let roll = 0; roll < 3000; roll++) {
+    const wild = rollWildPokemon(rng, route, companion);
+    const slug = speciesOf(wild.speciesId)?.slug;
+    if (slug === 'poochyena' || slug === 'mightyena') assert.ok(!wild.fromWater, 'nothing on foot is from the water');
+    // A stray Tentacool from the wider Pokédex was not met on this water.
+    if (slug === 'tentacool' || slug === 'tentacruel') tentacool[wild.fromWater ? 'water' : 'land']++;
+    if (slug === 'wingull') seen[wild.fromWater ? 'water' : 'land']++;
+    if (slug === 'wingull' || slug === 'pelipper' || slug === 'poochyena') assert.ok(!wild.fished, `${slug} is never fished`);
+    if (wild.fished) assert.ok(wild.fromWater, 'what is fished is from the water');
+  }
+  assert.ok(tentacool.water > 10 * tentacool.land, `tentacool ${JSON.stringify(tentacool)}`);
+  assert.ok(seen.land > 0 && seen.water > 0, 'a Wingull is met either way');
+  assert.equal(water.magikarp, 1);
+  assert.equal(route.encounters.find((encounter) => encounter.species === 'magikarp')?.fishing, 1, 'Magikarp is only fished');
+  assert.ok(!route.encounters.find((encounter) => encounter.species === 'pelipper')?.fishing, 'Pelipper is only surfed');
+});
+
 test('a route meets its Pokémon about as often as the cartridge does, softened', options, () => {
   const route = /** @type {any} */ (Object.values(gameData().areas).find((area) => area.id === 'route113'));
   const share = Object.fromEntries(route.encounters.map((encounter) => [encounter.species, encounter.weight]));
@@ -639,6 +667,39 @@ test('the box has no limit, and favourites keep its top rows in the order they w
   session.box[2] = null;
   session.storeInBox(fixed(39, 5));
   assert.deepEqual(order(), [133, 25, 39, 4, 7]);
+});
+
+test('the box sorts by Pokédex number, by who has beaten the League or by shininess, either way round, favourites always first', options, () => {
+  const make = (id, champion = false, favorite = false) => {
+    const pokemon = fixed(id, 5);
+    if (champion) pokemon.champion = true;
+    if (favorite) pokemon.favorite = true;
+    return pokemon;
+  };
+  const box = [make(25), null, make(7, true), make(150, false, true), make(1), make(133, true), null, make(4, true, true)];
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(152, 5), box } } });
+  const order = () => session.box.map((pokemon) => pokemon?.speciesId ?? null);
+
+  session.sortBox('dex');
+  assert.deepEqual(order(), [4, 150, 1, 7, 25, 133], 'favourites first, then by number, gaps gone');
+  session.sortBox('dex', true);
+  assert.deepEqual(order(), [150, 4, 133, 25, 7, 1]);
+  session.sortBox('clear');
+  assert.deepEqual(order(), [4, 150, 7, 133, 1, 25], 'champions in number order, then the rest');
+  session.sortBox('clear', true);
+  assert.deepEqual(order(), [150, 4, 1, 25, 7, 133], 'the rest first, then the champions, each in number order');
+  session.box.find((pokemon) => pokemon?.speciesId === 133).shiny = true;
+  session.box.find((pokemon) => pokemon?.speciesId === 25).shiny = true;
+  session.box.find((pokemon) => pokemon?.speciesId === 1).shiny = false;
+  session.box.find((pokemon) => pokemon?.speciesId === 7).shiny = false;
+  session.sortBox('shiny');
+  assert.deepEqual(order(), [4, 150, 25, 133, 1, 7], 'favourites, then the shiny ones, then the rest, each in number order');
+  session.sortBox('shiny', true);
+  assert.deepEqual(order(), [4, 150, 1, 7, 25, 133], 'turned round, the rest first, still in number order');
+  // And the order is remembered with the run.
+  assert.deepEqual(session.toSave().boxSort, { key: 'shiny', reverse: true });
+  const reloaded = new Session({ slot: 0, save: session.toSave() });
+  assert.deepEqual(reloaded.boxSort, { key: 'shiny', reverse: true });
 });
 
 test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {

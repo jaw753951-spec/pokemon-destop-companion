@@ -5,16 +5,21 @@
  * the same thing to the same Pokémon, so what an item does lives here rather
  * than in whichever screen happened to need it first.
  */
+import { timeOfDay } from '../../shared/constants.mjs';
+import { weatherForArea } from '../../shared/area-tags.mjs';
 import { gameData, itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import {
   abilitySlot,
   createPokemon,
   evolveInto,
+  friendshipForLevels,
   learnOnEvolution,
   levelOf,
   maxHp,
   maxPp,
+  movesLearnedBetween,
+  noteLearnedMoves,
   pendingEvolution,
   setMove,
   statsOf,
@@ -133,9 +138,13 @@ export function useItem(session, slug, choice = {}) {
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
   // Rare Candy — does it here, whichever pocket it sits in.
   if (item.use) {
+    const levelBefore = levelOf(pokemon);
     if (applyUse(pokemon, item, choice)) {
       session.removeItem(slug);
-      return { used: true, ok: true, message: t('items.used', { name: label }) };
+      // A Rare Candy or an Exp. Candy that lifts the level does everything a
+      // level won in battle does.
+      const lines = [t('items.used', { name: label }), ...levelledUp(session, pokemon, levelBefore)];
+      return { used: true, ok: true, message: lines.join(' ') };
     }
     // An Ability Patch or Capsule on a Pokémon with nothing to change to says
     // so — a bare "cannot be used" read as the item being broken.
@@ -176,6 +185,59 @@ export function useItem(session, slug, choice = {}) {
   if (canHold(slug)) return equipItem(session, slug);
 
   return { used: false, ok: false, message: t('items.cannotUse') };
+}
+
+/**
+ * Everything a level gained outside a battle brings, as one gained in it does
+ * — which is what a Rare Candy or an Exp. Candy does in the games: the extra
+ * hit points, the friendship, the moves of the levels crossed (straight into
+ * a free slot, or waiting in the move list when there is none), and an
+ * evolution the new level allows, with what evolving teaches and a Nincada's
+ * shell. In the order the battle says it.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {number} before the level it was at
+ * @returns {string[]} what to say about it; nothing when the level did not move
+ */
+export function levelledUp(session, pokemon, before) {
+  const after = levelOf(pokemon);
+  if (after <= before) return [];
+  const learned = (move) => t('battle.learned', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) });
+  const waiting = (move) => t('battle.cannotLearnMore', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) });
+
+  pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + (after - before) * 2);
+  friendshipForLevels(pokemon, after - before);
+  const lines = [t('battle.levelUp', { name: nameOf(pokemon), level: after })];
+  for (const move of movesLearnedBetween(pokemon, before, after)) {
+    if (pokemon.moves.length < 4) {
+      setMove(pokemon, pokemon.moves.length, move);
+      lines.push(learned(move));
+    } else {
+      lines.push(waiting(move));
+    }
+  }
+
+  const evolution = pendingEvolution(pokemon, {
+    timeOfDay: timeOfDay(),
+    box: session.box,
+    raining: weatherForArea(session.area) === 'rain',
+    areaTags: session.area?.tags ?? [],
+  });
+  if (evolution) {
+    const from = nameOf(pokemon);
+    const fromSpecies = pokemon.speciesId;
+    evolveInto(pokemon, evolution.to, session.rng);
+    session.markCaught(evolution.to);
+    lines.push(t('battle.evolving', { name: from, target: localized(speciesOf(pokemon.speciesId)?.name, '') }));
+    const taught = learnOnEvolution(pokemon);
+    lines.push(...taught.learned.map(learned), ...taught.waiting.map(waiting));
+    const shell = shedAfterEvolving(session, fromSpecies, pokemon);
+    if (shell) lines.push(t('battle.shed', { name: nameOf(shell) }));
+  }
+
+  noteLearnedMoves(pokemon, session.machines);
+  return lines;
 }
 
 /**
@@ -787,6 +849,67 @@ export function ppItems(session, pokemon) {
     .map(({ slug, count, item }) => ({ slug, count, item, scope: item.use.pp.scope === 'one' ? /** @type {const} */ ('one') : /** @type {const} */ ('all') }))
     // One move's worth before every move's, then the smaller of each first.
     .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === 'one' ? -1 : 1) || (a.item.cost ?? 0) - (b.item.cost ?? 0) || a.slug.localeCompare(b.slug));
+}
+
+/**
+ * Everything in the medicine pocket a battle can throw — hit points, a
+ * condition, PP — whether or not it would do anything right now, as the
+ * games' bag lists it in a fight. Each says which it is and whether it would
+ * help; the bag shows the rest greyed out rather than leaving them out, which
+ * read as the bag having no Antidote at all.
+ *
+ * In the order the bag lists them: hit points (the smaller first), then the
+ * conditions (one condition's cure before the cure-alls), then PP (one move's
+ * before every move's).
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {Array<{slug: string, count: number, item: any, kind: 'hp'|'status'|'pp', usable: boolean, power?: number, restores?: number, scope?: 'one'|'all'}>}
+ */
+export function battleMedicine(session, pokemon) {
+  const alive = pokemon.hp > 0;
+  const max = maxHp(pokemon);
+  const missing = Math.max(0, max - pokemon.hp);
+  const short = pokemon.moves.some((entry) => entry && entry.pp < maxPp(entry));
+  const medicine = session.pocket('medicine');
+
+  const hp = medicine
+    .filter(({ item }) => item.use?.hp !== undefined)
+    .map(({ slug, count, item }) => {
+      const power = item.use.hp === 'full' ? max : item.use.hp;
+      // A Full Restore is worth throwing for its cure alone.
+      const cures = Boolean(item.use.status && pokemon.status);
+      return { slug, count, item, kind: /** @type {const} */ ('hp'), power, restores: Math.min(missing, power), usable: alive && (missing > 0 || cures) };
+    })
+    .sort((a, b) => a.power - b.power || a.slug.localeCompare(b.slug));
+
+  const status = medicine
+    .filter(({ item }) => item.use?.status && item.use.hp === undefined)
+    .map(({ slug, count, item }) => ({
+      slug,
+      count,
+      item,
+      kind: /** @type {const} */ ('status'),
+      usable: alive && Boolean(pokemon.status) && (item.use.status === 'any' || item.use.status === pokemon.status),
+    }))
+    .sort((a, b) =>
+      Number(a.item.use.status === 'any') - Number(b.item.use.status === 'any') ||
+      (a.item.cost ?? 0) - (b.item.cost ?? 0) ||
+      a.slug.localeCompare(b.slug));
+
+  const pp = medicine
+    .filter(({ item }) => item.use?.pp)
+    .map(({ slug, count, item }) => ({
+      slug,
+      count,
+      item,
+      kind: /** @type {const} */ ('pp'),
+      scope: item.use.pp.scope === 'one' ? /** @type {const} */ ('one') : /** @type {const} */ ('all'),
+      usable: alive && short,
+    }))
+    .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === 'one' ? -1 : 1) || (a.item.cost ?? 0) - (b.item.cost ?? 0) || a.slug.localeCompare(b.slug));
+
+  return [...hp, ...status, ...pp];
 }
 
 /**

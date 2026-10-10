@@ -383,18 +383,20 @@ export function walkFrame(distance) {
  *   moving: boolean,
  *   facing?: 'left'|'right',
  *   scale?: number,
- *   lift?: number,
+ *   lift?: number|null,
  *   time?: number,
  * }} options `lift` raises the sprite off the ground without its shadow, for
- *   a companion busy with something where it stands; `time` is the clock a
- *   standing bob keeps
+ *   a companion busy with something where it stands — taken as it is, nought
+ *   included; null (or left out) when it is not busy and bobs on its own.
+ *   `time` is the clock a standing bob keeps
  */
 export function drawWalker(
   context,
   sprite,
-  { x, y, distance, moving, facing = 'right', scale = POKEMON_SCALE, lift: raised = 0, time = 0 },
+  { x, y, distance, moving, facing = 'right', scale = POKEMON_SCALE, lift = null, time = 0 },
 ) {
-  const hop = moving ? walkFrame(distance).lift : raised ? 0 : idleBob(time);
+  const raised = lift ?? 0;
+  const hop = moving ? walkFrame(distance).lift : lift !== null ? 0 : idleBob(time);
   const flip = (sprite.facing ?? 'left') !== facing;
 
   // On whole screen pixels, which at half scale are half-pixels of the

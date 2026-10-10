@@ -5,8 +5,9 @@
  * you face is rolled each time you walk in — the four and their champion are
  * one line-up and travel together, so a challenge is always somebody's real
  * league rather than a pick-and-mix. Between rounds the companion is fully
- * restored and you choose whether to go straight on or step back out to the
- * field and prepare.
+ * restored and you choose whether to go straight on or to prepare: the bag,
+ * with the shop where the box would be, opened over the challenge, which
+ * closing brings you back from.
  */
 import { VIEW_HEIGHT, VIEW_WIDTH } from '../../shared/constants.mjs';
 import { url } from '../core/bridge.mjs';
@@ -19,7 +20,9 @@ import { capRoster, evolveToLevel, giveTrainerItems, LEAGUE_PARTY_CAP } from '..
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { alreadyOwned, earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
+import { restockBerry } from '../engine/items.mjs';
 import { battleScene } from './battle.mjs';
+import { inventoryScene } from '../ui/inventory.mjs';
 
 /**
  * The level each round's team stands at: the Elite Four in order, then the
@@ -56,8 +59,8 @@ export function leagueScene({ session, onLeave, onCrowned }) {
   const league = resolveLeague(session);
   const rounds = [...league.eliteFour, league.champion];
 
-  // Stepping out to prepare leaves the challenge where it stood: the same
-  // league, at the round reached.
+  // A challenge left part-way — the game closed in the middle of it — picks
+  // up where it stood: the same league, at the round reached.
   let index = Math.min(Math.max(0, session.leagueRun?.round ?? 0), rounds.length - 1);
   let busy = false;
   /** The room this round is challenged in, drawn behind the challenge screen. */
@@ -115,9 +118,22 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
     setChildren(actions, [
       button(t('league.next'), () => startRound(app), { className: 'primary', disabled: busy }),
+      // Preparing is the bag, opened over the challenge: the run stays where
+      // it is, and closing the bag comes back to this screen rather than
+      // out onto the road. The bag has the shop in the box's place: nobody
+      // is swapped in mid-challenge.
       button(t('league.prepare'), () => {
-        app.audio.blip('cancel');
-        onLeave();
+        app.audio.blip('select');
+        app.push(inventoryScene({
+          session,
+          // No box: the companion that walked in is the one that fights.
+          // The shop takes its place, for stocking up between rounds.
+          tabs: ['pokemon', 'items', 'shop'],
+          onClose: () => {
+            app.pop();
+            render(app);
+          },
+        }));
       }, { disabled: busy }),
     ]);
   }
@@ -175,8 +191,11 @@ export function leagueScene({ session, onLeave, onCrowned }) {
             app.toast(t('money.prize', { amount: formatMoney(prize) }), 2600);
           }
 
-          // Every round is followed by a full restore, as the games' league does.
+          // Every round is followed by a full restore, as the games' league
+          // does — and a hand the round emptied is given a berry from the
+          // bag, as the bag's restock setting does after any fight.
           session.heal();
+          const berry = restockBerry(session, session.active);
 
           if (last) {
             crown(app);
@@ -185,7 +204,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
           index++;
           if (session.leagueRun) session.leagueRun.round = index;
-          app.toast(t('league.healed'));
+          app.toast(berry
+            ? `${t('league.healed')}\n${t('items.restocked', { name: localized(gameData().items[berry]?.name, berry) })}`
+            : t('league.healed'));
           render(app);
           refreshRoom();
         },

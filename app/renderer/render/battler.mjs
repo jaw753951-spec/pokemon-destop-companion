@@ -115,8 +115,8 @@ const STATUS_EFFECTS = {
  * The sparkle a shiny Pokémon comes out in, frame for frame as Emerald plays
  * it (`TryShinyAnimation` and `Task_ShinyStars` in `battle_anim_throw.c`).
  *
- * Sixty frames after the Pokémon is out, two streams of five gold stars
- * start, one star every four frames from the middle of the Pokémon — a big
+ * A third of a second after the Pokémon is out, two streams of five gold
+ * stars start, one star every four frames from the middle of the Pokémon — a big
  * one, three medium ones and a small one. One stream goes once round a circle
  * of 24 pixels, a sixteenth and a bit of a turn a frame; the other starts
  * four frames late, 32 pixels down and left of the middle, and cuts straight
@@ -124,12 +124,16 @@ const STATUS_EFFECTS = {
  * first star. Nothing tints the Pokémon: the stars are the whole of it.
  *
  * A field pixel is a Game Boy Advance pixel here, so the distances are the
- * cartridge's own.
+ * cartridge's own. The wait is not: the cartridge's sixty frames, a whole
+ * second of a Pokémon standing there before anything sparkles, read as the
+ * sparkle being late, and this game shows the sparkle far more often than
+ * a cartridge's battle screen does.
  */
 const FRAME_MS = 1000 / 60;
 /** Which frame of 60 a second a time falls in, steady against rounding. */
 const frameOf = (ms) => Math.floor(ms / FRAME_MS + 1e-6);
-const SHINY_WAIT_FRAMES = 60;
+/** Frames between the Pokémon being out and the first star. */
+export const SHINY_WAIT_FRAMES = 20;
 const SHINY_STARS = 5;
 const SHINY_STAR_EVERY = 4;
 const SHINY_CIRCLE_RADIUS = 24;

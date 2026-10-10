@@ -9,7 +9,7 @@
  */
 import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
-import { el, scrollable, shinyMark } from '../core/dom.mjs';
+import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
 import { championIcon } from './badges.mjs';
@@ -35,12 +35,53 @@ export function boxTab(app, session, refresh, state) {
     grid.append(space(app, session, index, refresh, state));
   }
 
+  const moving = state.moving !== null && state.moving !== undefined;
   return el('div.tab-body.box-tab', {}, [
-    state.moving !== null && state.moving !== undefined
-      ? el('div.box-hint', { text: t('box.moveTarget') })
-      : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
+    el('div.box-head', {}, [
+      moving
+        ? el('div.box-hint', { text: t('box.moveTarget') })
+        : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
+      moving ? null : el('div.box-sort', {}, [
+        button(t(SORT_LABELS[session.boxSort.key]), () => sortMenu(app, session, refresh), { className: 'small' }),
+        // Which way round, beside it: one press turns the box over.
+        el('button.btn.small.box-sort-way', {
+          type: 'button',
+          text: session.boxSort.reverse ? '↓' : '↑',
+          title: t(session.boxSort.reverse ? 'box.sortReverse' : 'box.sortForward'),
+          'aria-label': t(session.boxSort.reverse ? 'box.sortReverse' : 'box.sortForward'),
+          onClick: () => {
+            session.sortBox(session.boxSort.key, !session.boxSort.reverse);
+            app.audio.blip('confirm');
+            refresh();
+          },
+        }),
+      ]),
+    ]),
     scrollable(grid),
   ]);
+}
+
+/** What each order is called, on its button and in its menu. */
+const SORT_LABELS = /** @type {const} */ ({ dex: 'box.sortDex', clear: 'box.sortClear', shiny: 'box.sortShiny' });
+
+/**
+ * Ask which order to put the box in, and put it in that order the way round
+ * it already is. Favourites stay at the top whichever it is.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {() => void} refresh
+ */
+async function sortMenu(app, session, refresh) {
+  const key = await chooseAction(
+    app,
+    t('box.sort'),
+    /** @type {Array<'dex'|'clear'|'shiny'>} */ (['dex', 'clear', 'shiny']).map((value) => ({ value, label: t(SORT_LABELS[value]) })),
+  );
+  if (!key) return;
+  session.sortBox(key, session.boxSort.reverse);
+  app.audio.blip('confirm');
+  refresh();
 }
 
 /**

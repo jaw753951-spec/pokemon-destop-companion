@@ -102,16 +102,23 @@ export function spreadFor(level) {
  */
 export function rollWildPokemon(rng, area, companion, previous = null, owned = new Set(), shinyOdds = undefined, rare = null) {
   const level = rollLevel(rng, companion);
-  const draw = () => (rng.chance(STRAY_CHANCE) ? pickStray(rng, area, level) : pickSpecies(rng, area, level));
-  let speciesId = rare === null ? draw() : evolveToLevel(devolveToLevel(rare, level), level);
-  if (rare === null && previous !== null && speciesId === previous) speciesId = draw();
+  /** @returns {{speciesId: number, water: boolean, fished: boolean}} */
+  const draw = () => {
+    if (rng.chance(STRAY_CHANCE)) return { speciesId: pickStray(rng, area, level), water: false, fished: false };
+    const { speciesId, waterShare, fishingShare } = pickEncounter(rng, area, level);
+    return { speciesId, ...metHow(rng, waterShare, fishingShare) };
+  };
+  let met = rare === null ? draw() : { speciesId: evolveToLevel(devolveToLevel(rare, level), level), water: false, fished: false };
+  if (rare === null && previous !== null && met.speciesId === previous) met = draw();
   // One in ten of the ones already in the box is put back and drawn again:
   // a very slight thinning, not a filter.
-  if (rare === null && owned.has(speciesId) && rng.chance(BOXED_REDRAW)) speciesId = draw();
+  if (rare === null && owned.has(met.speciesId) && rng.chance(BOXED_REDRAW)) met = draw();
   // Out here the hidden ability is in the draw with the rest. Nothing else in
   // this game hands one out — there are no raids and the Ability Patch is a
   // thing the player has to find first — so the wild is where they come from.
-  const wild = createPokemon(rng, speciesId, level, { hiddenAbility: true, shinyOdds });
+  const wild = createPokemon(rng, met.speciesId, level, { hiddenAbility: true, shinyOdds });
+  if (met.water) wild.fromWater = true;
+  if (met.fished) wild.fished = true;
 
   // And whatever it turned out to be carrying, which the cartridges roll off
   // the lead party Pokémon's ability — the companion, here.
@@ -237,16 +244,52 @@ export function rollLevel(rng, companion) {
  * @returns {number} a Pokédex number
  */
 export function pickSpecies(rng, area, level, preferredTypes = []) {
+  return pickEncounter(rng, area, level, preferredTypes).speciesId;
+}
+
+/**
+ * How a species drawn from a table was met, from its shares of the table: on
+ * the water (surfing or fishing, which a Dive Ball counts) and on a rod (which
+ * a Lure Ball does). Only a species the table has more than one way rolls for
+ * which it was, so a route with no water draws exactly as it did.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {number} waterShare
+ * @param {number} fishingShare
+ * @returns {{water: boolean, fished: boolean}}
+ */
+function metHow(rng, waterShare, fishingShare) {
+  if (waterShare <= 0) return { water: false, fished: false };
+  if (waterShare >= 1 && (fishingShare <= 0 || fishingShare >= 1)) return { water: true, fished: fishingShare >= 1 };
+  const roll = rng.next();
+  return { water: roll < waterShare, fished: roll < fishingShare };
+}
+
+/**
+ * As {@link pickSpecies}, and how much of the drawn species' share of the
+ * table is met on the water — surfing or fishing — and how much on a rod
+ * alone, rather than on foot. Nothing from the type pool is either.
+ *
+ * @param {import('../core/rng.mjs').Rng} rng
+ * @param {any} area
+ * @param {number} level
+ * @param {string[]} [preferredTypes]
+ * @returns {{speciesId: number, waterShare: number, fishingShare: number}}
+ */
+export function pickEncounter(rng, area, level, preferredTypes = []) {
   const fromTable = areaSpecies(area);
   const pool = preferredTypes.length ? fromTable.filter((entry) => filterByType([entry.value], preferredTypes).length) : fromTable;
 
-  const chosen = pool.length
-    ? rng.weighted(pool) ?? pool[0].value
-    : rng.pick(typePool(area, preferredTypes)) ?? 1;
+  const entry = pool.length ? rng.weighted(pool.map((option) => ({ value: option, weight: option.weight }))) ?? pool[0] : null;
+  const chosen = entry ? entry.value : rng.pick(typePool(area, preferredTypes)) ?? 1;
 
   // Down its line first, as a stray is: the type pool is every species of a
   // type, final stages included, and a level-6 Emboar is not a Tepig.
-  return evolveToLevel(devolveToLevel(chosen, level), level);
+  return {
+    speciesId: evolveToLevel(devolveToLevel(chosen, level), level),
+    waterShare: entry?.water ?? 0,
+    fishingShare: entry?.fishing ?? 0,
+  };
 }
 
 /**
@@ -262,13 +305,20 @@ export function pickSpecies(rng, area, level, preferredTypes = []) {
  * and 14 — without the road being the one Pokémon.
  *
  * A table from before the shares were kept weighs every species alike.
+ * `water` is the share of it met surfing or fishing, as the table has it, and
+ * `fishing` the share on a rod alone.
  *
  * @param {any} area
- * @returns {Array<{value: number, weight: number}>}
+ * @returns {Array<{value: number, weight: number, water: number, fishing: number}>}
  */
 export function areaSpecies(area) {
   return (area?.encounters ?? [])
-    .map((encounter) => ({ value: speciesIdBySlug(encounter.species), weight: Math.sqrt(encounter.weight ?? 1) }))
+    .map((encounter) => ({
+      value: speciesIdBySlug(encounter.species),
+      weight: Math.sqrt(encounter.weight ?? 1),
+      water: encounter.water ?? 0,
+      fishing: encounter.fishing ?? 0,
+    }))
     .filter((entry) => entry.value && speciesOf(entry.value));
 }
 

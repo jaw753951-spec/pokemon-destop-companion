@@ -2103,7 +2103,7 @@ export class Battle {
     this.syncSuppression();
   }
 
-  /** Priority first, then Speed, with a coin flip to break an exact tie. */
+  /** An item first, then priority, then Speed, with a coin flip to break an exact tie. */
   orderOfPlay() {
     if (!this.foe) return [this.player];
 
@@ -2114,19 +2114,20 @@ export class Battle {
       this.pendingChoice = {};
     }
 
-    // An item takes the companion's own action: it is used when the companion
-    // would have moved, in its place in the order, instead of a move. It used
-    // to jump the whole turn, which read as the bag acting the moment it was
-    // closed rather than on the companion's next turn.
-    //
-    // Otherwise both sides commit before either acts, so priority can be
-    // compared and the choice cannot change once the turn is under way.
+    // Both sides commit before either acts, so priority can be compared and
+    // the choice cannot change once the turn is under way.
     const playerChoice = this.pendingItem ? null : this.chooseMove(this.player, this.foe);
     const foeChoice = this.chooseMove(this.foe, this.player);
     this.pendingMoves = new Map([
       [this.player, playerChoice],
       [this.foe, foeChoice],
     ]);
+
+    // An item from the bag takes the companion's action, and goes before
+    // anybody moves, as it does in the games: a Potion is drunk before the
+    // foe's attack lands however fast the foe is, and before any priority
+    // move. Still on the next turn rather than the moment the bag closes.
+    if (this.pendingItem) return [this.player, this.foe];
 
     const playerPriority = this.priorityOf(this.player, this.foe, playerChoice);
     const foePriority = this.priorityOf(this.foe, this.player, foeChoice);
@@ -5331,28 +5332,36 @@ function estimatedFixedDamage(attacker, defender, move, slug) {
 }
 
 /**
- * The kinds of move whose condition, once it holds, is answered before
- * anything else, in the order they are answered: mending first, then setting
- * up, then hindering the other side, then the field.
+ * The condition a move is used under: its own, where the player has set one,
+ * or else the one its kind starts with — the policy's `conditions`, which a
+ * save from before the moves had their own keeps as it was set.
+ *
+ * @param {{conditions?: Record<string, string>, moves?: Record<string, string>}} policy
+ * @param {string} slug
+ * @returns {string}
  */
-const TRIGGERED_KINDS = ['heal', 'stat', 'status', 'field'];
+export function moveCondition(policy, slug) {
+  const own = policy.moves?.[slug];
+  if (own) return own;
+  const move = moveOf(slug);
+  return (move && policy.conditions?.[categoryOf(move)]) || 'always';
+}
 
 /**
  * Choose a move from the player's auto-battle policy.
  *
- * The policy has two parts, and the kinds of move rank first. Each kind may be
- * used under a condition, and a kind whose condition names a moment — a third
- * of health left, the first turn, a foe still unhurt — is used the moment it
- * holds, before any attack. A kind left at `always` is only allowed, and
- * `never` takes it out of the fight.
+ * Each move is used under a condition of its own, and the moves are tried in
+ * the order they sit in their slots. A move whose condition names a moment —
+ * a third of health left, the first turn, a foe nearly beaten — is used the
+ * moment it holds, before anything else, the first such in slot order. A move
+ * left at `always` is only allowed, and `never` takes it out of the fight.
  *
- * What is left — the attacks, and any kind allowed always — goes by the
- * `mode`, over the moves as they sit in their slots: `damageFirst` takes the
- * hardest-hitting attack, `repeatAll` goes round the slots a turn at a time,
- * and `repeatLast` goes through them once and holds on the last. A move that
- * cannot land, or a kind its condition keeps out, hands its turn to the next.
- * Anything none of this decides falls through to the strongest attack that
- * can land.
+ * What is left — the moves allowed always — goes by the `mode`, over the
+ * slots: `damageFirst` takes the hardest-hitting attack, `repeatAll` goes
+ * round the slots a turn at a time, and `repeatLast` goes through them once
+ * and holds on the last. A move that cannot land, or one its condition keeps
+ * out, hands its turn to the next. Anything none of this decides falls
+ * through to the strongest attack that can land.
  *
  * @param {Battle} battle
  * @param {Combatant} attacker
@@ -5362,10 +5371,8 @@ const TRIGGERED_KINDS = ['heal', 'stat', 'status', 'field'];
  */
 export function choosePolicyMove(battle, attacker, defender, usable) {
   const policy = battle.policy;
-  const conditions = policy.conditions ?? {};
-  const conditionOf = (/** @type {string} */ category) => conditions[category] ?? 'always';
 
-  /** What the policy allows this turn, each with its kind, in slot order. */
+  /** What the policy allows this turn, each with its condition, in slot order. */
   const allowed = [];
   for (const slot of usable) {
     const move = moveOf(slot.move);
@@ -5374,17 +5381,16 @@ export function choosePolicyMove(battle, attacker, defender, usable) {
     // unwon, is never reached for by the policy.
     if (neverAutomatic(slot.move)) continue;
     const category = categoryOf(move);
-    if (!conditionHolds(conditionOf(category), battle, attacker, defender)) continue;
+    const condition = moveCondition(policy, slot.move);
+    if (!conditionHolds(condition, battle, attacker, defender)) continue;
     if (!worthReachingFor(move, category, attacker, defender)) continue;
-    allowed.push({ move: slot.move, category });
+    allowed.push({ move: slot.move, category, condition });
   }
 
-  // A condition that names a moment is answered as soon as it comes.
-  for (const kind of TRIGGERED_KINDS) {
-    if (conditionOf(kind) === 'always') continue;
-    const triggered = allowed.find((entry) => entry.category === kind);
-    if (triggered) return triggered.move;
-  }
+  // A condition that names a moment is answered as soon as it comes, the
+  // first in slot order: the order is the player's to set.
+  const triggered = allowed.find((entry) => entry.condition !== 'always');
+  if (triggered) return triggered.move;
 
   const pool = allowed.map((entry) => entry.move);
   if (pool.length) {
@@ -5453,11 +5459,11 @@ export function categoryOf(move) {
 }
 
 /**
- * Whether a kind of move may be used this turn.
+ * Whether a move may be used this turn.
  *
- * One condition per kind: `never` takes a kind out of the fight altogether,
- * `always` lets it be used whenever the mode picks it, and the rest name the
- * moment it is used ahead of everything else.
+ * `never` takes a move out of the fight altogether, `always` lets it be used
+ * whenever the mode picks it, and the rest name the moment it is used ahead
+ * of everything else — the companion's own health, or the foe's.
  *
  * @param {string} condition
  * @param {Battle} battle
@@ -5466,6 +5472,7 @@ export function categoryOf(move) {
  */
 function conditionHolds(condition, battle, attacker, defender) {
   const health = () => attacker.pokemon.hp / Math.max(1, maxHp(attacker.pokemon));
+  const foeHealth = () => defender.pokemon.hp / Math.max(1, maxHp(defender.pokemon));
 
   switch (condition) {
     case 'never':
@@ -5490,6 +5497,14 @@ function conditionHolds(condition, battle, attacker, defender) {
       return health() <= 1 / 3;
     case 'hpQuarter':
       return health() <= 1 / 4;
+    case 'foeHpTwoThirds':
+      return foeHealth() <= 2 / 3;
+    case 'foeHpHalf':
+      return foeHealth() <= 1 / 2;
+    case 'foeHpThird':
+      return foeHealth() <= 1 / 3;
+    case 'foeHpQuarter':
+      return foeHealth() <= 1 / 4;
     case 'always':
     default:
       return true;

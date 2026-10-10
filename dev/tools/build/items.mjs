@@ -264,12 +264,21 @@ async function firstAvailable(urls) {
 export function assignRarityTiers(items, moves = {}) {
   /** @type {Map<string, Array<{name: string, score: number}>>} */
   const byPocket = new Map();
+  // What a TM or an HM teaches, so a record that teaches the same can be left
+  // out.
+  const taughtByMachine = new Set(
+    Object.entries(items)
+      .filter(([name, item]) => item.pocket === 'machines' && !/^tr\d+$/.test(name) && item.move)
+      .map(([, item]) => item.move),
+  );
 
   for (const [name, item] of Object.entries(items)) {
     if (!item.sprite) continue;
-    // Sword and Shield's records teach what the TMs already do, and would
-    // bury them a hundred deep in the machine pool.
-    if (item.pocket === 'machines' && /^tr\d+$/.test(name)) continue;
+    // Sword and Shield's records mostly teach what the TMs already do, and
+    // would bury them a hundred deep in the machine pool. The few that teach
+    // something no TM does — a Megahorn, a Leaf Blade — are the only way to
+    // find those moves on the road, so they stay.
+    if (item.pocket === 'machines' && /^tr\d+$/.test(name) && (!item.move || taughtByMachine.has(item.move))) continue;
     if (item.pocket === 'key') continue;
     // A berry grows on a tree; a ball on the road holds something else.
     if (item.pocket === 'berries') continue;

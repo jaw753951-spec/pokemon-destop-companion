@@ -403,6 +403,12 @@
         "ko": "가방에 있으면 울트라비스트가 한 마리씩 차례로 길에 나타난다. 텅비드부터 시작해, 모두 잡을 때까지 이 카드로만 만날 수 있다.",
         "en": "While it is in the bag, the Ultra Beasts turn up on the road one at a time, Nihilego first. Until all of them are caught, this card is the only way to meet them."
       }
+    },
+    "lure-ball": {
+      "text": {
+        "ko": "낚싯대로 낚아 올린 포켓몬을 잡기 쉬운 조금 특이한 볼.",
+        "en": "A Poké Ball that is good for catching Pokémon that you reel in with a rod while out fishing."
+      }
     }
   }
 }

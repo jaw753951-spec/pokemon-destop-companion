@@ -14,7 +14,7 @@ import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs'
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, ppItems, restoreHeldItem, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
+import { battleMedicine, healingItemFor, restoreHeldItem, shedAfterEvolving, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
@@ -246,6 +246,11 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     };
     loadImage(`items/${ball}.png`).then((image) => { entry.image = image; }).catch(() => {});
     sentOut[side] = false;
+    // The ball leaves the belt as it is thrown, not when the engine says so.
+    if (side === 'foe') {
+      foeOut = pokemon;
+      updateFoeBalls();
+    }
     const battler = side === 'player' ? playerBattler : foeBattler;
     if (battler) battler.visible = false;
     tosses.push(entry);
@@ -365,6 +370,12 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const foeBar = healthBar();
   /** The trainer's remaining party, drawn as the balls still on their belt. */
   const foeBalls = el('div.battle-balls');
+  /** The trainer's whole party, in the order they were handed to the battle. */
+  const foeParty = [...foes];
+  /** Which of it is out on the field, as played — not as the engine has it. */
+  let foeOut = /** @type {import('../engine/pokemon.mjs').Pokemon|null} */ (null);
+  /** And which of it has fainted, as played. */
+  const foeFallen = new Set();
   /** Every Pokémon is seen the moment it appears. */
   for (const foe of foes) session.markSeen(foe.speciesId);
 
@@ -429,14 +440,18 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
   const loadFoeSprite = () => loadBattler('foe', battle.foe?.pokemon ?? null);
 
   /**
-   * The opponent's remaining party, one ball per Pokémon still standing.
+   * The balls still on the opponent's belt: one for every Pokémon neither out
+   * on the field nor fainted, so a ball goes the moment it is thrown, and one
+   * called back by a Roar goes back on.
    *
-   * Trainers carry their team on their belt and the games count it down there
-   * as it faints; a wild Pokémon has no trainer, and the row stays empty.
+   * Counted from what has been played rather than from the engine, which has
+   * the whole turn worked out before any of it is shown: read from there, the
+   * count moved a turn out of step with the Pokémon coming out. A wild Pokémon
+   * has no trainer, and the row stays empty.
    */
   function updateFoeBalls() {
     // A wild Pokémon has no belt: the row said "one" over every wild battle.
-    const standing = trainer ? (battle.foeQueue?.length ?? 0) + (battle.foe?.pokemon.hp > 0 ? 1 : 0) : 0;
+    const standing = trainer ? foeParty.filter((pokemon) => pokemon !== foeOut && !foeFallen.has(pokemon)).length : 0;
     setChildren(
       foeBalls,
       Array.from({ length: standing }, () =>
@@ -629,34 +644,25 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (finished) return;
     app.audio.blip('select');
 
-    const usable = healingItems(session, session.active);
-    // And what cures the condition it is under, as the games' bag offers in a
-    // fight: an Antidote for a poison, a Full Heal for anything.
-    const status = session.active.status;
-    const healing = new Set(usable.map((entry) => entry.slug));
-    const cures = statusCures(session, session.active).filter((entry) => !healing.has(entry.slug));
-    // And the PP medicine, for a move run low.
-    const pp = ppItems(session, session.active);
+    // Every medicine a fight can use, the ones that would do nothing now
+    // greyed out: an Antidote is in the bag whether or not anything is
+    // poisoned, as the games' bag shows it.
+    const medicine = battleMedicine(session, session.active);
+    const detailOf = (entry) => {
+      const use = entry.item.use;
+      if (entry.kind === 'hp') return t('battle.restores', { amount: entry.usable && entry.restores ? entry.restores : entry.power });
+      if (entry.kind === 'status') return use.status === 'any' ? t('battle.curesAll') : t('battle.cures', { status: t(`status.${use.status}.short`) });
+      return t(entry.scope === 'one' ? 'battle.ppOne' : 'battle.ppAll');
+    };
     const chosen = await chooseFromList(
       app,
       t('battle.bag'),
-      [
-        ...usable.map(({ slug, count, item, restores }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
-        })),
-        ...cures.map(({ slug, count, item }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t('battle.cures', { status: t(`status.${status}.short`) })}`,
-        })),
-        ...pp.map(({ slug, count, item, scope }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t(scope === 'one' ? 'battle.ppOne' : 'battle.ppAll')}`,
-        })),
-      ],
+      medicine.map((entry) => ({
+        value: entry.slug,
+        label: localized(entry.item.name, entry.slug),
+        detail: `${t('items.count', { count: entry.count })}  ·  ${detailOf(entry)}`,
+        disabled: !entry.usable,
+      })),
       { empty: t('battle.noItems') },
     );
 
@@ -665,7 +671,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // on its PP, as the games list them.
     /** @type {{move?: number}} */
     let choice = {};
-    if (pp.some((entry) => entry.slug === chosen && entry.scope === 'one')) {
+    if (medicine.some((entry) => entry.slug === chosen && entry.scope === 'one')) {
       const moves = session.active.moves;
       const picked = await chooseFromList(
         app,
@@ -1187,6 +1193,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
         // fall leaves `battle.foe` empty — which is why the line read
         // "은(는) 쓰러졌다!" with no name, and why nothing reached the tray.
         const fainter = entry.data?.pokemon ?? (entry.side === 'player' ? player : foe);
+        if (entry.side === 'foe' && fainter) foeFallen.add(fainter);
         say(t('battle.fainted', { name: nameOf(fainter) }));
         battlerFor(entry.side)?.setPose('lose');
         app.audio.blip('faint');

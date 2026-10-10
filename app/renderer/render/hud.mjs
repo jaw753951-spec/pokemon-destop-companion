@@ -136,6 +136,9 @@ export function createHud(handlers) {
 
   const root = el('div.screen.hud', { style: { pointerEvents: 'none' } }, [status, corner, buttons, areaBadge]);
   for (const node of [status, purse, tray, buttons, areaBadge]) node.style.pointerEvents = 'auto';
+  // Everything but the tray steps aside while idle: a Pokémon waiting to be
+  // caught is an offer that runs out, so it stays in sight.
+  for (const node of [status, purse, buttons, areaBadge]) node.classList.add('hud-fade');
 
   /** What the tray was last built from, so it is only rebuilt when it changes. */
   let trayKey = '';
@@ -147,9 +150,10 @@ export function createHud(handlers) {
     tray,
 
     /**
-     * Fade every window out, or bring them back. Faded, they still answer a
-     * click — but the pointer has to be over the companion to make one, and
-     * that is what brings them back.
+     * Fade the windows out, or bring them back. The tray of Pokémon waiting
+     * to be caught stays put. Faded, the rest still answer a click — but the
+     * pointer has to be over the companion to make one, and that is what
+     * brings them back.
      *
      * @param {boolean} idle
      */
