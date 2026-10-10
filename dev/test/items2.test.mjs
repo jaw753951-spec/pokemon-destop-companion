@@ -8,13 +8,14 @@ import assert from 'node:assert/strict';
 
 import { NEEDS_ASSETS, useRealGameData } from './helpers/data.mjs';
 import { Rng } from '../../app/renderer/core/rng.mjs';
-import { gameData, speciesIdBySlug } from '../../app/renderer/core/data.mjs';
+import { gameData, speciesIdBySlug, speciesOf } from '../../app/renderer/core/data.mjs';
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { ballBonus, catchValue } from '../../app/renderer/engine/capture.mjs';
 import { EventScheduler } from '../../app/renderer/engine/events.mjs';
 import { canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, gainFromDefeat, maxHp, maxPp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
+import { experienceForLevel } from '../../app/renderer/engine/stats.mjs';
 import { VOLATILE } from '../../app/renderer/engine/volatile.mjs';
 
 const ready = await useRealGameData();
@@ -230,3 +231,36 @@ test('a candy that lifts the level says so, and one that does not stays quiet', 
   assert.ok(small.ok);
   assert.ok(!small.message?.includes('battle.levelUp'), small.message);
 });
+
+test('a candy level does what a battle level does: moves, friendship, evolution', options, () => {
+  /** @param {any} pokemon */
+  const candySession = (pokemon) => {
+    const session = bag({ 'rare-candy': 5 }, pokemon);
+    session.caughtNow = [];
+    session.markCaught = (id) => session.caughtNow.push(id);
+    session.box = [];
+    session.area = { tags: ['grass'] };
+    session.rng = new Rng(3);
+    return session;
+  };
+
+  // A move of the level crossed goes straight into a free slot.
+  const charmander = make('charmander', 5, ['scratch']);
+  const at = speciesOf(charmander.speciesId).learnset.level.find(([level, move]) => level > 5 && level < 16 && move !== 'scratch');
+  assert.ok(at, 'Charmander learns something before it evolves');
+  charmander.experience = experienceForLevel(speciesOf(charmander.speciesId).growthRate, at[0] - 1);
+  const fond = charmander.friendship ?? 0;
+  const learning = useItem(candySession(charmander), 'rare-candy');
+  assert.ok(charmander.moves.some((slot) => slot.move === at[1]), `${at[1]} is in a slot`);
+  assert.ok(learning.message?.includes('battle.learned'), learning.message);
+  assert.ok((charmander.friendship ?? 0) > fond, 'a level is worth friendship');
+
+  // And the level it evolves at evolves it there and then.
+  charmander.experience = experienceForLevel(speciesOf(charmander.speciesId).growthRate, 15);
+  const session = candySession(charmander);
+  const evolving = useItem(session, 'rare-candy');
+  assert.equal(speciesOf(charmander.speciesId).slug, 'charmeleon');
+  assert.deepEqual(session.caughtNow, [charmander.speciesId]);
+  assert.ok(evolving.message?.includes('battle.evolving'), evolving.message);
+});
+

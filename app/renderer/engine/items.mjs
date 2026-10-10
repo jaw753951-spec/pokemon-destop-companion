@@ -5,16 +5,21 @@
  * the same thing to the same Pokémon, so what an item does lives here rather
  * than in whichever screen happened to need it first.
  */
+import { timeOfDay } from '../../shared/constants.mjs';
+import { weatherForArea } from '../../shared/area-tags.mjs';
 import { gameData, itemOf, moveOf, speciesOf, typeEffectiveness } from '../core/data.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import {
   abilitySlot,
   createPokemon,
   evolveInto,
+  friendshipForLevels,
   learnOnEvolution,
   levelOf,
   maxHp,
   maxPp,
+  movesLearnedBetween,
+  noteLearnedMoves,
   pendingEvolution,
   setMove,
   statsOf,
@@ -136,14 +141,10 @@ export function useItem(session, slug, choice = {}) {
     const levelBefore = levelOf(pokemon);
     if (applyUse(pokemon, item, choice)) {
       session.removeItem(slug);
-      // A Rare Candy or an Exp. Candy that lifts the level says so, as the
-      // battle does.
-      const level = levelOf(pokemon);
-      const lines = [
-        t('items.used', { name: label }),
-        level > levelBefore ? t('battle.levelUp', { name: nameOf(pokemon), level }) : null,
-      ];
-      return { used: true, ok: true, message: lines.filter(Boolean).join(' ') };
+      // A Rare Candy or an Exp. Candy that lifts the level does everything a
+      // level won in battle does.
+      const lines = [t('items.used', { name: label }), ...levelledUp(session, pokemon, levelBefore)];
+      return { used: true, ok: true, message: lines.join(' ') };
     }
     // An Ability Patch or Capsule on a Pokémon with nothing to change to says
     // so — a bare "cannot be used" read as the item being broken.
@@ -184,6 +185,59 @@ export function useItem(session, slug, choice = {}) {
   if (canHold(slug)) return equipItem(session, slug);
 
   return { used: false, ok: false, message: t('items.cannotUse') };
+}
+
+/**
+ * Everything a level gained outside a battle brings, as one gained in it does
+ * — which is what a Rare Candy or an Exp. Candy does in the games: the extra
+ * hit points, the friendship, the moves of the levels crossed (straight into
+ * a free slot, or waiting in the move list when there is none), and an
+ * evolution the new level allows, with what evolving teaches and a Nincada's
+ * shell. In the order the battle says it.
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @param {number} before the level it was at
+ * @returns {string[]} what to say about it; nothing when the level did not move
+ */
+export function levelledUp(session, pokemon, before) {
+  const after = levelOf(pokemon);
+  if (after <= before) return [];
+  const learned = (move) => t('battle.learned', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) });
+  const waiting = (move) => t('battle.cannotLearnMore', { name: nameOf(pokemon), move: localized(moveOf(move)?.name, move) });
+
+  pokemon.hp = Math.min(maxHp(pokemon), pokemon.hp + (after - before) * 2);
+  friendshipForLevels(pokemon, after - before);
+  const lines = [t('battle.levelUp', { name: nameOf(pokemon), level: after })];
+  for (const move of movesLearnedBetween(pokemon, before, after)) {
+    if (pokemon.moves.length < 4) {
+      setMove(pokemon, pokemon.moves.length, move);
+      lines.push(learned(move));
+    } else {
+      lines.push(waiting(move));
+    }
+  }
+
+  const evolution = pendingEvolution(pokemon, {
+    timeOfDay: timeOfDay(),
+    box: session.box,
+    raining: weatherForArea(session.area) === 'rain',
+    areaTags: session.area?.tags ?? [],
+  });
+  if (evolution) {
+    const from = nameOf(pokemon);
+    const fromSpecies = pokemon.speciesId;
+    evolveInto(pokemon, evolution.to, session.rng);
+    session.markCaught(evolution.to);
+    lines.push(t('battle.evolving', { name: from, target: localized(speciesOf(pokemon.speciesId)?.name, '') }));
+    const taught = learnOnEvolution(pokemon);
+    lines.push(...taught.learned.map(learned), ...taught.waiting.map(waiting));
+    const shell = shedAfterEvolving(session, fromSpecies, pokemon);
+    if (shell) lines.push(t('battle.shed', { name: nameOf(shell) }));
+  }
+
+  noteLearnedMoves(pokemon, session.machines);
+  return lines;
 }
 
 /**
