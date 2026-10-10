@@ -85,11 +85,11 @@ test('each ball earns its bonus only where it should', options, () => {
   // A Lure Ball is for what was fished up.
   assert.equal(ballBonus('lure-ball', { ...magikarp, fromWater: true, fished: true }), 7.5);
   assert.equal(ballBonus('lure-ball', { ...magikarp, fromWater: true }), 0.6);
-  // A Timer Ball's clock starts with the battle, and the balls after it add
-  // to it; it never falls below a Great Ball, and tops out at ten turns.
-  assert.equal(ballBonus('timer-ball', onix), 1.5);
-  assert.equal(ballBonus('timer-ball', { ...onix, battleTurns: 3 }, { throws: 1 }), (1 + (4 * 1229) / 4096) * 1.5);
-  assert.equal(ballBonus('timer-ball', { ...onix, battleTurns: 30 }), 6);
+  // A Timer Ball climbs with each ball, from a Poké Ball's worth to its best
+  // on the last of the three.
+  assert.equal(ballBonus('timer-ball', onix, { throws: 0 }), 1);
+  assert.equal(ballBonus('timer-ball', onix, { throws: 1 }), 3.5);
+  assert.equal(ballBonus('timer-ball', onix, { throws: 2 }), 6);
   assert.equal(ballBonus('level-ball', magikarp, { active: make('pikachu', 25) }), 12);
   assert.equal(ballBonus('level-ball', onix, { active: make('pikachu', 25) }), 0.6);
   assert.equal(ballBonus('moon-ball', make('clefairy', 20)), 6);

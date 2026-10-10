@@ -7,6 +7,7 @@
  * times. The capture screen shows the resulting odds before the player throws,
  * so `captureChance` exists alongside the roll itself.
  */
+import { CAPTURE_ATTEMPTS } from '../../shared/constants.mjs';
 import { itemOf, speciesOf } from '../core/data.mjs';
 import { levelOf, maxHp } from './pokemon.mjs';
 
@@ -41,6 +42,9 @@ export const STATUS_BONUS = { slp: 2.5, frz: 2.5, par: 1.5, brn: 1.5, psn: 1.5 }
 
 /** Shake checks a throw must pass. */
 export const SHAKE_CHECKS = 4;
+
+/** A Timer Ball on the last ball of the three. */
+const TIMER_BEST = 4 * SPECIAL_BOOST;
 
 /** Where a Net Ball's Water types are in their element. */
 const NET_WATER = new Set(['water', 'beach']);
@@ -92,12 +96,13 @@ export function ballBonus(ball, target = null, context = {}) {
     // The first ball thrown.
     case 'quick-ball':
       return special((context.throws ?? 0) === 0, 5);
-    // Better the longer it goes on, on the games' own clock: the turns the
-    // battle ran, then each ball thrown after it. It counted the balls alone,
-    // which with three of them never got past a Great Ball.
+    // Better with each ball thrown, from a Poké Ball's worth on the first to
+    // the games' best (4, with the special balls' boost) on the last: a Quick
+    // Ball the other way round. It climbed at the games' per-turn rate, which
+    // with three balls never got past a Great Ball.
     case 'timer-ball': {
-      const turns = (target?.battleTurns ?? 0) + (context.throws ?? 0);
-      return Math.min(4, 1 + (turns * 1229) / 4096) * SPECIAL_BOOST;
+      const throws = Math.min(context.throws ?? 0, CAPTURE_ATTEMPTS - 1);
+      return 1 + ((TIMER_BEST - 1) * throws) / (CAPTURE_ATTEMPTS - 1);
     }
     // Anything fished up, at Sun and Moon's five.
     case 'lure-ball':
