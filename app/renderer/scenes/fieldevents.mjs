@@ -210,8 +210,18 @@ export function createEventRunner({ session, onBattle }) {
     },
 
     /** How far the companion is off the ground — bobbing as it gathers, or
-     * stepping through a door — in field pixels. */
+     * stepping through a door — in field pixels; null while nothing here
+     * has it busy, when it bobs on the spot of its own accord.
+     *
+     * A busy companion's lift is its lift even at nought. It used to be
+     * handed over as a plain number, so the bottom of each gathering bob —
+     * a few frames of nought — read as "not busy" and dropped the companion
+     * onto its idle bob, on a clock of its own, for those frames: a
+     * pixel-high stutter on every beat of picking something up. */
     get actorLift() {
+      const gathering = Boolean(active && GATHERING.has(active.phase));
+      const stepping = Boolean(active?.phase === 'visit' && active.beat?.step);
+      if (!gathering && !stepping) return null;
       return gatherBob(active) + doorStepOf(active).lift;
     },
 

@@ -703,7 +703,7 @@ export function fieldScene(session) {
             moving,
             // Standing still in front of a berry tree for ten seconds reads as
             // a frozen game; the bob says it is picking.
-            lift: events?.actorLift ?? 0,
+            lift: events?.actorLift ?? null,
             scale: actorScale(companion, session.active),
             time: session.playtime,
           };

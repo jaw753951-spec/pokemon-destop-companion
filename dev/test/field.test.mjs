@@ -241,6 +241,19 @@ test('a bobbing companion leaves its shadow on the ground', () => {
   // the nine-argument form, so the destination top is the seventh.
   const topOf = (recorded) => recorded.calls.image[0][6];
   assert.equal(topOf(grounded) - topOf(lifted), 3);
+
+  // A busy companion at the bottom of its bob is on the ground, not on its
+  // idle bob: nought is a lift like any other. Over a stretch of standing
+  // time, the lift of nought stays put while the idle bob moves.
+  const at = (lift, time) => {
+    const recorded = recorder();
+    drawWalker(/** @type {any} */ (recorded), /** @type {any} */ (sprite), { ...walk, lift, time });
+    return topOf(recorded);
+  };
+  const busy = new Set([0, 100, 230, 345].map((time) => at(0, time)));
+  const idle = new Set([0, 100, 230, 345].map((time) => at(null, time)));
+  assert.equal(busy.size, 1, 'a lift of nought holds still');
+  assert.ok(idle.size > 1, 'with no lift it bobs on its own clock');
 });
 
 test('one picture hops as it walks and bobs as it stands, and never leans', () => {
