@@ -72,9 +72,9 @@ test('each ball earns its bonus only where it should', options, () => {
   assert.equal(ballBonus('nest-ball', onix), 0.6);
   assert.equal(ballBonus('repeat-ball', onix, { caught: new Set([onix.speciesId]) }), 5.25);
   assert.equal(ballBonus('repeat-ball', onix), 0.6);
-  // A Dive Ball is for what was met surfing or fishing, at the games' own
-  // 3.5 — not for everything on a route with water on it.
-  assert.equal(ballBonus('dive-ball', { ...magikarp, fromWater: true }), 3.5);
+  // A Dive Ball is for what was met surfing or fishing, not for everything
+  // on a route with water on it.
+  assert.equal(ballBonus('dive-ball', { ...magikarp, fromWater: true }), 5.25);
   assert.equal(ballBonus('dive-ball', magikarp, { areaTags: ['beach', 'water'] }), 0.6);
   assert.equal(ballBonus('level-ball', magikarp, { active: make('pikachu', 25) }), 12);
   assert.equal(ballBonus('level-ball', onix, { active: make('pikachu', 25) }), 0.6);

@@ -96,12 +96,10 @@ export function ballBonus(ball, target = null, context = {}) {
     case 'net-ball':
       return special(Boolean(species?.types.some((type) => type === 'water' || type === 'bug')), 3.5);
     // Only what was met surfing or fishing, as in the games — not everything
-    // on a route that has water on it — and at the games' own 3.5 with none
-    // of the special balls' boost on top: a Pokémon in the tray is already as
-    // low as it goes, and with the boost a Dive Ball caught nearly everything
-    // on the water outright.
+    // on a route that has water on it, which made it near enough a sure catch
+    // for a quarter of the map.
     case 'dive-ball':
-      return target?.fromWater ? 3.5 : SPECIAL_MISS;
+      return special(Boolean(target?.fromWater), 3.5);
     // The lower the level, the better, down from 30.
     case 'nest-ball':
       return target ? Math.max(SPECIAL_MISS, ((41 - levelOf(target)) / 10) * SPECIAL_BOOST) : SPECIAL_MISS;
