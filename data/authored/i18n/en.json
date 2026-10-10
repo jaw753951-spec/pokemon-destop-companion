@@ -202,6 +202,7 @@
   "box.sortDexReverse": "Pokédex number, reversed",
   "box.sortClear": "Champions first",
   "box.sortClearReverse": "Champions last",
+  "box.sortShiny": "Shiny first",
   "dex.title": "Pokédex",
   "dex.unknown": "???",
   "dex.seen": "Seen {count}",

@@ -61,6 +61,7 @@ async function sortMenu(app, session, refresh) {
     { value: /** @type {const} */ ('dexReverse'), label: t('box.sortDexReverse') },
     { value: /** @type {const} */ ('clear'), label: t('box.sortClear') },
     { value: /** @type {const} */ ('clearReverse'), label: t('box.sortClearReverse') },
+    { value: /** @type {const} */ ('shiny'), label: t('box.sortShiny') },
   ]);
   if (!order) return;
   session.sortBox(order);

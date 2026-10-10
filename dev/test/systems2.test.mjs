@@ -688,6 +688,12 @@ test('the box sorts by Pokédex number or by who has beaten the League, favourit
   assert.deepEqual(order(), [4, 150, 7, 133, 1, 25], 'champions in number order, then the rest');
   session.sortBox('clearReverse');
   assert.deepEqual(order(), [150, 4, 1, 25, 7, 133], 'the rest first, then the champions, each in number order');
+  session.box.find((pokemon) => pokemon?.speciesId === 133).shiny = true;
+  session.box.find((pokemon) => pokemon?.speciesId === 25).shiny = true;
+  session.box.find((pokemon) => pokemon?.speciesId === 1).shiny = false;
+  session.box.find((pokemon) => pokemon?.speciesId === 7).shiny = false;
+  session.sortBox('shiny');
+  assert.deepEqual(order(), [4, 150, 25, 133, 1, 7], 'favourites, then the shiny ones, then the rest, each in number order');
 });
 
 test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {

@@ -202,6 +202,7 @@
   "box.sortDexReverse": "도감번호 역순",
   "box.sortClear": "클리어순 (챔피언 먼저)",
   "box.sortClearReverse": "클리어순 역방향 (챔피언 나중)",
+  "box.sortShiny": "색이 다른 포켓몬 먼저",
   "dex.title": "도감",
   "dex.unknown": "???",
   "dex.seen": "본 포켓몬 {count}",

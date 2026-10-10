@@ -316,10 +316,11 @@ export class Session {
    *   each in Pokédex order.
    * - `clearReverse`: the rest first, then the League's — each still in
    *   Pokédex order; it is which group leads that turns round.
+   * - `shiny`: the shiny ones first, then the rest, each in Pokédex order.
    *
    * Two of the same species keep the order they were caught in.
    *
-   * @param {'dex'|'dexReverse'|'clear'|'clearReverse'} order
+   * @param {'dex'|'dexReverse'|'clear'|'clearReverse'|'shiny'} order
    */
   sortBox(order) {
     const dexOf = (pokemon) => {
@@ -330,6 +331,7 @@ export class Session {
     const group = (pokemon) => {
       if (order === 'clear') return pokemon.champion ? 0 : 1;
       if (order === 'clearReverse') return pokemon.champion ? 1 : 0;
+      if (order === 'shiny') return pokemon.shiny ? 0 : 1;
       return 0;
     };
     const compare = (a, b) =>
