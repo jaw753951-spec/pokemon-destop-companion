@@ -61,8 +61,14 @@ test('each ball earns its bonus only where it should', options, () => {
   const onix = make('onix', 40);
   // A special ball is worse than a Poké Ball out of its element (0.6) and
   // half again better than the games make it in it.
-  assert.equal(ballBonus('net-ball', magikarp), 5.25);
-  assert.equal(ballBonus('net-ball', onix), 0.6);
+  // A Net Ball wants the type in its element: a Water type on or by the
+  // water, a Bug type in the grass or the trees.
+  assert.equal(ballBonus('net-ball', magikarp, { areaTags: ['beach'] }), 5.25);
+  assert.equal(ballBonus('net-ball', { ...magikarp, fromWater: true }, { areaTags: ['cave'] }), 5.25);
+  assert.equal(ballBonus('net-ball', magikarp, { areaTags: ['mountain'] }), 0.6);
+  assert.equal(ballBonus('net-ball', make('caterpie', 5), { areaTags: ['forest'] }), 5.25);
+  assert.equal(ballBonus('net-ball', make('caterpie', 5), { areaTags: ['cave'] }), 0.6);
+  assert.equal(ballBonus('net-ball', onix, { areaTags: ['water'] }), 0.6);
   assert.equal(ballBonus('quick-ball', onix, { throws: 0 }), 7.5);
   assert.equal(ballBonus('quick-ball', onix, { throws: 1 }), 0.6);
   assert.equal(ballBonus('dusk-ball', onix, { time: 'night' }), 4.5);

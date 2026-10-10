@@ -42,6 +42,11 @@ export const STATUS_BONUS = { slp: 2.5, frz: 2.5, par: 1.5, brn: 1.5, psn: 1.5 }
 /** Shake checks a throw must pass. */
 export const SHAKE_CHECKS = 4;
 
+/** Where a Net Ball's Water types are in their element. */
+const NET_WATER = new Set(['water', 'beach']);
+/** And its Bug types. */
+const NET_BUG = new Set(['grass', 'forest', 'jungle', 'meadow']);
+
 /** The Ultra Beasts, which a Beast Ball is made for and every other ball struggles with. */
 const ULTRA_BEASTS = new Set([
   'nihilego', 'buzzwole', 'pheromosa', 'xurkitree', 'celesteela', 'kartana', 'guzzlord', 'poipole', 'naganadel',
@@ -93,8 +98,14 @@ export function ballBonus(ball, target = null, context = {}) {
     // At night, or in a cave.
     case 'dusk-ball':
       return special(context.time === 'night' || tags.includes('cave'), 3);
-    case 'net-ball':
-      return special(Boolean(species?.types.some((type) => type === 'water' || type === 'bug')), 3.5);
+    // A Water type in or by the water, or a Bug type in the grass or the
+    // trees: the type alone was every third wild Pokémon, wherever it was.
+    case 'net-ball': {
+      const types = species?.types ?? [];
+      const wet = types.includes('water') && (Boolean(target?.fromWater) || tags.some((tag) => NET_WATER.has(tag)));
+      const leafy = types.includes('bug') && tags.some((tag) => NET_BUG.has(tag));
+      return special(wet || leafy, 3.5);
+    }
     // Only what was met surfing or fishing, as in the games — not everything
     // on a route that has water on it, which made it near enough a sure catch
     // for a quarter of the map.
