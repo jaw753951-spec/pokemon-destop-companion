@@ -5463,7 +5463,8 @@ export function categoryOf(move) {
  *
  * `never` takes a move out of the fight altogether, `always` lets it be used
  * whenever the mode picks it, and the rest name the moment it is used ahead
- * of everything else — the companion's own health, or the foe's.
+ * of everything else — the companion's own health or stat ranks, or the
+ * foe's.
  *
  * @param {string} condition
  * @param {Battle} battle
@@ -5487,6 +5488,16 @@ function conditionHolds(condition, battle, attacker, defender) {
       // Now that there is weather and terrain, this asks what it always read
       // as: reach for a field move when there is no field effect already.
       return battle.field ? battle.field.quiet : true;
+    // A rank is any stat stage, accuracy and evasion among them: up when one
+    // sits above zero, down when one sits below. Both can hold at once.
+    case 'rankUp':
+      return Object.values(attacker.stages).some((stage) => stage > 0);
+    case 'rankDown':
+      return Object.values(attacker.stages).some((stage) => stage < 0);
+    case 'foeRankUp':
+      return Object.values(defender.stages).some((stage) => stage > 0);
+    case 'foeRankDown':
+      return Object.values(defender.stages).some((stage) => stage < 0);
     case 'hpTwoThirds':
       return health() <= 2 / 3;
     // `lowHp` is what half health was called before the fractions were named.

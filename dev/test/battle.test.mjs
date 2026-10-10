@@ -420,6 +420,27 @@ test('each move has its own condition, ahead of its kind, and the foe\'s health 
   assert.equal(pick(), 'ember', 'the foe at a quarter brings the finisher out');
 });
 
+test('a move can wait on either side\'s stat ranks going up or down', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'swords-dance', 'ember']);
+  const foe = makeFixed(VENUSAUR, 50, ['tackle']);
+  const battle = new Battle({
+    rng: new Rng(4),
+    player,
+    foes: [foe],
+    policy: { ...defaultAutoBattle(), moves: { 'swords-dance': 'rankDown', ember: 'foeRankUp' } },
+  });
+  const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+
+  assert.equal(pick(), 'flamethrower', 'with no ranks moved, neither waits its turn');
+  battle.player.stages.atk = -1;
+  assert.equal(pick(), 'swords-dance', 'a lowered rank brings the setup back out');
+  battle.player.stages.atk = 0;
+  battle.foe.stages.spe = 2;
+  assert.equal(pick(), 'ember', 'the foe\'s raised rank brings its answer out');
+  battle.foe.stages.spe = -2;
+  assert.equal(pick(), 'flamethrower', 'a lowered foe rank is not a raised one');
+});
+
 test('two moves whose moments both hold go in slot order, which the player sets', options, () => {
   const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'swords-dance', 'recover']);
   const battle = new Battle({
