@@ -454,11 +454,19 @@ export function defaultAutoBattle() {
   return {
     mode: 'damageFirst',
     /**
-     * When each kind of move may be used, `never` included. A condition that
-     * names a moment is answered before anything else; `always` leaves the
-     * kind to the mode.
+     * The condition each kind of move starts with, until the player gives a
+     * move one of its own: an attack always, a hindrance on a foe still
+     * unhurt, a boost on the first turn, a field move on an empty field, a
+     * heal at half health.
      */
     conditions: { damage: 'always', status: 'noStatus', stat: 'firstTurn', field: 'noField', heal: 'hpHalf' },
+    /**
+     * When each move may be used, by the move, `never` included. A condition
+     * that names a moment is answered before anything else; `always` leaves
+     * the move to the mode.
+     * @type {Record<string, string>}
+     */
+    moves: {},
   };
 }
 
@@ -546,7 +554,14 @@ export function normalizeAutoBattle(policy) {
   let mode = policy.mode ?? fresh.mode;
   if (Array.isArray(policy.order) && !policy.order.some(Boolean)) mode = 'damageFirst';
 
-  return { mode, conditions };
+  // Each move's own condition, as set on the auto-battle screen.
+  /** @type {Record<string, string>} */
+  const moves = {};
+  for (const [slug, condition] of Object.entries(policy.moves ?? {})) {
+    if (typeof condition === 'string') moves[slug] = condition;
+  }
+
+  return { mode, conditions, moves };
 }
 
 /**

@@ -1892,25 +1892,75 @@ canvas {
   font-weight: 700;
 }
 
-.auto-kinds {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 3px 12px;
+.auto-moves {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
 }
 
-.auto-kind {
+.auto-move-row {
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 6px;
   font-size: 10px;
 }
 
-.auto-kind .label {
+/* The move is the handle for the order: picked up, it is marked; the others
+   then read as the places it can go. */
+.auto-move {
+  -webkit-app-region: no-drag;
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 6px;
+  border: 1px solid var(--frame-light);
+  border-radius: 5px;
+  background: var(--paper);
   color: var(--ink);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
 }
 
-/* A kind set to never is still listed, greyed rather than hidden, so turning
+.auto-move:hover {
+  border-color: var(--accent);
+}
+
+.auto-move.moving {
+  border-color: var(--accent);
+  background: rgba(216, 68, 60, 0.12);
+}
+
+.auto-move.target {
+  border-style: dashed;
+}
+
+.auto-move-order {
+  flex: none;
+  width: 12px;
+  color: var(--ink-soft);
+  font-weight: 700;
+  text-align: center;
+}
+
+.auto-move-name {
+  flex: 1;
+  min-width: 0;
+  font-weight: 700;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.auto-move-row > .chip {
+  flex: none;
+  min-width: 112px;
+}
+
+/* A move set to never is still listed, greyed rather than hidden, so turning
    it back on is where turning it off was. */
 .chip.off {
   border-style: dashed;

@@ -8,6 +8,7 @@ import {
   Battle,
   categoryOf,
   choosePolicyMove,
+  moveCondition,
   effectiveStat,
   expectedDamage,
   STATUS,
@@ -400,6 +401,41 @@ test('a condition that names a moment is answered before any attack, whatever th
   }
 });
 
+test('each move has its own condition, ahead of its kind, and the foe\'s health is one', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['ember', 'flamethrower', 'growl']);
+  const foe = makeFixed(VENUSAUR, 50, ['tackle']);
+  const battle = new Battle({
+    rng: new Rng(2),
+    player,
+    foes: [foe],
+    // Ember is the finisher: kept back until the foe is down to a quarter.
+    policy: { ...defaultAutoBattle(), moves: { ember: 'foeHpQuarter', growl: 'never' } },
+  });
+  const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+
+  assert.equal(moveCondition(battle.policy, 'ember'), 'foeHpQuarter');
+  assert.equal(moveCondition(battle.policy, 'flamethrower'), 'always', 'an attack starts at always');
+  assert.equal(pick(), 'flamethrower');
+  foe.hp = Math.floor(maxHp(foe) / 4);
+  assert.equal(pick(), 'ember', 'the foe at a quarter brings the finisher out');
+});
+
+test('two moves whose moments both hold go in slot order, which the player sets', options, () => {
+  const player = makeFixed(CHARIZARD, 50, ['flamethrower', 'swords-dance', 'recover']);
+  const battle = new Battle({
+    rng: new Rng(3),
+    player,
+    foes: [makeFixed(VENUSAUR, 50, ['tackle'])],
+    policy: defaultAutoBattle(),
+  });
+  const pick = () => choosePolicyMove(battle, battle.player, /** @type {any} */ (battle.foe), player.moves);
+  // The first turn, at half health: a boost and a heal are both due.
+  player.hp = Math.floor(maxHp(player) / 2);
+  assert.equal(pick(), 'swords-dance');
+  [player.moves[1], player.moves[2]] = [player.moves[2], player.moves[1]];
+  assert.equal(pick(), 'recover', 'moved ahead, the heal goes first');
+});
+
 test('a stored policy from either older shape becomes conditions', options, () => {
   // Weights, where zero meant "never".
   const weighted = normalizeAutoBattle({
@@ -427,6 +463,9 @@ test('a stored policy from either older shape becomes conditions', options, () =
   assert.equal(normalizeAutoBattle({ mode: 'repeatLast', order: ['ember', null, null, null] }).mode, 'repeatLast');
   // And a policy saved since keeps whatever mode was chosen.
   assert.equal(normalizeAutoBattle({ mode: 'repeatAll', conditions: {} }).mode, 'repeatAll');
+  // Each move's own condition is kept; a policy from before has none.
+  assert.deepEqual(normalizeAutoBattle({ mode: 'repeatAll', moves: { ember: 'foeHpHalf', bad: 3 } }).moves, { ember: 'foeHpHalf' });
+  assert.deepEqual(normalizeAutoBattle({ mode: 'repeatAll', conditions: {} }).moves, {});
 });
 
 test('an item takes the companion\'s turn instead of a move', options, () => {
