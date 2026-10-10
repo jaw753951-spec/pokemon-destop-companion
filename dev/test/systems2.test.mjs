@@ -669,7 +669,7 @@ test('the box has no limit, and favourites keep its top rows in the order they w
   assert.deepEqual(order(), [133, 25, 39, 4, 7]);
 });
 
-test('the box sorts by Pokédex number or by who has beaten the League, favourites always first', options, () => {
+test('the box sorts by Pokédex number, by who has beaten the League or by shininess, either way round, favourites always first', options, () => {
   const make = (id, champion = false, favorite = false) => {
     const pokemon = fixed(id, 5);
     if (champion) pokemon.champion = true;
@@ -682,11 +682,11 @@ test('the box sorts by Pokédex number or by who has beaten the League, favourit
 
   session.sortBox('dex');
   assert.deepEqual(order(), [4, 150, 1, 7, 25, 133], 'favourites first, then by number, gaps gone');
-  session.sortBox('dexReverse');
+  session.sortBox('dex', true);
   assert.deepEqual(order(), [150, 4, 133, 25, 7, 1]);
   session.sortBox('clear');
   assert.deepEqual(order(), [4, 150, 7, 133, 1, 25], 'champions in number order, then the rest');
-  session.sortBox('clearReverse');
+  session.sortBox('clear', true);
   assert.deepEqual(order(), [150, 4, 1, 25, 7, 133], 'the rest first, then the champions, each in number order');
   session.box.find((pokemon) => pokemon?.speciesId === 133).shiny = true;
   session.box.find((pokemon) => pokemon?.speciesId === 25).shiny = true;
@@ -694,6 +694,12 @@ test('the box sorts by Pokédex number or by who has beaten the League, favourit
   session.box.find((pokemon) => pokemon?.speciesId === 7).shiny = false;
   session.sortBox('shiny');
   assert.deepEqual(order(), [4, 150, 25, 133, 1, 7], 'favourites, then the shiny ones, then the rest, each in number order');
+  session.sortBox('shiny', true);
+  assert.deepEqual(order(), [4, 150, 1, 7, 25, 133], 'turned round, the rest first, still in number order');
+  // And the order is remembered with the run.
+  assert.deepEqual(session.toSave().boxSort, { key: 'shiny', reverse: true });
+  const reloaded = new Session({ slot: 0, save: session.toSave() });
+  assert.deepEqual(reloaded.boxSort, { key: 'shiny', reverse: true });
 });
 
 test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {

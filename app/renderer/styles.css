@@ -1703,6 +1703,16 @@ canvas {
   gap: 6px;
 }
 
+.box-sort {
+  display: flex;
+  gap: 3px;
+}
+
+.box-sort-way {
+  min-width: 22px;
+  padding: 3px 6px;
+}
+
 .box-hint {
   padding: 2px 4px;
   color: var(--accent-dark);

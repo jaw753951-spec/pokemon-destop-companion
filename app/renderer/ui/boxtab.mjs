@@ -41,30 +41,45 @@ export function boxTab(app, session, refresh, state) {
       moving
         ? el('div.box-hint', { text: t('box.moveTarget') })
         : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
-      moving ? null : button(t('box.sort'), () => sortMenu(app, session, refresh), { className: 'small' }),
+      moving ? null : el('div.box-sort', {}, [
+        button(t(SORT_LABELS[session.boxSort.key]), () => sortMenu(app, session, refresh), { className: 'small' }),
+        // Which way round, beside it: one press turns the box over.
+        el('button.btn.small.box-sort-way', {
+          type: 'button',
+          text: session.boxSort.reverse ? '↓' : '↑',
+          title: t(session.boxSort.reverse ? 'box.sortReverse' : 'box.sortForward'),
+          'aria-label': t(session.boxSort.reverse ? 'box.sortReverse' : 'box.sortForward'),
+          onClick: () => {
+            session.sortBox(session.boxSort.key, !session.boxSort.reverse);
+            app.audio.blip('confirm');
+            refresh();
+          },
+        }),
+      ]),
     ]),
     scrollable(grid),
   ]);
 }
 
+/** What each order is called, on its button and in its menu. */
+const SORT_LABELS = /** @type {const} */ ({ dex: 'box.sortDex', clear: 'box.sortClear', shiny: 'box.sortShiny' });
+
 /**
- * Ask which order to put the box in, and put it in that order. Favourites
- * stay at the top whichever it is.
+ * Ask which order to put the box in, and put it in that order the way round
+ * it already is. Favourites stay at the top whichever it is.
  *
  * @param {import('../core/app.mjs').App} app
  * @param {import('../engine/session.mjs').Session} session
  * @param {() => void} refresh
  */
 async function sortMenu(app, session, refresh) {
-  const order = await chooseAction(app, t('box.sort'), [
-    { value: /** @type {const} */ ('dex'), label: t('box.sortDex') },
-    { value: /** @type {const} */ ('dexReverse'), label: t('box.sortDexReverse') },
-    { value: /** @type {const} */ ('clear'), label: t('box.sortClear') },
-    { value: /** @type {const} */ ('clearReverse'), label: t('box.sortClearReverse') },
-    { value: /** @type {const} */ ('shiny'), label: t('box.sortShiny') },
-  ]);
-  if (!order) return;
-  session.sortBox(order);
+  const key = await chooseAction(
+    app,
+    t('box.sort'),
+    /** @type {Array<'dex'|'clear'|'shiny'>} */ (['dex', 'clear', 'shiny']).map((value) => ({ value, label: t(SORT_LABELS[value]) })),
+  );
+  if (!key) return;
+  session.sortBox(key, session.boxSort.reverse);
   app.audio.blip('confirm');
   refresh();
 }

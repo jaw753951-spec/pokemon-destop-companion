@@ -98,6 +98,15 @@ export class Session {
     this.caught = new Set(save.dex?.caught ?? []);
     this.champions = new Set(save.dex?.champions ?? []);
 
+    /**
+     * How the box was last sorted, for its tab to show and turn round.
+     * @type {{key: 'dex'|'clear'|'shiny', reverse: boolean}}
+     */
+    this.boxSort = {
+      key: ['dex', 'clear', 'shiny'].includes(save.boxSort?.key) ? save.boxSort.key : 'dex',
+      reverse: Boolean(save.boxSort?.reverse),
+    };
+
     /** @type {any} */
     this.autoBattle = normalizeAutoBattle(save.autoBattle);
     /** @type {any} */
@@ -309,31 +318,29 @@ export class Session {
 
   /**
    * Put the box in order, favourites first however it is sorted, and the
-   * empty spaces packed away at the end.
+   * empty spaces packed away at the end. The order is remembered, so the box
+   * tab can show it and turn it round.
    *
-   * - `dex`, `dexReverse`: by Pokédex number, up or down.
-   * - `clear`: the ones that have beaten the League first, then the rest,
-   *   each in Pokédex order.
-   * - `clearReverse`: the rest first, then the League's — each still in
-   *   Pokédex order; it is which group leads that turns round.
-   * - `shiny`: the shiny ones first, then the rest, each in Pokédex order.
+   * - `dex`: by Pokédex number; turned round, from the highest down.
+   * - `clear`: the ones that have beaten the League first, then the rest;
+   *   turned round, the rest first. Each group in Pokédex order either way.
+   * - `shiny`: the shiny ones first, then the rest; turned round, the rest
+   *   first. Each group in Pokédex order either way.
    *
    * Two of the same species keep the order they were caught in.
    *
-   * @param {'dex'|'dexReverse'|'clear'|'clearReverse'|'shiny'} order
+   * @param {'dex'|'clear'|'shiny'} key
+   * @param {boolean} [reverse]
    */
-  sortBox(order) {
+  sortBox(key, reverse = false) {
+    this.boxSort = { key, reverse };
     const dexOf = (pokemon) => {
       const species = speciesOf(pokemon.speciesId);
       return species?.dex ?? pokemon.speciesId;
     };
-    const descending = order === 'dexReverse' ? -1 : 1;
-    const group = (pokemon) => {
-      if (order === 'clear') return pokemon.champion ? 0 : 1;
-      if (order === 'clearReverse') return pokemon.champion ? 1 : 0;
-      if (order === 'shiny') return pokemon.shiny ? 0 : 1;
-      return 0;
-    };
+    const descending = key === 'dex' && reverse ? -1 : 1;
+    const first = (pokemon) => (key === 'clear' ? Boolean(pokemon.champion) : key === 'shiny' ? Boolean(pokemon.shiny) : false);
+    const group = (pokemon) => (key === 'dex' ? 0 : first(pokemon) !== reverse ? 0 : 1);
     const compare = (a, b) =>
       Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) ||
       group(a) - group(b) ||
@@ -429,6 +436,7 @@ export class Session {
       },
       autoBattle: this.autoBattle,
       items: this.itemPolicy,
+      boxSort: this.boxSort,
     };
   }
 
