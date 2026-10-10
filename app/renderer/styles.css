@@ -1696,6 +1696,13 @@ canvas {
   flex-direction: column;
 }
 
+.box-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+
 .box-hint {
   padding: 2px 4px;
   color: var(--accent-dark);

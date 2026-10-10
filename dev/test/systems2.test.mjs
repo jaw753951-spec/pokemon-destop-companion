@@ -669,6 +669,27 @@ test('the box has no limit, and favourites keep its top rows in the order they w
   assert.deepEqual(order(), [133, 25, 39, 4, 7]);
 });
 
+test('the box sorts by Pokédex number or by who has beaten the League, favourites always first', options, () => {
+  const make = (id, champion = false, favorite = false) => {
+    const pokemon = fixed(id, 5);
+    if (champion) pokemon.champion = true;
+    if (favorite) pokemon.favorite = true;
+    return pokemon;
+  };
+  const box = [make(25), null, make(7, true), make(150, false, true), make(1), make(133, true), null, make(4, true, true)];
+  const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(152, 5), box } } });
+  const order = () => session.box.map((pokemon) => pokemon?.speciesId ?? null);
+
+  session.sortBox('dex');
+  assert.deepEqual(order(), [4, 150, 1, 7, 25, 133], 'favourites first, then by number, gaps gone');
+  session.sortBox('dexReverse');
+  assert.deepEqual(order(), [150, 4, 133, 25, 7, 1]);
+  session.sortBox('clear');
+  assert.deepEqual(order(), [4, 150, 7, 133, 1, 25], 'champions in number order, then the rest');
+  session.sortBox('clearReverse');
+  assert.deepEqual(order(), [150, 4, 1, 25, 7, 133], 'the rest first, then the champions, each in number order');
+});
+
 test('the shop sells all but the unique, prices a trainer\'s prize, and a kept item is had once', options, async () => {
   const { alreadyOwned, buy, isConsumable, lossFor, priceOf, prizeFor, shopStock } = await import('../../app/renderer/engine/shop.mjs');
   const session = new Session({ slot: 0, save: { seed: 1, party: { active: fixed(4, 20), box: [] } } });

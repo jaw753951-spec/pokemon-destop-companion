@@ -308,6 +308,40 @@ export class Session {
   }
 
   /**
+   * Put the box in order, favourites first however it is sorted, and the
+   * empty spaces packed away at the end.
+   *
+   * - `dex`, `dexReverse`: by Pokédex number, up or down.
+   * - `clear`: the ones that have beaten the League first, then the rest,
+   *   each in Pokédex order.
+   * - `clearReverse`: the rest first, then the League's — each still in
+   *   Pokédex order; it is which group leads that turns round.
+   *
+   * Two of the same species keep the order they were caught in.
+   *
+   * @param {'dex'|'dexReverse'|'clear'|'clearReverse'} order
+   */
+  sortBox(order) {
+    const dexOf = (pokemon) => {
+      const species = speciesOf(pokemon.speciesId);
+      return species?.dex ?? pokemon.speciesId;
+    };
+    const descending = order === 'dexReverse' ? -1 : 1;
+    const group = (pokemon) => {
+      if (order === 'clear') return pokemon.champion ? 0 : 1;
+      if (order === 'clearReverse') return pokemon.champion ? 1 : 0;
+      return 0;
+    };
+    const compare = (a, b) =>
+      Number(Boolean(b.favorite)) - Number(Boolean(a.favorite)) ||
+      group(a) - group(b) ||
+      descending * (dexOf(a) - dexOf(b)) ||
+      descending * (a.speciesId - b.speciesId) ||
+      (a.caughtAt ?? 0) - (b.caughtAt ?? 0);
+    this.box = this.box.filter(Boolean).sort(compare);
+  }
+
+  /**
    * Mark a Pokémon in the box as a favourite, or take the mark off. A
    * favourite goes to the top of the box, after the favourites already there
    * in the order they were marked; one no longer a favourite goes back to the

@@ -9,7 +9,7 @@
  */
 import { url } from '../core/bridge.mjs';
 import { artPath, speciesOf } from '../core/data.mjs';
-import { el, scrollable, shinyMark } from '../core/dom.mjs';
+import { button, el, scrollable, shinyMark } from '../core/dom.mjs';
 import { name as localized, t } from '../core/i18n.mjs';
 import { levelOf } from '../engine/pokemon.mjs';
 import { championIcon } from './badges.mjs';
@@ -35,12 +35,37 @@ export function boxTab(app, session, refresh, state) {
     grid.append(space(app, session, index, refresh, state));
   }
 
+  const moving = state.moving !== null && state.moving !== undefined;
   return el('div.tab-body.box-tab', {}, [
-    state.moving !== null && state.moving !== undefined
-      ? el('div.box-hint', { text: t('box.moveTarget') })
-      : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
+    el('div.box-head', {}, [
+      moving
+        ? el('div.box-hint', { text: t('box.moveTarget') })
+        : el('div.box-hint', { text: t('box.count', { count: session.box.filter(Boolean).length }) }),
+      moving ? null : button(t('box.sort'), () => sortMenu(app, session, refresh), { className: 'small' }),
+    ]),
     scrollable(grid),
   ]);
+}
+
+/**
+ * Ask which order to put the box in, and put it in that order. Favourites
+ * stay at the top whichever it is.
+ *
+ * @param {import('../core/app.mjs').App} app
+ * @param {import('../engine/session.mjs').Session} session
+ * @param {() => void} refresh
+ */
+async function sortMenu(app, session, refresh) {
+  const order = await chooseAction(app, t('box.sort'), [
+    { value: /** @type {const} */ ('dex'), label: t('box.sortDex') },
+    { value: /** @type {const} */ ('dexReverse'), label: t('box.sortDexReverse') },
+    { value: /** @type {const} */ ('clear'), label: t('box.sortClear') },
+    { value: /** @type {const} */ ('clearReverse'), label: t('box.sortClearReverse') },
+  ]);
+  if (!order) return;
+  session.sortBox(order);
+  app.audio.blip('confirm');
+  refresh();
 }
 
 /**
