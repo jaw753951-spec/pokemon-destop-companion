@@ -131,12 +131,13 @@ canvas {
   flex-direction: column;
 }
 
-/* The field's windows, faded out while the pointer is off the companion. */
-.hud {
+/* The field's windows, faded out while the pointer is off the companion.
+   The tray of Pokémon waiting to be caught is not one of them. */
+.hud-fade {
   transition: opacity 400ms ease-out;
 }
 
-.hud.idle {
+.hud.idle .hud-fade {
   opacity: 0;
   transition-duration: 900ms;
 }
