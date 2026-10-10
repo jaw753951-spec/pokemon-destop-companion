@@ -264,3 +264,11 @@ test('a species already in the box is met a little less often', options, () => {
   assert.ok(after < before, `${after} < ${before}`);
   assert.ok(after > before * 0.75, 'only slightly');
 });
+
+test("Victini's picture faces right, and is mirrored by its own facing", options, () => {
+  const victini = fixed(494, 30);
+  const pikachu = fixed(25, 30);
+  assert.equal(artOf(victini)?.meta.facing, 'right');
+  assert.equal(artOf(pikachu)?.meta.facing, 'left');
+});
+
