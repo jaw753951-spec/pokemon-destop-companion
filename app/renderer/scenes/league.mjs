@@ -19,6 +19,7 @@ import { capRoster, evolveToLevel, giveTrainerItems, LEAGUE_PARTY_CAP } from '..
 import { backdropForLeagueRound, drawBackdrop, loadRoom } from '../render/backdrop.mjs';
 import { inFieldSpace } from '../render/field.mjs';
 import { alreadyOwned, earn, formatMoney, lossFor, prizeFor } from '../engine/shop.mjs';
+import { restoreHeldItem } from '../engine/items.mjs';
 import { battleScene } from './battle.mjs';
 
 /**
@@ -141,6 +142,8 @@ export function leagueScene({ session, onLeave, onCrowned }) {
     const last = index === rounds.length - 1;
 
     const foes = buildParty(session, round, leagueLevel(index, rounds.length));
+    // What the companion goes into the round holding, for the rest after it.
+    const held = session.active.heldItem;
     app.push(
       battleScene({
         session,
@@ -175,8 +178,11 @@ export function leagueScene({ session, onLeave, onCrowned }) {
             app.toast(t('money.prize', { amount: formatMoney(prize) }), 2600);
           }
 
-          // Every round is followed by a full restore, as the games' league does.
+          // Every round is followed by a full restore, as the games' league does
+          // — and whatever it held that the round used up, a berry eaten
+          // included, is put back for the next one.
           session.heal();
+          const restocked = restoreHeldItem(session.active, held, { berries: true });
 
           if (last) {
             crown(app);
@@ -185,7 +191,9 @@ export function leagueScene({ session, onLeave, onCrowned }) {
 
           index++;
           if (session.leagueRun) session.leagueRun.round = index;
-          app.toast(t('league.healed'));
+          app.toast(restocked
+            ? `${t('league.healed')}\n${t('league.restocked', { item: localized(gameData().items[held ?? '']?.name, held ?? '') })}`
+            : t('league.healed'));
           render(app);
           refreshRoom();
         },

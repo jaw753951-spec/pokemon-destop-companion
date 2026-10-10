@@ -307,16 +307,18 @@ export function equipItem(session, slug) {
 /**
  * Hand back what a battle used up: a Focus Sash, a gem, a herb, a balloon
  * are the Pokémon's again when the fight is over — only a berry, eaten, is
- * gone for good.
+ * gone for good. Unless `berries` says otherwise: the League's rest between
+ * rounds puts the berry back too.
  *
  * @param {import('./pokemon.mjs').Pokemon} pokemon
  * @param {string|null} slug what it went in holding
+ * @param {{berries?: boolean}} [options]
  * @returns {boolean} whether it was given back
  */
-export function restoreHeldItem(pokemon, slug) {
+export function restoreHeldItem(pokemon, slug, options = {}) {
   if (!slug || pokemon.heldItem || !itemOf(slug)) return false;
   // A berry eaten is gone; anything else that was used up comes back.
-  if (itemOf(slug)?.pocket === 'berries' || slug.endsWith('-berry')) return false;
+  if (!options.berries && (itemOf(slug)?.pocket === 'berries' || slug.endsWith('-berry'))) return false;
   pokemon.heldItem = slug;
   return true;
 }
