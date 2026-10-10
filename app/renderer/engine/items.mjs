@@ -133,9 +133,17 @@ export function useItem(session, slug, choice = {}) {
   // Anything with an effect of its own — a potion, an Ether, a vitamin, a
   // Rare Candy — does it here, whichever pocket it sits in.
   if (item.use) {
+    const levelBefore = levelOf(pokemon);
     if (applyUse(pokemon, item, choice)) {
       session.removeItem(slug);
-      return { used: true, ok: true, message: t('items.used', { name: label }) };
+      // A Rare Candy or an Exp. Candy that lifts the level says so, as the
+      // battle does.
+      const level = levelOf(pokemon);
+      const lines = [
+        t('items.used', { name: label }),
+        level > levelBefore ? t('battle.levelUp', { name: nameOf(pokemon), level }) : null,
+      ];
+      return { used: true, ok: true, message: lines.filter(Boolean).join(' ') };
     }
     // An Ability Patch or Capsule on a Pokémon with nothing to change to says
     // so — a bare "cannot be used" read as the item being broken.

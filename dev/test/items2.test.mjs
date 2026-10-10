@@ -216,3 +216,17 @@ test('a Razz Berry makes the catch easier, and a catching berry is not held', op
   assert.equal(canHold('golden-razz-berry'), false);
   assert.equal(canHold('sitrus-berry'), true);
 });
+
+test('a candy that lifts the level says so, and one that does not stays quiet', options, () => {
+  const pokemon = make('pikachu', 10);
+  const session = bag({ 'rare-candy': 1, 'exp-candy-xs': 1 }, pokemon);
+
+  const candy = useItem(session, 'rare-candy');
+  assert.ok(candy.ok);
+  assert.ok(candy.message?.includes('battle.levelUp'), candy.message);
+
+  // A hundred points is not a level at eleven.
+  const small = useItem(session, 'exp-candy-xs');
+  assert.ok(small.ok);
+  assert.ok(!small.message?.includes('battle.levelUp'), small.message);
+});
