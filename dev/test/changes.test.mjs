@@ -265,10 +265,20 @@ test('a species already in the box is met a little less often', options, () => {
   assert.ok(after > before * 0.75, 'only slightly');
 });
 
-test("Victini's picture faces right, and is mirrored by its own facing", options, () => {
-  const victini = fixed(494, 30);
-  const pikachu = fixed(25, 30);
-  assert.equal(artOf(victini)?.meta.facing, 'right');
-  assert.equal(artOf(pikachu)?.meta.facing, 'left');
+test('Victini is turned round to face left, as every other picture does', options, async () => {
+  const { readFile } = await import('node:fs/promises');
+  const { decodePng } = await import('../tools/lib/png.mjs');
+  const { crop, mirrorX, opaqueBounds } = await import('../tools/lib/image.mjs');
+  const { MIRRORED } = await import('../tools/build/art.mjs');
+  assert.ok(MIRRORED.has(494));
+
+  // The picture shipped is the cartridge's, cut to what is drawn and mirrored.
+  const root = new URL('../../', import.meta.url);
+  const drawn = decodePng(await readFile(new URL('data/vendor/pokeapi/sprites/pokemon/versions/generation-v/black-white/494.png', root)));
+  const bounds = /** @type {any} */ (opaqueBounds(drawn));
+  const expected = mirrorX(crop(drawn, bounds.x, bounds.y, bounds.width, bounds.height));
+  const shipped = decodePng(await readFile(new URL('assets/pokemon/494/art.png', root)));
+  assert.equal(shipped.width, expected.width);
+  assert.deepEqual(Buffer.from(shipped.data), Buffer.from(expected.data));
 });
 

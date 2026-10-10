@@ -86,7 +86,7 @@ test('every forme looks like itself, in a picture of its own', options, () => {
   assert.ok(stood && own && stood.meta.height <= own.meta.height * 2, 'no bigger than twice its own shape');
 });
 
-test('every Pokémon is one still picture, facing the way Black and White drew it', options, () => {
+test('every Pokémon is one still picture, facing left as Black and White drew them', options, () => {
   const sprites = gameData().sprites;
   for (const species of Object.values(gameData().species)) {
     const entry = sprites[species.id];
@@ -96,8 +96,7 @@ test('every Pokémon is one still picture, facing the way Black and White drew i
     for (const key of Object.keys(entry)) assert.match(key, /^(art(-female|-form-.+)?|shiny)$/, `${species.slug} ships ${key}`);
     const art = artOf({ speciesId: species.id });
     assert.equal(art?.meta.frames, 1);
-    // Left, all but Victini, which was drawn turned to its right.
-    assert.equal(art?.meta.facing, species.slug === 'victini' ? 'right' : 'left', species.slug);
+    assert.equal(art?.meta.facing, 'left');
   }
 });
 

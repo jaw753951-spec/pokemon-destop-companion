@@ -169,14 +169,13 @@ export const moveHasFlag = (move, flag) => Boolean(move?.flags?.includes(flag));
  * shiny never built falls back on the ordinary colours, silently — a missing
  * picture is worse than a missing sparkle.
  *
- * The picture is still and faces left, as the sprites do — all but the few in
- * {@link FACES_RIGHT}; the screens move it rather than animating it, and
- * mirror it to face whichever way they want it. The road draws it
+ * The picture is still and faces left, as the sprites do; the screens move it
+ * rather than animating it, and mirror it to face right. The road draws it
  * too, at half the size a battle does, rather than a halved copy of it: a
  * 96-pixel sprite cut to half its pixels loses its outline and its face.
  *
  * @param {{speciesId: number, shiny?: boolean, forme?: string|null, look?: string, gender?: string|null}|null|undefined} pokemon
- * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'|'right'}}|null}
+ * @returns {{path: string, meta: {width: number, height: number, frames: number, delay: number, facing: 'left'}}|null}
  */
 export function artOf(pokemon) {
   if (!pokemon) return null;
@@ -188,17 +187,9 @@ export function artOf(pokemon) {
   if (!meta) return null;
   return {
     path: `pokemon/${pokemon.speciesId}/${key}${shiny ? '-shiny' : ''}.png`,
-    meta: { width: meta.width, height: meta.height, frames: 1, delay: 1000, facing: FACES_RIGHT.has(pokemon.speciesId) ? 'right' : 'left' },
+    meta: { width: meta.width, height: meta.height, frames: 1, delay: 1000, facing: 'left' },
   };
 }
-
-/**
- * The species whose picture looks the other way from the rest — to the right
- * — so the road walked it backwards and a battle had it facing away from its
- * opponent. Every sprite was looked over for these: Black and White drew
- * Victini turned to its right, and no other.
- */
-const FACES_RIGHT = new Set([494]);
 
 /**
  * Which of a species' shapes a Pokémon is drawn in: `-form-<forme>`,
