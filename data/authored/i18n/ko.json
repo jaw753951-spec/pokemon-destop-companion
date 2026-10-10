@@ -232,6 +232,7 @@
   "battle.noItems": "쓸 만한 회복 아이템이 없습니다.",
   "battle.restores": "HP {amount} 회복",
   "battle.cures": "{status} 회복",
+  "battle.curesAll": "모든 상태이상 회복",
   "battle.itemReady": "{item}을(를) 꺼냈다!",
   "battle.run": "후퇴",
   "battle.runReady": "다음 차례에 도망치려 한다!",

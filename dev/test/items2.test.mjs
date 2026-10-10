@@ -12,7 +12,7 @@ import { gameData, speciesIdBySlug, speciesOf } from '../../app/renderer/core/da
 import { Battle } from '../../app/renderer/engine/battle.mjs';
 import { ballBonus, catchValue } from '../../app/renderer/engine/capture.mjs';
 import { EventScheduler } from '../../app/renderer/engine/events.mjs';
-import { canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
+import { battleMedicine, canHold, eventModifiers, heldPassive, itemNeedsChoice, itemSuits, useItem } from '../../app/renderer/engine/items.mjs';
 import { createPokemon, gainFromDefeat, maxHp, maxPp, setMove } from '../../app/renderer/engine/pokemon.mjs';
 import { defaultAutoBattle } from '../../app/renderer/engine/session.mjs';
 import { experienceForLevel } from '../../app/renderer/engine/stats.mjs';
@@ -262,5 +262,27 @@ test('a candy level does what a battle level does: moves, friendship, evolution'
   assert.equal(speciesOf(charmander.speciesId).slug, 'charmeleon');
   assert.deepEqual(session.caughtNow, [charmander.speciesId]);
   assert.ok(evolving.message?.includes('battle.evolving'), evolving.message);
+});
+
+test('the battle bag lists every medicine, greying out what would do nothing', options, () => {
+  const pokemon = make('pikachu', 20, ['thunder-shock']);
+  const session = bag({ potion: 1, antidote: 2, 'full-heal': 1, ether: 1, elixir: 1, 'rare-candy': 1 }, pokemon);
+  session.pocket = (pocket) =>
+    Object.entries(session.bag)
+      .filter(([slug, count]) => count > 0 && gameData().items[slug]?.pocket === pocket)
+      .map(([slug, count]) => ({ slug, count, item: gameData().items[slug] }));
+  const usable = () => Object.fromEntries(battleMedicine(session, pokemon).map((entry) => [entry.slug, entry.usable]));
+
+  // Healthy, nothing wrong, every move full: all listed, none usable, and no
+  // Rare Candy — that is not for a fight.
+  assert.deepEqual(usable(), { potion: false, antidote: false, 'full-heal': false, ether: false, elixir: false });
+  assert.deepEqual(battleMedicine(session, pokemon).map((entry) => entry.slug), ['potion', 'antidote', 'full-heal', 'ether', 'elixir']);
+
+  pokemon.hp -= 10;
+  pokemon.status = 'par';
+  pokemon.moves[0].pp -= 1;
+  assert.deepEqual(usable(), { potion: true, antidote: false, 'full-heal': true, ether: true, elixir: true });
+  pokemon.status = 'psn';
+  assert.equal(usable().antidote, true);
 });
 

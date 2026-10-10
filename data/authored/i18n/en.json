@@ -232,6 +232,7 @@
   "battle.noItems": "Nothing here would help.",
   "battle.restores": "Restores {amount} HP",
   "battle.cures": "Cures {status}",
+  "battle.curesAll": "Cures any condition",
   "battle.itemReady": "Took out the {item}!",
   "battle.run": "Run",
   "battle.runReady": "Getting ready to run!",

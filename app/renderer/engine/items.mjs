@@ -852,6 +852,67 @@ export function ppItems(session, pokemon) {
 }
 
 /**
+ * Everything in the medicine pocket a battle can throw — hit points, a
+ * condition, PP — whether or not it would do anything right now, as the
+ * games' bag lists it in a fight. Each says which it is and whether it would
+ * help; the bag shows the rest greyed out rather than leaving them out, which
+ * read as the bag having no Antidote at all.
+ *
+ * In the order the bag lists them: hit points (the smaller first), then the
+ * conditions (one condition's cure before the cure-alls), then PP (one move's
+ * before every move's).
+ *
+ * @param {import('./session.mjs').Session} session
+ * @param {import('./pokemon.mjs').Pokemon} pokemon
+ * @returns {Array<{slug: string, count: number, item: any, kind: 'hp'|'status'|'pp', usable: boolean, power?: number, restores?: number, scope?: 'one'|'all'}>}
+ */
+export function battleMedicine(session, pokemon) {
+  const alive = pokemon.hp > 0;
+  const max = maxHp(pokemon);
+  const missing = Math.max(0, max - pokemon.hp);
+  const short = pokemon.moves.some((entry) => entry && entry.pp < maxPp(entry));
+  const medicine = session.pocket('medicine');
+
+  const hp = medicine
+    .filter(({ item }) => item.use?.hp !== undefined)
+    .map(({ slug, count, item }) => {
+      const power = item.use.hp === 'full' ? max : item.use.hp;
+      // A Full Restore is worth throwing for its cure alone.
+      const cures = Boolean(item.use.status && pokemon.status);
+      return { slug, count, item, kind: /** @type {const} */ ('hp'), power, restores: Math.min(missing, power), usable: alive && (missing > 0 || cures) };
+    })
+    .sort((a, b) => a.power - b.power || a.slug.localeCompare(b.slug));
+
+  const status = medicine
+    .filter(({ item }) => item.use?.status && item.use.hp === undefined)
+    .map(({ slug, count, item }) => ({
+      slug,
+      count,
+      item,
+      kind: /** @type {const} */ ('status'),
+      usable: alive && Boolean(pokemon.status) && (item.use.status === 'any' || item.use.status === pokemon.status),
+    }))
+    .sort((a, b) =>
+      Number(a.item.use.status === 'any') - Number(b.item.use.status === 'any') ||
+      (a.item.cost ?? 0) - (b.item.cost ?? 0) ||
+      a.slug.localeCompare(b.slug));
+
+  const pp = medicine
+    .filter(({ item }) => item.use?.pp)
+    .map(({ slug, count, item }) => ({
+      slug,
+      count,
+      item,
+      kind: /** @type {const} */ ('pp'),
+      scope: item.use.pp.scope === 'one' ? /** @type {const} */ ('one') : /** @type {const} */ ('all'),
+      usable: alive && short,
+    }))
+    .sort((a, b) => (a.scope === b.scope ? 0 : a.scope === 'one' ? -1 : 1) || (a.item.cost ?? 0) - (b.item.cost ?? 0) || a.slug.localeCompare(b.slug));
+
+  return [...hp, ...status, ...pp];
+}
+
+/**
  * Take one healing item from the bag and apply it, wherever it was thrown
  * from.
  *

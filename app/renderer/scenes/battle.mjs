@@ -14,7 +14,7 @@ import { button, el, setChildren, shinyMark, statusMark } from '../core/dom.mjs'
 import { name as localized, t } from '../core/i18n.mjs';
 import { chooseFromList } from '../ui/dialog.mjs';
 import { Battle } from '../engine/battle.mjs';
-import { healingItemFor, healingItems, ppItems, restoreHeldItem, shedAfterEvolving, statusCures, throwItem } from '../engine/items.mjs';
+import { battleMedicine, healingItemFor, restoreHeldItem, shedAfterEvolving, throwItem } from '../engine/items.mjs';
 import {
   evolveInto,
   friendshipForLevels,
@@ -644,34 +644,25 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     if (finished) return;
     app.audio.blip('select');
 
-    const usable = healingItems(session, session.active);
-    // And what cures the condition it is under, as the games' bag offers in a
-    // fight: an Antidote for a poison, a Full Heal for anything.
-    const status = session.active.status;
-    const healing = new Set(usable.map((entry) => entry.slug));
-    const cures = statusCures(session, session.active).filter((entry) => !healing.has(entry.slug));
-    // And the PP medicine, for a move run low.
-    const pp = ppItems(session, session.active);
+    // Every medicine a fight can use, the ones that would do nothing now
+    // greyed out: an Antidote is in the bag whether or not anything is
+    // poisoned, as the games' bag shows it.
+    const medicine = battleMedicine(session, session.active);
+    const detailOf = (entry) => {
+      const use = entry.item.use;
+      if (entry.kind === 'hp') return t('battle.restores', { amount: entry.usable && entry.restores ? entry.restores : entry.power });
+      if (entry.kind === 'status') return use.status === 'any' ? t('battle.curesAll') : t('battle.cures', { status: t(`status.${use.status}.short`) });
+      return t(entry.scope === 'one' ? 'battle.ppOne' : 'battle.ppAll');
+    };
     const chosen = await chooseFromList(
       app,
       t('battle.bag'),
-      [
-        ...usable.map(({ slug, count, item, restores }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t('battle.restores', { amount: restores })}`,
-        })),
-        ...cures.map(({ slug, count, item }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t('battle.cures', { status: t(`status.${status}.short`) })}`,
-        })),
-        ...pp.map(({ slug, count, item, scope }) => ({
-          value: slug,
-          label: localized(item.name, slug),
-          detail: `${t('items.count', { count })}  ·  ${t(scope === 'one' ? 'battle.ppOne' : 'battle.ppAll')}`,
-        })),
-      ],
+      medicine.map((entry) => ({
+        value: entry.slug,
+        label: localized(entry.item.name, entry.slug),
+        detail: `${t('items.count', { count: entry.count })}  ·  ${detailOf(entry)}`,
+        disabled: !entry.usable,
+      })),
       { empty: t('battle.noItems') },
     );
 
@@ -680,7 +671,7 @@ export function battleScene({ session, foes, trainer = null, leader = false, bac
     // on its PP, as the games list them.
     /** @type {{move?: number}} */
     let choice = {};
-    if (pp.some((entry) => entry.slug === chosen && entry.scope === 'one')) {
+    if (medicine.some((entry) => entry.slug === chosen && entry.scope === 'one')) {
       const moves = session.active.moves;
       const picked = await chooseFromList(
         app,
