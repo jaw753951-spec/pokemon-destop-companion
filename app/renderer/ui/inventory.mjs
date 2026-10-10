@@ -10,16 +10,24 @@ import { t } from '../core/i18n.mjs';
 import { boxTab } from './boxtab.mjs';
 import { itemsTab } from './itemstab.mjs';
 import { pokemonTab } from './pokemontab.mjs';
+import { shopState, shopTab, stepShop } from './shop.mjs';
 
+/** The tabs the bag opens with on the road. */
 const TABS = ['pokemon', 'items', 'box'];
 
 /**
- * @param {{session: import('../engine/session.mjs').Session, onClose: () => void}} options
+ * `tabs` swaps the bag's tabs for another set: the League's bag has the shop
+ * where the box would be, since no Pokémon is swapped in the middle of a
+ * challenge.
+ *
+ * @param {{session: import('../engine/session.mjs').Session, onClose: () => void, tabs?: Array<'pokemon'|'items'|'box'|'shop'>}} options
  * @returns {import('../core/app.mjs').Scene}
  */
-export function inventoryScene({ session, onClose }) {
+export function inventoryScene({ session, onClose, tabs: shownTabs = /** @type {any} */ (TABS) }) {
   /** View state that should survive a rebuild but not a reopen. */
   const state = {
+    /** The shop's own, when it is one of the tabs. */
+    shop: shopState(),
     tab: 'pokemon',
     pocket: 'medicine',
     moving: /** @type {number|null} */ (null),
@@ -64,7 +72,7 @@ export function inventoryScene({ session, onClose }) {
         const keep = options?.keepScroll === false ? [] : scrollOffsets(body);
 
         setChildren(tabs, [
-          ...TABS.map((name) =>
+          ...shownTabs.map((name) =>
             el('button.tab', {
               type: 'button',
               text: t(`inventory.${name}`),
@@ -91,6 +99,14 @@ export function inventoryScene({ session, onClose }) {
       // bag is the screen on top, so a dialog opened from it keeps its keys.
       onKey = (event) => {
         if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+        if (app.scene === scene && state.tab === 'shop') {
+          if (stepShop(event, state.shop, body)) {
+            app.audio.blip('select');
+            rebuild();
+            body.querySelector('.item-row[aria-pressed="true"]')?.scrollIntoView({ block: 'nearest' });
+          }
+          return;
+        }
         if (app.scene !== scene || state.tab !== 'items') return;
         const target = /** @type {HTMLElement|null} */ (event.target);
         if (target?.closest?.('input, textarea, select')) return;
@@ -158,6 +174,8 @@ function render(app, session, state, rebuild) {
       return itemsTab(app, session, rebuild, state);
     case 'box':
       return boxTab(app, session, rebuild, state);
+    case 'shop':
+      return shopTab(app, session, state.shop, rebuild, { purse: true });
     case 'pokemon':
     default:
       return pokemonTab(app, session, rebuild, state);

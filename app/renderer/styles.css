@@ -1499,6 +1499,12 @@ canvas {
   font-weight: 700;
 }
 
+/* The purse beside the pockets, where the shop is a tab of the bag. */
+.shop-money.inline {
+  margin-left: auto;
+  align-self: center;
+}
+
 /*
  * The shop's panel: the description scrolls in the space left over, and the
  * count and the buy button sit in a footer that never moves.

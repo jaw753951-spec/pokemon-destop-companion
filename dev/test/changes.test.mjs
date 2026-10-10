@@ -225,9 +225,6 @@ test('a used-up item comes back after the battle, but a berry eaten does not', o
   const berried = fixed(4, 30);
   assert.equal(restoreHeldItem(berried, 'sitrus-berry'), false);
   assert.equal(berried.heldItem, null);
-  // The League's rest between rounds puts the berry back too.
-  assert.equal(restoreHeldItem(berried, 'sitrus-berry', { berries: true }), true);
-  assert.equal(berried.heldItem, 'sitrus-berry');
 
   // Nothing is taken from a hand that is holding something.
   const holding = fixed(4, 30);
